@@ -43,6 +43,9 @@ a {
 }
 
 .sidebar {
+  position: fixed;
+  inset: 0 auto 0 0;
+  width: 280px;
   padding: 24px 20px;
   background: var(--sidebar-bg);
   color: #f8fbff;
@@ -50,6 +53,7 @@ a {
   flex-direction: column;
   gap: 28px;
   box-shadow: 12px 0 30px rgba(4, 10, 22, 0.14);
+  overflow-y: auto;
 }
 
 .sidebar-brand {
@@ -135,7 +139,9 @@ a {
   line-height: 1.5;
 }
 
-.dashboard-main {
+.dashboard-main,
+.settings-main {
+  margin-left: 280px;
   padding: 24px;
   display: grid;
   gap: 18px;
@@ -284,7 +290,9 @@ a {
 }
 
 .stat-card,
-.panel {
+.panel,
+.settings-header,
+.settings-section {
   background: var(--card-bg);
   border: 1px solid var(--card-border);
   border-radius: 22px;
@@ -454,12 +462,118 @@ tbody tr:last-child td {
   border-bottom: 0;
 }
 
+.settings-header {
+  padding: 22px;
+}
+
+.settings-header h1 {
+  margin: 6px 0 0;
+}
+
+.settings-form {
+  display: grid;
+  gap: 14px;
+}
+
+.settings-section {
+  padding: 18px;
+  display: grid;
+  gap: 12px;
+}
+
+.settings-section h2 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.settings-fields {
+  display: grid;
+  gap: 14px;
+}
+
+.setting-field {
+  display: grid;
+  gap: 8px;
+}
+
+.setting-field label {
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.setting-field input,
+.setting-field textarea,
+.setting-field select,
+.login-form input,
+.login-form textarea,
+.login-form select {
+  width: 100%;
+  padding: 14px 16px;
+  border: 1px solid rgba(100, 116, 139, 0.2);
+  border-radius: 16px;
+  background: #fff;
+  color: var(--text);
+  font: inherit;
+  outline: none;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.setting-field textarea,
+.login-form textarea {
+  min-height: 120px;
+  resize: vertical;
+}
+
+.setting-field input:focus,
+.setting-field textarea:focus,
+.setting-field select:focus,
+.login-form input:focus,
+.login-form textarea:focus,
+.login-form select:focus {
+  border-color: rgba(33, 194, 94, 0.65);
+  box-shadow: 0 0 0 4px rgba(33, 194, 94, 0.12);
+}
+
+.settings-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.settings-actions button {
+  padding: 14px 22px;
+  border: 0;
+  border-radius: 16px;
+  background: linear-gradient(135deg, var(--primary), var(--primary-deep));
+  color: #fff;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 14px 30px rgba(17, 152, 74, 0.24);
+}
+
+.settings-message {
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(33, 194, 94, 0.1);
+  border: 1px solid rgba(33, 194, 94, 0.16);
+  color: var(--primary-deep);
+}
+
+.field-error {
+  color: #b42318;
+  font-size: 0.78rem;
+  font-weight: 500;
+}
+
 @media (max-width: 1200px) {
   .dashboard-shell {
     grid-template-columns: 1fr;
   }
 
   .sidebar {
+    position: relative;
+    inset: auto;
+    width: 100%;
     border-radius: 0 0 28px 28px;
   }
 
@@ -467,10 +581,16 @@ tbody tr:last-child td {
   .stats-grid {
     grid-template-columns: 1fr;
   }
+
+  .dashboard-main,
+  .settings-main {
+    margin-left: 0;
+  }
 }
 
 @media (max-width: 760px) {
-  .dashboard-main {
+  .dashboard-main,
+  .settings-main {
     padding: 16px;
   }
 

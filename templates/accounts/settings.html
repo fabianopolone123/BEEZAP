@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Configurações | BEEZap{% endblock %}
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/dashboard.css' %}">
+{% endblock %}
+
+{% block content %}
+<main class="dashboard-shell">
+  <aside class="sidebar">
+    <div class="sidebar-brand">
+      <img src="{% static 'images/logo-transparent.png' %}" alt="BEEZap" class="sidebar-logo">
+      <div>
+        <strong>BEEZap</strong>
+        <span>Central de atendimento</span>
+      </div>
+    </div>
+
+    <nav class="sidebar-nav">
+      {% for item in nav_items %}
+        <a href="{% url item.url %}" class="nav-item {% if item.active %}active{% endif %}">
+          <span class="nav-dot"></span>
+          <span>{{ item.label }}</span>
+        </a>
+      {% endfor %}
+    </nav>
+
+    <div class="sidebar-card">
+      <p class="sidebar-card-label">Perfil logado</p>
+      <strong>{{ role_label }}</strong>
+      <span>Nível ativo com permissões dinâmicas</span>
+    </div>
+  </aside>
+
+  <section class="settings-main">
+    <header class="settings-header">
+      <div class="topbar">
+        <div class="topbar-left">
+          <button class="icon-button" type="button" aria-label="Abrir menu">☰</button>
+          <div>
+            <p class="page-kicker">Área administrativa</p>
+            <h1>Configurações</h1>
+          </div>
+        </div>
+
+        <div class="topbar-right">
+          <div class="profile-chip">
+            <div class="profile-avatar">{{ user_initial }}</div>
+            <div>
+              <strong>{{ request.user.get_full_name|default:request.user.email }}</strong>
+              <span>{{ role_label }}</span>
+            </div>
+          </div>
+          <a href="{% url 'logout' %}" class="logout-link">Sair</a>
+        </div>
+      </div>
+    </header>
+
+    <form method="post" class="settings-form">
+      {% csrf_token %}
+
+      {% if messages %}
+        {% for message in messages %}
+          <div class="settings-message">{{ message }}</div>
+        {% endfor %}
+      {% endif %}
+
+      {% for section in sections %}
+        <section class="settings-section">
+          <h2>{{ section.title }}</h2>
+          <div class="settings-fields">
+            {% for field_name in section.fields %}
+              <div class="setting-field">
+                <label for="{{ form[field_name].id_for_label }}">{{ form[field_name].label }}</label>
+                {{ form[field_name] }}
+                {% if form[field_name].errors %}
+                  <small class="field-error">{{ form[field_name].errors|striptags }}</small>
+                {% endif %}
+              </div>
+            {% endfor %}
+          </div>
+        </section>
+      {% endfor %}
+
+      <div class="settings-actions">
+        <button type="submit">Salvar configurações</button>
+      </div>
+    </form>
+  </section>
+</main>
+{% endblock %}
