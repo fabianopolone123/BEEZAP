@@ -3,7 +3,7 @@ from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import redirect, render
 
-from .forms import LoginForm, SettingsForm
+from .forms import LoginForm
 
 
 ROLE_RANK = {
@@ -11,31 +11,6 @@ ROLE_RANK = {
     'usuario': 2,
     'adm': 3,
 }
-
-NAV_ITEMS = [
-    {'label': 'Dashboard', 'required': 'leitor', 'url_name': 'dashboard', 'active': False},
-    {'label': 'Conversas', 'required': 'leitor', 'url_name': 'dashboard', 'active': False},
-    {'label': 'Atendimentos', 'required': 'leitor', 'url_name': 'dashboard', 'active': False},
-    {'label': 'Contatos', 'required': 'leitor', 'url_name': 'dashboard', 'active': False},
-    {'label': 'Setores', 'required': 'usuario', 'url_name': 'dashboard', 'active': False},
-    {'label': 'Campanhas', 'required': 'usuario', 'url_name': 'dashboard', 'active': False},
-    {'label': 'Relatórios', 'required': 'leitor', 'url_name': 'dashboard', 'active': False},
-    {'label': 'Automação', 'required': 'usuario', 'url_name': 'dashboard', 'active': False},
-    {'label': 'Configurações', 'required': 'adm', 'url_name': 'settings', 'active': False},
-]
-
-
-def _visible_nav_items(role, active_label):
-    role_rank = ROLE_RANK.get(role, 1)
-    items = []
-    for item in NAV_ITEMS:
-        if role_rank >= ROLE_RANK[item['required']]:
-            items.append({
-                **item,
-                'url': item['url_name'],
-                'active': item['label'] == active_label,
-            })
-    return items
 
 
 def login_view(request):
@@ -61,6 +36,18 @@ def dashboard_view(request):
     role = request.user.role
     role_rank = ROLE_RANK.get(role, 1)
 
+    nav_items = [
+        {'label': 'Dashboard', 'required': 'leitor', 'active': True},
+        {'label': 'Conversas', 'required': 'leitor'},
+        {'label': 'Atendimentos', 'required': 'leitor'},
+        {'label': 'Contatos', 'required': 'leitor'},
+        {'label': 'Setores', 'required': 'usuario'},
+        {'label': 'Campanhas', 'required': 'usuario'},
+        {'label': 'Relatórios', 'required': 'leitor'},
+        {'label': 'Automação', 'required': 'usuario'},
+        {'label': 'Configurações', 'required': 'adm'},
+    ]
+
     quick_actions = [
         {'label': 'Nova conversa', 'required': 'usuario', 'tone': 'primary'},
         {'label': 'Fila de atendimento', 'required': 'leitor', 'tone': 'secondary'},
@@ -68,8 +55,11 @@ def dashboard_view(request):
         {'label': 'Configurações', 'required': 'adm', 'tone': 'locked'},
     ]
 
+    visible_nav_items = [
+        item for item in nav_items if ROLE_RANK[role] >= ROLE_RANK[item['required']]
+    ]
     visible_actions = [
-        item for item in quick_actions if role_rank >= ROLE_RANK[item['required']]
+        item for item in quick_actions if ROLE_RANK[role] >= ROLE_RANK[item['required']]
     ]
 
     stats = [
@@ -92,55 +82,10 @@ def dashboard_view(request):
             'role': role,
             'role_label': request.user.get_role_display(),
             'user_initial': (request.user.first_name[:1] or request.user.email[:1]).upper(),
-            'nav_items': _visible_nav_items(role, 'Dashboard'),
+            'nav_items': visible_nav_items,
             'quick_actions': visible_actions,
             'stats': stats,
             'table_rows': table_rows,
-        },
-    )
-
-
-@login_required
-def settings_view(request):
-    role = request.user.role
-    role_rank = ROLE_RANK.get(role, 1)
-    if role_rank < ROLE_RANK['adm']:
-        return redirect('dashboard')
-
-    initial_data = {
-        'company_name': 'BEEZap',
-        'workspace_name': 'Central de Atendimento',
-        'support_email': 'suporte@beezap.com',
-        'support_phone': '(11) 99999-9999',
-        'business_hours': 'Seg a Sex, 08:00 às 18:00',
-        'default_sector': 'Suporte',
-        'welcome_message': 'Olá! Como podemos ajudar você hoje?',
-        'auto_assignment': 'sim',
-        'notification_email': 'alertas@beezap.com',
-        'primary_color': '#21c25e',
-    }
-    form = SettingsForm(request.POST or None, initial=initial_data)
-
-    if request.method == 'POST' and form.is_valid():
-        messages.success(request, 'Configurações enviadas para validação.')
-
-    sections = [
-        {'title': 'Identificação da operação', 'fields': ['company_name', 'workspace_name']},
-        {'title': 'Canais e suporte', 'fields': ['support_email', 'support_phone', 'business_hours']},
-        {'title': 'Fluxo de atendimento', 'fields': ['default_sector', 'welcome_message', 'auto_assignment']},
-        {'title': 'Ajustes visuais e alertas', 'fields': ['notification_email', 'primary_color']},
-    ]
-
-    return render(
-        request,
-        'accounts/settings.html',
-        {
-            'role': role,
-            'role_label': request.user.get_role_display(),
-            'user_initial': (request.user.first_name[:1] or request.user.email[:1]).upper(),
-            'nav_items': _visible_nav_items(role, 'Configurações'),
-            'form': form,
-            'sections': sections,
         },
     )
 

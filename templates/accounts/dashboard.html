@@ -19,7 +19,7 @@
 
     <nav class="sidebar-nav">
       {% for item in nav_items %}
-        <a href="{% url item.url %}" class="nav-item {% if item.active %}active{% endif %}">
+        <a href="#" class="nav-item {% if item.active %}active{% endif %}">
           <span class="nav-dot"></span>
           <span>{{ item.label }}</span>
         </a>
@@ -30,6 +30,7 @@
       <p class="sidebar-card-label">Perfil logado</p>
       <strong>{{ role_label }}</strong>
       <span>Nível ativo com permissões dinâmicas</span>
+      <p>Sistema preparado para liberar botões conforme o nível do usuário.</p>
     </div>
   </aside>
 

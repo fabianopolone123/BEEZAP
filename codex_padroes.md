@@ -12,8 +12,6 @@ Este arquivo define os padrões de trabalho para o projeto BEEZAP.
 6. O sistema deve ser didático, simples de usar e pensado para pessoas com pouca experiência técnica.
 7. O acesso deve ser controlado por perfil de usuário, liberando botões e funções conforme o nível logado.
 8. A evolução do sistema deve ser feita com calma, por partes, sempre preservando uma base sólida e funcional.
-9. O menu lateral deve permanecer fixo no desktop para manter a navegação simples e previsível.
-10. A tela de configurações deve mostrar os campos editáveis em sequência vertical, um abaixo do outro.
 
 ## Padrão de commit
 
