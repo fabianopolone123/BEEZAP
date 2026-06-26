@@ -14,3 +14,4 @@ Registro curto das alterações feitas no projeto.
 - Início da autenticação com usuário por e-mail e perfis de acesso.
 - Criação da dashboard inicial com layout didático e botões por nível de usuário.
  - Removido o texto explicativo do cartão de perfil no dashboard.
+ - Removido o bloco de perfil logado da barra lateral no dashboard.
