@@ -2,6 +2,9 @@
 {% load static %}
 
 {% block title %}Entrar | BEEZap{% endblock %}
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/login.css' %}">
+{% endblock %}
 
 {% block content %}
 <main class="login-page">
@@ -20,14 +23,24 @@
 
       <form class="login-form" method="post">
         {% csrf_token %}
+        {% if messages %}
+          <div class="form-message">
+            {% for message in messages %}
+              <p class="form-message-item">{{ message }}</p>
+            {% endfor %}
+          </div>
+        {% endif %}
+
         <label>
           <span>E-mail</span>
-          <input type="email" name="email" placeholder="voce@empresa.com" autocomplete="email">
+          {{ form.email }}
+          {% if form.email.errors %}<small class="field-error">{{ form.email.errors|striptags }}</small>{% endif %}
         </label>
 
         <label>
           <span>Senha</span>
-          <input type="password" name="password" placeholder="Digite sua senha" autocomplete="current-password">
+          {{ form.password }}
+          {% if form.password.errors %}<small class="field-error">{{ form.password.errors|striptags }}</small>{% endif %}
         </label>
 
         <button type="submit">Entrar</button>

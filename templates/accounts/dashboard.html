@@ -1,0 +1,161 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Dashboard | BEEZap{% endblock %}
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/dashboard.css' %}">
+{% endblock %}
+
+{% block content %}
+<main class="dashboard-shell">
+  <aside class="sidebar">
+    <div class="sidebar-brand">
+      <img src="{% static 'images/logo-transparent.png' %}" alt="BEEZap" class="sidebar-logo">
+      <div>
+        <strong>BEEZap</strong>
+        <span>Central de atendimento</span>
+      </div>
+    </div>
+
+    <nav class="sidebar-nav">
+      {% for item in nav_items %}
+        <a href="#" class="nav-item {% if item.active %}active{% endif %}">
+          <span class="nav-dot"></span>
+          <span>{{ item.label }}</span>
+        </a>
+      {% endfor %}
+    </nav>
+
+    <div class="sidebar-card">
+      <p class="sidebar-card-label">Perfil logado</p>
+      <strong>{{ role_label }}</strong>
+      <span>Nível ativo com permissões dinâmicas</span>
+      <p>Sistema preparado para liberar botões conforme o nível do usuário.</p>
+    </div>
+  </aside>
+
+  <section class="dashboard-main">
+    <header class="topbar">
+      <div class="topbar-left">
+        <button class="icon-button" type="button" aria-label="Abrir menu">☰</button>
+        <div>
+          <p class="page-kicker">Painel inicial</p>
+          <h1>Dashboard</h1>
+        </div>
+      </div>
+
+      <div class="topbar-right">
+        <div class="date-chip">
+          <span>Hoje</span>
+          <strong>25/06/2026</strong>
+        </div>
+        <div class="profile-chip">
+          <div class="profile-avatar">{{ user_initial }}</div>
+          <div>
+            <strong>{{ request.user.get_full_name|default:request.user.email }}</strong>
+            <span>{{ role_label }}</span>
+          </div>
+        </div>
+        <a href="{% url 'logout' %}" class="logout-link">Sair</a>
+      </div>
+    </header>
+
+    <section class="action-row">
+      {% for action in quick_actions %}
+        <a href="#" class="action-card action-{{ action.tone }}">
+          <span class="action-icon">●</span>
+          <span>{{ action.label }}</span>
+        </a>
+      {% endfor %}
+    </section>
+
+    <section class="stats-grid">
+      {% for stat in stats %}
+        <article class="stat-card">
+          <p>{{ stat.label }}</p>
+          <strong>{{ stat.value }}</strong>
+          <span class="{{ stat.delta_class }}">{{ stat.delta }} vs. ontem</span>
+        </article>
+      {% endfor %}
+    </section>
+
+    <section class="content-grid">
+      <article class="panel chart-panel">
+        <div class="panel-head">
+          <h2>Atendimentos por dia</h2>
+          <span>Últimos 7 dias</span>
+        </div>
+        <svg viewBox="0 0 700 280" class="line-chart" aria-label="Gráfico de atendimentos">
+          <defs>
+            <linearGradient id="lineGradient" x1="0%" x2="100%" y1="0%" y2="0%">
+              <stop offset="0%" stop-color="#21c25e" />
+              <stop offset="100%" stop-color="#0d8d43" />
+            </linearGradient>
+          </defs>
+          <polyline points="40,220 120,190 200,145 280,152 360,85 440,178 520,140 600,96 660,42"
+            fill="none" stroke="url(#lineGradient)" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" />
+          <g class="chart-dots">
+            <circle cx="40" cy="220" r="7" />
+            <circle cx="120" cy="190" r="7" />
+            <circle cx="200" cy="145" r="7" />
+            <circle cx="280" cy="152" r="7" />
+            <circle cx="360" cy="85" r="7" />
+            <circle cx="440" cy="178" r="7" />
+            <circle cx="520" cy="140" r="7" />
+            <circle cx="600" cy="96" r="7" />
+            <circle cx="660" cy="42" r="7" />
+          </g>
+        </svg>
+      </article>
+
+      <article class="panel donut-panel">
+        <div class="panel-head">
+          <h2>Atendimentos por setor</h2>
+          <span>Distribuição</span>
+        </div>
+        <div class="donut-wrap">
+          <div class="donut-chart"></div>
+          <ul class="legend">
+            <li><span class="legend-dot green"></span> Vendas (45%)</li>
+            <li><span class="legend-dot blue"></span> Suporte (30%)</li>
+            <li><span class="legend-dot yellow"></span> Financeiro (15%)</li>
+            <li><span class="legend-dot red"></span> Outros (10%)</li>
+          </ul>
+        </div>
+      </article>
+    </section>
+
+    <section class="panel table-panel">
+      <div class="panel-head">
+        <h2>Atendimentos em andamento</h2>
+        <a href="#">Ver todos</a>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Cliente</th>
+              <th>Setor</th>
+              <th>Atendente</th>
+              <th>Tempo</th>
+              <th>Última mensagem</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in table_rows %}
+              <tr>
+                <td>{{ row.0 }}</td>
+                <td>{{ row.1 }}</td>
+                <td>{{ row.2 }}</td>
+                <td>{{ row.3 }}</td>
+                <td>{{ row.4 }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </section>
+</main>
+{% endblock %}
