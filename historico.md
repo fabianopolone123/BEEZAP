@@ -15,4 +15,3 @@ Registro curto das alterações feitas no projeto.
 - Criação da dashboard inicial com layout didático e botões por nível de usuário.
  - RemoÃ§Ã£o do texto explicativo do cartÃ£o de perfil na dashboard.
  - CriaÃ§Ã£o da tela de configuraÃ§Ãµes com menu lateral fixo e campos editÃ¡veis em coluna.
- - CorreÃ§Ã£o da tela de configuraÃ§Ãµes para usar campos do formulário de forma compatÃ­vel com o template do Django.

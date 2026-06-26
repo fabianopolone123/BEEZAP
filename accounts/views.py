@@ -125,10 +125,10 @@ def settings_view(request):
         messages.success(request, 'Configurações enviadas para validação.')
 
     sections = [
-        {'title': 'Identificação da operação', 'fields': [form['company_name'], form['workspace_name']]},
-        {'title': 'Canais e suporte', 'fields': [form['support_email'], form['support_phone'], form['business_hours']]},
-        {'title': 'Fluxo de atendimento', 'fields': [form['default_sector'], form['welcome_message'], form['auto_assignment']]},
-        {'title': 'Ajustes visuais e alertas', 'fields': [form['notification_email'], form['primary_color']]},
+        {'title': 'Identificação da operação', 'fields': ['company_name', 'workspace_name']},
+        {'title': 'Canais e suporte', 'fields': ['support_email', 'support_phone', 'business_hours']},
+        {'title': 'Fluxo de atendimento', 'fields': ['default_sector', 'welcome_message', 'auto_assignment']},
+        {'title': 'Ajustes visuais e alertas', 'fields': ['notification_email', 'primary_color']},
     ]
 
     return render(
