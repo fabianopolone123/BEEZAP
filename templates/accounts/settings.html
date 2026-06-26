@@ -70,12 +70,12 @@
         <section class="settings-section">
           <h2>{{ section.title }}</h2>
           <div class="settings-fields">
-            {% for field_name in section.fields %}
+            {% for field in section.fields %}
               <div class="setting-field">
-                <label for="{{ form[field_name].id_for_label }}">{{ form[field_name].label }}</label>
-                {{ form[field_name] }}
-                {% if form[field_name].errors %}
-                  <small class="field-error">{{ form[field_name].errors|striptags }}</small>
+                <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+                {{ field }}
+                {% if field.errors %}
+                  <small class="field-error">{{ field.errors|striptags }}</small>
                 {% endif %}
               </div>
             {% endfor %}
