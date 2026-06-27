@@ -15,5 +15,6 @@ Registro curto das alterações feitas no projeto.
 - Criação da dashboard inicial com layout didático e botões por nível de usuário.
 - Remoção do texto explicativo do cartão de perfil no dashboard.
 - Remoção do bloco de perfil logado da barra lateral no dashboard.
-- Etapa 1 concluída: criada documentação inicial do projeto em `docs/PLANO_BEEZAP.md`.
+- Etapa 1 concluída: criada documentação inicial do projeto.
 - Etapa extra concluída: criada documentação de regras Git em `docs/GIT.md`.
+- Etapa documental concluída: removidos arquivos de plano/contexto duplicados e mantido `docs/HISTORICO.md` como registro oficial do que já foi feito e decidido.

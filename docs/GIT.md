@@ -71,7 +71,7 @@ Verificar:
 - se não entrou `db.sqlite3`
 - se não entrou `.venv`
 - se o commit tem somente arquivos da etapa atual
-- se `historico.md` foi atualizado apenas no final, sem apagar histórico antigo
+- se `docs/HISTORICO.md` foi atualizado apenas no final, sem apagar histórico antigo
 
 ## 5. Mensagens de commit recomendadas
 
