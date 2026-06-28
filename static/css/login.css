@@ -162,14 +162,9 @@ body {
   border-radius: 16px;
   background: #fff;
   color: var(--text);
-  caret-color: transparent;
   font: inherit;
   outline: none;
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
-}
-
-.login-form input.is-typing {
-  caret-color: rgba(17, 152, 74, 0.85);
 }
 
 .login-form input:focus {

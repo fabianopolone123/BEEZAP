@@ -41,3 +41,4 @@ Registro curto das alterações feitas no projeto.
 - Corrigido o contraste do texto do botao Entrar e refinado o visual discreto do olhinho da senha.
 - Ajustada a area clicavel do olhinho da senha para evitar caret piscando ao clicar na lateral do icone.
 - Ajustado o caret dos campos da tela de login para nao ficar piscando em foco parado, mantendo indicacao discreta durante a digitacao.
+- Restaurado o caret normal dentro dos campos editaveis de e-mail e senha na tela de login.

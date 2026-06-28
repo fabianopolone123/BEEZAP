@@ -127,8 +127,6 @@
     const passwordToggle = loginForm ? loginForm.querySelector('[data-password-toggle]') : null;
     const submitButton = loginForm ? loginForm.querySelector('[data-login-submit]') : null;
     const submitLabel = loginForm ? loginForm.querySelector('[data-login-label]') : null;
-    const loginInputs = loginForm ? loginForm.querySelectorAll('input') : [];
-    const typingTimers = new WeakMap();
 
     function revealPassword() {
       if (passwordInput) {
@@ -154,23 +152,6 @@
         passwordToggle.addEventListener(eventName, hidePassword);
       });
     }
-
-    loginInputs.forEach((input) => {
-      function showTypingCaret() {
-        window.clearTimeout(typingTimers.get(input));
-        input.classList.add('is-typing');
-        typingTimers.set(input, window.setTimeout(() => {
-          input.classList.remove('is-typing');
-        }, 900));
-      }
-
-      input.addEventListener('keydown', showTypingCaret);
-      input.addEventListener('input', showTypingCaret);
-      input.addEventListener('blur', () => {
-        window.clearTimeout(typingTimers.get(input));
-        input.classList.remove('is-typing');
-      });
-    });
 
     if (loginForm && submitButton && submitLabel) {
       loginForm.addEventListener('submit', () => {
