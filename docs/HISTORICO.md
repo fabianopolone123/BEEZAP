@@ -45,3 +45,4 @@ Registro curto das alterações feitas no projeto.
 - Ajustado o clique na area vazia final dos campos de e-mail e senha para nao posicionar o caret no fim do texto.
 - Corrigido o cursor indevido na tela de login com regra de caret limitada a elementos nao editaveis e sem interferir nos campos reais.
 - Ajustado o clique na sobra final do campo de senha para nao posicionar o cursor piscando fora do texto digitado.
+- Ampliada a area do olhinho da senha para cobrir toda a lateral direita do campo e evitar cursor piscando nessa regiao.

@@ -181,14 +181,14 @@ body {
 
 .password-visibility-toggle {
   position: absolute;
-  top: 50%;
-  right: 6px;
-  width: 52px;
-  height: 34px;
+  top: 0;
+  right: 0;
+  width: 64px;
+  height: 100%;
   margin: 0;
   padding: 0;
   border: 0;
-  border-radius: 14px;
+  border-radius: 0 16px 16px 0;
   background: transparent;
   box-shadow: none;
   color: rgba(100, 116, 139, 0.72);
@@ -198,7 +198,6 @@ body {
   justify-content: center;
   cursor: pointer;
   user-select: none;
-  transform: translateY(-50%);
   transition: background-color 0.2s ease, color 0.2s ease;
 }
 

@@ -165,11 +165,19 @@
 
     if (passwordInput) {
       passwordInput.addEventListener('pointerdown', (event) => {
+        const rect = passwordInput.getBoundingClientRect();
+        const rightActionArea = rect.right - 72;
+
+        if (event.clientX > rightActionArea) {
+          event.preventDefault();
+          passwordInput.blur();
+          return;
+        }
+
         if (!passwordInput.value) {
           return;
         }
 
-        const rect = passwordInput.getBoundingClientRect();
         const style = window.getComputedStyle(passwordInput);
         const paddingLeft = parseFloat(style.paddingLeft) || 0;
         const textEnd = rect.left + paddingLeft + getPasswordTextWidth() + 14;
