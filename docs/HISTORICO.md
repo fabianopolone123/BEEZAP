@@ -40,3 +40,4 @@ Registro curto das alterações feitas no projeto.
 - Melhorada a experiencia da tela de login com olhinho para revelar a senha ao pressionar e indicador visual de carregamento no botao Entrar.
 - Corrigido o contraste do texto do botao Entrar e refinado o visual discreto do olhinho da senha.
 - Ajustada a area clicavel do olhinho da senha para evitar caret piscando ao clicar na lateral do icone.
+- Ajustado o caret dos campos da tela de login para nao ficar piscando em foco parado, mantendo indicacao discreta durante a digitacao.
