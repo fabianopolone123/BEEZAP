@@ -1,0 +1,206 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Atendentes | BEEZap{% endblock %}
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/dashboard.css' %}">
+<link rel="stylesheet" href="{% static 'css/attendants.css' %}">
+{% endblock %}
+
+{% block content %}
+<main class="dashboard-shell">
+  <aside class="sidebar">
+    <div class="sidebar-brand">
+      <img src="{% static 'images/logo-transparent.png' %}" alt="BEEZap" class="sidebar-logo">
+      <div>
+        <strong>BEEZap</strong>
+        <span>Central de atendimento</span>
+      </div>
+    </div>
+
+    <nav class="sidebar-nav">
+      {% for item in nav_items %}
+        <a href="{% if item.href %}{% url item.href %}{% else %}#{% endif %}" class="nav-item {% if item.active %}active{% endif %}">
+          <span class="nav-dot"></span>
+          <span>{{ item.label }}</span>
+        </a>
+      {% endfor %}
+    </nav>
+  </aside>
+
+  <section class="dashboard-main attendants-main">
+    <div class="attendants-page" data-modal-open="{% if show_modal %}true{% else %}false{% endif %}" data-modal-mode="{{ modal_mode }}">
+      <header class="topbar">
+        <div class="topbar-left">
+          <button class="icon-button" type="button" aria-label="Abrir menu">☰</button>
+          <div>
+            <p class="page-kicker">Cadastros</p>
+            <h1>Atendentes</h1>
+          </div>
+        </div>
+
+        <div class="topbar-right">
+          <div class="profile-chip">
+            <div class="profile-avatar">{{ user_initial }}</div>
+            <div>
+              <strong>{{ request.user.get_full_name|default:request.user.email }}</strong>
+              <span>{{ role_label }}</span>
+            </div>
+          </div>
+          <a href="{% url 'logout' %}" class="logout-link">Sair</a>
+        </div>
+      </header>
+
+      <section class="attendants-header">
+        <div>
+          <p class="attendants-description">Gerencie os atendentes que terao acesso ao sistema.</p>
+        </div>
+        <button type="button" class="primary-button attendants-open-modal" data-modal-trigger data-mode="create">Novo atendente</button>
+      </section>
+
+      <section class="attendants-list">
+        {% if attendants %}
+          {% for attendant in attendants %}
+            <article class="attendant-row">
+              <div class="attendant-cell">
+                <span class="attendant-label">Nome</span>
+                <strong>{{ attendant.name }}</strong>
+              </div>
+              <div class="attendant-cell">
+                <span class="attendant-label">E-mail</span>
+                <span>{{ attendant.user.email }}</span>
+              </div>
+              <div class="attendant-cell">
+                <span class="attendant-label">Telefone/WhatsApp</span>
+                <span>{{ attendant.formatted_phone }}</span>
+              </div>
+              <div class="attendant-cell">
+                <span class="attendant-label">Status</span>
+                <span class="status-badge {% if attendant.user.is_active %}status-active{% else %}status-inactive{% endif %}">{{ attendant.status_label }}</span>
+              </div>
+              <div class="attendant-actions">
+                <button
+                  type="button"
+                  class="secondary-button"
+                  data-modal-trigger
+                  data-mode="edit"
+                  data-attendant-id="{{ attendant.id }}"
+                  data-attendant-name="{{ attendant.name }}"
+                  data-attendant-email="{{ attendant.user.email }}"
+                  data-attendant-phone="{{ attendant.phone }}"
+                >
+                  Editar
+                </button>
+              </div>
+            </article>
+          {% endfor %}
+        {% else %}
+          <article class="attendants-empty">
+            <strong>Nenhum atendente cadastrado.</strong>
+            <span>Use o botao acima para cadastrar o primeiro atendente.</span>
+          </article>
+        {% endif %}
+      </section>
+    </div>
+  </section>
+</main>
+
+<div class="attendants-modal {% if show_modal %}is-open{% endif %}" data-modal-root>
+  <div class="attendants-modal-backdrop" data-modal-close></div>
+  <div class="attendants-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="attendant-modal-title">
+    <div class="attendants-modal-head">
+      <h2 id="attendant-modal-title">{% if modal_mode == 'edit' %}Editar atendente{% else %}Novo atendente{% endif %}</h2>
+      <button type="button" class="modal-close" aria-label="Fechar" data-modal-close>×</button>
+    </div>
+
+    <form method="post" class="attendants-form" novalidate>
+      {% csrf_token %}
+      {{ form.attendant_id }}
+
+      <div class="attendants-field">
+        <label for="{{ form.name.id_for_label }}">Nome</label>
+        {{ form.name }}
+        {% if form.name.errors %}
+          <small class="field-error">{{ form.name.errors|striptags }}</small>
+        {% endif %}
+      </div>
+
+      <div class="attendants-field">
+        <label for="{{ form.email.id_for_label }}">E-mail</label>
+        {{ form.email }}
+        {% if form.email.errors %}
+          <small class="field-error">{{ form.email.errors|striptags }}</small>
+        {% endif %}
+      </div>
+
+      <div class="attendants-field">
+        <label for="{{ form.phone.id_for_label }}">Telefone/WhatsApp</label>
+        {{ form.phone }}
+        {% if form.phone.errors %}
+          <small class="field-error">{{ form.phone.errors|striptags }}</small>
+        {% endif %}
+      </div>
+
+      <div class="attendants-form-actions">
+        <button type="submit" class="primary-button">Salvar</button>
+        <button type="button" class="secondary-button" data-modal-close>Cancelar</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+  (function () {
+    const page = document.querySelector('.attendants-page');
+    const modal = document.querySelector('[data-modal-root]');
+    if (!page || !modal) return;
+
+    const title = modal.querySelector('#attendant-modal-title');
+    const fieldId = modal.querySelector('#id_attendant_id');
+    const fieldName = modal.querySelector('#id_name');
+    const fieldEmail = modal.querySelector('#id_email');
+    const fieldPhone = modal.querySelector('#id_phone');
+    const createTitle = 'Novo atendente';
+    const editTitle = 'Editar atendente';
+
+    function openModal(mode, data) {
+      modal.classList.add('is-open');
+      title.textContent = mode === 'edit' ? editTitle : createTitle;
+      if (mode === 'edit' && data) {
+        fieldId.value = data.id || '';
+        fieldName.value = data.name || '';
+        fieldEmail.value = data.email || '';
+        fieldPhone.value = data.phone || '';
+      } else {
+        fieldId.value = '';
+        fieldName.value = '';
+        fieldEmail.value = '';
+        fieldPhone.value = '';
+      }
+    }
+
+    function closeModal() {
+      modal.classList.remove('is-open');
+    }
+
+    document.querySelectorAll('[data-modal-trigger]').forEach((button) => {
+      button.addEventListener('click', () => {
+        openModal(button.dataset.mode, {
+          id: button.dataset.attendantId,
+          name: button.dataset.attendantName,
+          email: button.dataset.attendantEmail,
+          phone: button.dataset.attendantPhone,
+        });
+      });
+    });
+
+    document.querySelectorAll('[data-modal-close]').forEach((button) => {
+      button.addEventListener('click', closeModal);
+    });
+
+    if (page.dataset.modalOpen === 'true') {
+      modal.classList.add('is-open');
+    }
+  }());
+</script>
+{% endblock %}

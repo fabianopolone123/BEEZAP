@@ -2,7 +2,7 @@ from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.contrib.auth.forms import UserChangeForm, UserCreationForm
 
-from .models import User, WapiConfiguration
+from .models import Attendant, User, WapiConfiguration
 
 
 class CustomUserCreationForm(UserCreationForm):
@@ -47,3 +47,9 @@ class WapiConfigurationAdmin(admin.ModelAdmin):
         if WapiConfiguration.objects.exists():
             return False
         return super().has_add_permission(request)
+
+
+@admin.register(Attendant)
+class AttendantAdmin(admin.ModelAdmin):
+    list_display = ('name', 'user', 'phone', 'created_at')
+    search_fields = ('name', 'user__email', 'phone')

@@ -1,5 +1,7 @@
 from django import forms
 
+from .models import Attendant, User
+
 
 class LoginForm(forms.Form):
     email = forms.EmailField(
@@ -54,3 +56,47 @@ class WapiSendTextForm(forms.Form):
             'placeholder': 'Digite a mensagem de teste',
         }),
     )
+
+
+class AttendantForm(forms.Form):
+    attendant_id = forms.IntegerField(widget=forms.HiddenInput(), required=False)
+    name = forms.CharField(
+        label='Nome',
+        max_length=150,
+        widget=forms.TextInput(attrs={
+            'placeholder': 'Digite o nome do atendente',
+            'autocomplete': 'off',
+        }),
+    )
+    email = forms.EmailField(
+        label='E-mail',
+        widget=forms.EmailInput(attrs={
+            'placeholder': 'atendente@empresa.com',
+            'autocomplete': 'off',
+        }),
+    )
+    phone = forms.CharField(
+        label='Telefone/WhatsApp',
+        max_length=20,
+        required=False,
+        widget=forms.TextInput(attrs={
+            'placeholder': '5511999999999',
+            'autocomplete': 'off',
+        }),
+    )
+
+    def __init__(self, *args, attendant=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.attendant = attendant
+
+    def clean_email(self):
+        email = self.cleaned_data['email'].strip().lower()
+        user_qs = User.objects.filter(email=email)
+        if self.attendant:
+            user_qs = user_qs.exclude(pk=self.attendant.user_id)
+        if user_qs.exists():
+            raise forms.ValidationError('Ja existe um atendente com este e-mail.')
+        return email
+
+    def clean_phone(self):
+        return Attendant.normalize_phone(self.cleaned_data['phone'])

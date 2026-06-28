@@ -1,6 +1,7 @@
 from django.contrib.auth.models import AbstractUser, BaseUserManager
 from django.conf import settings
 from django.db import models
+import re
 
 
 class UserManager(BaseUserManager):
@@ -77,3 +78,36 @@ class WapiConfiguration(models.Model):
 
     def __str__(self):
         return 'Configuracao W-API'
+
+
+class Attendant(models.Model):
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='attendant_profile')
+    name = models.CharField(max_length=150)
+    phone = models.CharField(max_length=20, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'Atendente'
+        verbose_name_plural = 'Atendentes'
+        ordering = ('name', 'user__email')
+
+    @staticmethod
+    def normalize_phone(value):
+        return re.sub(r'\D', '', value or '')
+
+    @property
+    def formatted_phone(self):
+        digits = self.phone or ''
+        if len(digits) == 11:
+            return f'({digits[:2]}) {digits[2:7]}-{digits[7:]}'
+        if len(digits) == 10:
+            return f'({digits[:2]}) {digits[2:6]}-{digits[6:]}'
+        return digits or '-'
+
+    @property
+    def status_label(self):
+        return 'Ativo' if self.user.is_active else 'Inativo'
+
+    def __str__(self):
+        return self.name
