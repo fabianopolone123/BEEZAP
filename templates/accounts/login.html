@@ -153,42 +153,6 @@
       });
     }
 
-    function getPasswordTextWidth() {
-      const canvas = getPasswordTextWidth.canvas || (getPasswordTextWidth.canvas = document.createElement('canvas'));
-      const context = canvas.getContext('2d');
-      const style = window.getComputedStyle(passwordInput);
-      const text = passwordInput.type === 'password' ? 'x'.repeat(passwordInput.value.length) : passwordInput.value;
-
-      context.font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
-      return context.measureText(text).width;
-    }
-
-    if (passwordInput) {
-      passwordInput.addEventListener('pointerdown', (event) => {
-        const rect = passwordInput.getBoundingClientRect();
-        const rightActionArea = rect.right - 72;
-
-        if (event.clientX > rightActionArea) {
-          event.preventDefault();
-          passwordInput.blur();
-          return;
-        }
-
-        if (!passwordInput.value) {
-          return;
-        }
-
-        const style = window.getComputedStyle(passwordInput);
-        const paddingLeft = parseFloat(style.paddingLeft) || 0;
-        const textEnd = rect.left + paddingLeft + getPasswordTextWidth() + 14;
-
-        if (event.clientX > textEnd) {
-          event.preventDefault();
-          passwordInput.blur();
-        }
-      });
-    }
-
     if (loginForm && submitButton && submitLabel) {
       loginForm.addEventListener('submit', () => {
         submitButton.disabled = true;
