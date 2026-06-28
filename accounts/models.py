@@ -84,6 +84,7 @@ class Attendant(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='attendant_profile')
     name = models.CharField(max_length=150)
     phone = models.CharField(max_length=20, blank=True)
+    must_change_password = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

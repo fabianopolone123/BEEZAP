@@ -1,11 +1,17 @@
 from django.contrib import messages
-from django.contrib.auth import authenticate, login, logout
+from django.contrib.auth import authenticate, login, logout, update_session_auth_hash
 from django.contrib.auth.decorators import login_required
 from django.db import IntegrityError, transaction
 from django.http import HttpResponseForbidden
 from django.shortcuts import get_object_or_404, redirect, render
 
-from .forms import AttendantForm, LoginForm, WapiConfigurationForm, WapiSendTextForm
+from .forms import (
+    AttendantForm,
+    InitialPasswordChangeForm,
+    LoginForm,
+    WapiConfigurationForm,
+    WapiSendTextForm,
+)
 from .models import Attendant, User, WapiConfiguration
 from wapi.client import send_text_message
 
@@ -52,6 +58,15 @@ def split_name_parts(full_name):
     return first_name, last_name
 
 
+def must_change_initial_password(user):
+    if not user.is_authenticated:
+        return False
+    try:
+        return user.attendant_profile.must_change_password
+    except Attendant.DoesNotExist:
+        return False
+
+
 def login_view(request):
     if request.user.is_authenticated:
         return redirect('dashboard')
@@ -64,6 +79,8 @@ def login_view(request):
         user = authenticate(request, email=email, password=password)
         if user is not None:
             login(request, user)
+            if must_change_initial_password(user):
+                return redirect('change-initial-password')
             return redirect('dashboard')
         messages.error(request, 'E-mail ou senha invalidos.')
 
@@ -218,6 +235,7 @@ def attendants_view(request):
                             user=user,
                             name=name,
                             phone=phone,
+                            must_change_password=True,
                         )
                         messages.success(request, 'Atendente cadastrado com sucesso.')
                 return redirect('attendants')
@@ -244,6 +262,31 @@ def attendants_view(request):
             'user_initial': (request.user.first_name[:1] or request.user.email[:1]).upper(),
         },
     )
+
+
+@login_required
+def change_initial_password_view(request):
+    try:
+        attendant = request.user.attendant_profile
+    except Attendant.DoesNotExist:
+        return redirect('dashboard')
+
+    if not attendant.must_change_password:
+        return redirect('dashboard')
+
+    form = InitialPasswordChangeForm(request.POST or None, user=request.user)
+    if request.method == 'POST':
+        if form.is_valid():
+            request.user.set_password(form.cleaned_data['new_password'])
+            request.user.save(update_fields=['password'])
+            attendant.must_change_password = False
+            attendant.save(update_fields=['must_change_password', 'updated_at'])
+            update_session_auth_hash(request, request.user)
+            messages.success(request, 'Senha alterada com sucesso.')
+            return redirect('dashboard')
+        messages.error(request, 'Nao foi possivel alterar a senha. Verifique os dados e tente novamente.')
+
+    return render(request, 'accounts/change_initial_password.html', {'form': form})
 
 
 def logout_view(request):

@@ -1,4 +1,6 @@
 from django import forms
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError
 
 from .models import Attendant, User
 
@@ -100,3 +102,44 @@ class AttendantForm(forms.Form):
 
     def clean_phone(self):
         return Attendant.normalize_phone(self.cleaned_data['phone'])
+
+
+class InitialPasswordChangeForm(forms.Form):
+    new_password = forms.CharField(
+        label='Nova senha',
+        widget=forms.PasswordInput(attrs={
+            'placeholder': 'Digite a nova senha',
+            'autocomplete': 'new-password',
+        }),
+    )
+    confirm_password = forms.CharField(
+        label='Confirmar nova senha',
+        widget=forms.PasswordInput(attrs={
+            'placeholder': 'Digite a nova senha novamente',
+            'autocomplete': 'new-password',
+        }),
+    )
+
+    def __init__(self, *args, user=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.user = user
+
+    def clean_new_password(self):
+        password = self.cleaned_data['new_password']
+        if not password:
+            raise forms.ValidationError('Informe uma nova senha.')
+        if password == '1234':
+            raise forms.ValidationError('Escolha uma senha diferente da senha inicial.')
+        try:
+            validate_password(password, self.user)
+        except ValidationError as exc:
+            raise forms.ValidationError(exc.messages)
+        return password
+
+    def clean(self):
+        cleaned_data = super().clean()
+        new_password = cleaned_data.get('new_password')
+        confirm_password = cleaned_data.get('confirm_password')
+        if new_password and confirm_password and new_password != confirm_password:
+            self.add_error('confirm_password', 'As senhas digitadas nao conferem.')
+        return cleaned_data
