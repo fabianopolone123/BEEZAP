@@ -24,14 +24,16 @@
 
       <form class="login-form" method="post">
         {% csrf_token %}
-        <label>
-          <span>E-mail</span>
-          {{ form.email }}
+        <div class="login-field">
+          <label for="{{ form.email.id_for_label }}">E-mail</label>
+          <div class="email-field" data-email-field>
+            {{ form.email }}
+          </div>
           {% if form.email.errors %}<small class="field-error">{{ form.email.errors|striptags }}</small>{% endif %}
-        </label>
+        </div>
 
-        <label>
-          <span>Senha</span>
+        <div class="login-field">
+          <label for="{{ form.password.id_for_label }}">Senha</label>
           <div class="password-field">
             {{ form.password }}
             <button type="button" class="password-visibility-toggle" aria-label="Mostrar senha" data-password-toggle>
@@ -42,7 +44,7 @@
             </button>
           </div>
           {% if form.password.errors %}<small class="field-error">{{ form.password.errors|striptags }}</small>{% endif %}
-        </label>
+        </div>
 
         <button type="submit" class="login-submit-button" data-login-submit>
           <span data-login-label>Entrar</span>
@@ -124,6 +126,7 @@
     const openButton = document.querySelector('[data-password-recovery-open]');
     const loginForm = document.querySelector('.login-form');
     const emailInput = loginForm ? loginForm.querySelector('input[name="email"]') : null;
+    const emailField = loginForm ? loginForm.querySelector('[data-email-field]') : null;
     const passwordInput = loginForm ? loginForm.querySelector('input[name="password"]') : null;
     const passwordToggle = loginForm ? loginForm.querySelector('[data-password-toggle]') : null;
     const submitButton = loginForm ? loginForm.querySelector('[data-login-submit]') : null;
@@ -154,8 +157,8 @@
       });
     }
 
-    function getInputTextWidth(input) {
-      const canvas = getInputTextWidth.canvas || (getInputTextWidth.canvas = document.createElement('canvas'));
+    function getMeasuredTextWidth(input) {
+      const canvas = getMeasuredTextWidth.canvas || (getMeasuredTextWidth.canvas = document.createElement('canvas'));
       const context = canvas.getContext('2d');
       const style = window.getComputedStyle(input);
       const text = input.value || input.placeholder || '';
@@ -164,14 +167,26 @@
       return context.measureText(text).width;
     }
 
-    if (emailInput) {
-      emailInput.addEventListener('pointerdown', (event) => {
-        const rect = emailInput.getBoundingClientRect();
-        const style = window.getComputedStyle(emailInput);
-        const paddingLeft = parseFloat(style.paddingLeft) || 0;
-        const textEnd = rect.left + paddingLeft + getInputTextWidth(emailInput) + 16;
+    function syncEmailFieldWidth() {
+      if (!emailInput || !emailField) {
+        return;
+      }
 
-        if (event.clientX > textEnd) {
+      const fieldWidth = emailField.getBoundingClientRect().width;
+      const inputWidth = Math.min(Math.ceil(getMeasuredTextWidth(emailInput)) + 36, fieldWidth);
+      emailField.style.setProperty('--email-input-width', `${Math.max(inputWidth, 180)}px`);
+    }
+
+    if (emailInput && emailField) {
+      syncEmailFieldWidth();
+      emailInput.addEventListener('input', syncEmailFieldWidth);
+      emailInput.addEventListener('change', syncEmailFieldWidth);
+      emailInput.addEventListener('focus', syncEmailFieldWidth);
+      window.addEventListener('load', syncEmailFieldWidth);
+      window.addEventListener('resize', syncEmailFieldWidth);
+      window.setTimeout(syncEmailFieldWidth, 300);
+      emailField.addEventListener('pointerdown', (event) => {
+        if (event.target === emailField) {
           event.preventDefault();
           emailInput.blur();
         }

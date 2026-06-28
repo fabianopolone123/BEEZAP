@@ -144,6 +144,12 @@ body {
 }
 
 .login-form label {
+  display: block;
+  font-size: 0.92rem;
+  font-weight: 600;
+}
+
+.login-field {
   display: grid;
   gap: 8px;
   font-size: 0.92rem;
@@ -169,6 +175,35 @@ body {
 .login-form input:focus {
   border-color: rgba(33, 194, 94, 0.65);
   box-shadow: 0 0 0 4px rgba(33, 194, 94, 0.12);
+}
+
+.email-field {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  border: 1px solid rgba(100, 116, 139, 0.2);
+  border-radius: 16px;
+  background: #fff;
+  cursor: default;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.email-field input {
+  width: min(var(--email-input-width, 220px), 100%);
+  border: 0;
+  border-radius: 16px;
+  background: transparent;
+  box-shadow: none;
+}
+
+.email-field:focus-within {
+  border-color: rgba(33, 194, 94, 0.65);
+  box-shadow: 0 0 0 4px rgba(33, 194, 94, 0.12);
+}
+
+.login-form .email-field input:focus {
+  border-color: transparent;
+  box-shadow: none;
 }
 
 .password-field {
