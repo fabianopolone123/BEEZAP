@@ -36,3 +36,4 @@ Registro curto das alterações feitas no projeto.
 - Implementada troca obrigatoria de senha inicial para atendentes no primeiro acesso.
 - Removida a barra piscando de digitacao em elementos nao editaveis, preservando campos reais de formulario e documentando a regra de UX.
 - Implementada recuperacao de senha por codigo de 6 digitos enviado via WhatsApp, com hash, expiracao e limite de tentativas.
+- Restaurado o visual discreto do botao de recuperacao de senha na tela de login.
