@@ -131,7 +131,6 @@ AUTHENTICATION_BACKENDS = [
 WAPI_BASE_URL = os.getenv('WAPI_BASE_URL', 'https://api.w-api.app')
 WAPI_INSTANCE_ID = os.getenv('WAPI_INSTANCE_ID', '')
 WAPI_TOKEN = os.getenv('WAPI_TOKEN', '')
-WAPI_SEND_TEXT_PATH = os.getenv('WAPI_SEND_TEXT_PATH', '')
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field

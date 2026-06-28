@@ -7,6 +7,9 @@ from django.conf import settings
 from accounts.models import WapiConfiguration
 
 
+SEND_TEXT_PATH = '/send-text'
+
+
 @dataclass
 class WapiSendResult:
     success: bool
@@ -35,22 +38,16 @@ def send_text_message(phone, message):
     config = WapiConfiguration.get_solo()
     instance_id = config.resolved_instance_id().strip()
     token = config.resolved_token().strip()
-    send_text_path = getattr(settings, 'WAPI_SEND_TEXT_PATH', '').strip()
 
     if not instance_id:
         return WapiSendResult(success=False, error='Instance ID da W-API nao configurado.')
     if not token:
         return WapiSendResult(success=False, error='Token da W-API nao configurado.')
-    if not send_text_path:
-        return WapiSendResult(
-            success=False,
-            error='Endpoint de envio da W-API nao confirmado no ambiente atual.',
-        )
 
-    url = settings.WAPI_BASE_URL.rstrip('/') + '/' + send_text_path.lstrip('/')
+    url = settings.WAPI_BASE_URL.rstrip('/') + SEND_TEXT_PATH
     url_parts = parse.urlsplit(url)
     query = parse.parse_qs(url_parts.query, keep_blank_values=True)
-    query.setdefault('instanceId', [instance_id])
+    query['instanceId'] = [instance_id]
     final_url = parse.urlunsplit((
         url_parts.scheme,
         url_parts.netloc,
@@ -82,13 +79,13 @@ def send_text_message(phone, message):
                 success=200 <= response.status < 300,
                 message_id=_extract_message_id(parsed_body),
                 status_code=response.status,
-                error=None if 200 <= response.status < 300 else 'W-API retornou erro no envio.',
+                error=None if 200 <= response.status < 300 else 'Nao foi possivel enviar a mensagem. Verifique a instancia, o token e tente novamente.',
             )
     except error.HTTPError as exc:
         return WapiSendResult(
             success=False,
             status_code=exc.code,
-            error='W-API retornou erro no envio.',
+            error='Nao foi possivel enviar a mensagem. Verifique a instancia, o token e tente novamente.',
         )
     except error.URLError:
         return WapiSendResult(
