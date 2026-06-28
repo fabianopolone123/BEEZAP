@@ -141,10 +141,6 @@ a {
   gap: 18px;
 }
 
-.wapi-main {
-  gap: 4px;
-}
-
 .topbar {
   display: flex;
   justify-content: space-between;
@@ -434,93 +430,6 @@ a {
   overflow-x: auto;
 }
 
-.settings-stack {
-  display: grid;
-  gap: 14px;
-  margin-top: 0;
-}
-
-.settings-card {
-  background: var(--card-bg);
-  border: 1px solid var(--card-border);
-  border-radius: 22px;
-  box-shadow: var(--shadow);
-  padding: 20px;
-}
-
-.settings-card-split {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 28px;
-  align-items: start;
-}
-
-.settings-column {
-  min-width: 0;
-}
-
-.settings-column-divider {
-  padding-left: 28px;
-  border-left: 1px solid rgba(100, 116, 139, 0.14);
-}
-
-.settings-form-grid {
-  display: grid;
-  gap: 18px;
-  margin-top: 14px;
-}
-
-.settings-field {
-  display: grid;
-  gap: 8px;
-}
-
-.settings-field label {
-  font-size: 0.92rem;
-  font-weight: 600;
-}
-
-.settings-field input,
-.settings-field textarea {
-  width: 100%;
-  padding: 15px 16px;
-  border: 1px solid rgba(100, 116, 139, 0.2);
-  border-radius: 16px;
-  background: #fff;
-  color: var(--text);
-  font: inherit;
-  outline: none;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
-}
-
-.settings-field textarea {
-  min-height: 120px;
-  resize: vertical;
-}
-
-.settings-field input:focus,
-.settings-field textarea:focus {
-  border-color: rgba(33, 194, 94, 0.65);
-  box-shadow: 0 0 0 4px rgba(33, 194, 94, 0.12);
-}
-
-.settings-actions {
-  display: flex;
-  justify-content: flex-start;
-}
-
-.primary-button {
-  padding: 14px 20px;
-  border: 0;
-  border-radius: 16px;
-  background: linear-gradient(135deg, var(--primary), var(--primary-deep));
-  color: #fff;
-  font: inherit;
-  font-weight: 700;
-  cursor: pointer;
-  box-shadow: 0 14px 30px rgba(17, 152, 74, 0.24);
-}
-
 .toast-container {
   position: fixed;
   top: 18px;
@@ -622,18 +531,6 @@ a {
   }
 }
 
-.field-help {
-  color: var(--muted);
-  font-size: 0.82rem;
-  line-height: 1.5;
-}
-
-.field-error {
-  color: #b42318;
-  font-size: 0.78rem;
-  font-weight: 600;
-}
-
 table {
   width: 100%;
   border-collapse: collapse;
@@ -672,17 +569,6 @@ tbody tr:last-child td {
     grid-template-columns: 1fr;
   }
 
-  .settings-card-split {
-    grid-template-columns: 1fr;
-    gap: 22px;
-  }
-
-  .settings-column-divider {
-    padding-left: 0;
-    padding-top: 22px;
-    border-left: 0;
-    border-top: 1px solid rgba(100, 116, 139, 0.14);
-  }
 }
 
 @media (max-width: 760px) {

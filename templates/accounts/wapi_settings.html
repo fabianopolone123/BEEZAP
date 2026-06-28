@@ -4,6 +4,7 @@
 {% block title %}Configuracoes WhatsApp | BEEZap{% endblock %}
 {% block extra_head %}
 <link rel="stylesheet" href="{% static 'css/dashboard.css' %}">
+<link rel="stylesheet" href="{% static 'css/wapi_settings.css' %}">
 {% endblock %}
 
 {% block content %}
@@ -27,7 +28,8 @@
     </nav>
   </aside>
 
-  <section class="dashboard-main wapi-main">
+  <section class="dashboard-main">
+    <div class="wapi-settings-page">
     <header class="topbar">
       <div class="topbar-left">
         <button class="icon-button" type="button" aria-label="Abrir menu">☰</button>
@@ -50,7 +52,7 @@
     </header>
 
     <section class="settings-stack">
-      <article class="settings-card settings-card-split">
+      <article class="settings-card settings-card-split wapi-card">
         <div class="settings-column">
           <div class="panel-head">
             <div>
@@ -127,6 +129,7 @@
         </div>
       </article>
     </section>
+    </div>
   </section>
 </main>
 {% endblock %}

@@ -26,3 +26,4 @@ Registro curto das alterações feitas no projeto.
 - Notificacoes do sistema convertidas para toast compacto reaproveitavel no template base.
 - Reduzido o espacamento vertical entre o titulo e o card principal da tela W-API.
 - Ajustado o gap da pagina W-API para aproximar o card principal do cabecalho.
+- Tela W-API passou a usar CSS especifico em `static/css/wapi_settings.css`.
