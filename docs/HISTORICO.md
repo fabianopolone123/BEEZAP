@@ -34,3 +34,4 @@ Registro curto das alterações feitas no projeto.
 - Corrigido o esticamento vertical do grid da tela W-API para manter titulo e card agrupados no topo.
 - Criada a tela de atendentes para ADM com cadastro, edicao em modal e vinculo de usuario com senha inicial 1234.
 - Implementada troca obrigatoria de senha inicial para atendentes no primeiro acesso.
+- Removida a barra piscando de digitacao em elementos nao editaveis, preservando campos reais de formulario e documentando a regra de UX.

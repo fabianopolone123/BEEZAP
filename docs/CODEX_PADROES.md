@@ -33,6 +33,7 @@ Este arquivo define os padrões de trabalho para o projeto BEEZAP.
 13. Após alterar CSS, testar com recarregamento forçado, como Ctrl + F5, para evitar cache.
 14. O layout deve ser responsivo e não deve criar rolagem horizontal.
 15. Cada tela deve evitar poluição visual e excesso de botões.
+16. Elementos não editáveis não devem receber foco de texto nem exibir barra piscando de digitação; o caret deve aparecer somente em campos editáveis reais, como `input`, `textarea` ou `contenteditable` necessário.
 
 ## Padrão de notificações
 

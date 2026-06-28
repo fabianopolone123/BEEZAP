@@ -17,6 +17,17 @@
   box-sizing: border-box;
 }
 
+body :where(:not(input):not(textarea):not(select):not([contenteditable="true"])) {
+  caret-color: transparent;
+}
+
+input,
+textarea,
+select,
+[contenteditable="true"] {
+  caret-color: auto;
+}
+
 html,
 body {
   min-height: 100%;
