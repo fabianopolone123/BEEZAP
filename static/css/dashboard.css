@@ -141,6 +141,10 @@ a {
   gap: 18px;
 }
 
+.wapi-main {
+  gap: 10px;
+}
+
 .topbar {
   display: flex;
   justify-content: space-between;
@@ -432,7 +436,8 @@ a {
 
 .settings-stack {
   display: grid;
-  gap: 18px;
+  gap: 14px;
+  margin-top: 0;
 }
 
 .settings-card {

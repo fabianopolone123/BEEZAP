@@ -24,3 +24,4 @@ Registro curto das alterações feitas no projeto.
 - Tela de configuracao da W-API reorganizada em um unico card com duas colunas responsivas para configuracao e teste de envio.
 - Ajuste visual dos alertas da tela W-API para mensagens mais compactas e simples para o usuario final.
 - Notificacoes do sistema convertidas para toast compacto reaproveitavel no template base.
+- Reduzido o espacamento vertical entre o titulo e o card principal da tela W-API.
