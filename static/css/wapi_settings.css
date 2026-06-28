@@ -2,11 +2,15 @@
   padding-top: 8px;
   padding-bottom: 16px;
   gap: 8px;
+  align-content: start;
+  grid-auto-rows: max-content;
 }
 
 .wapi-settings-page {
   display: grid;
   gap: 8px;
+  align-content: start;
+  grid-auto-rows: max-content;
 }
 
 .wapi-settings-page .settings-stack {

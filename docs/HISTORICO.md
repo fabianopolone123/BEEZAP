@@ -31,3 +31,4 @@ Registro curto das alterações feitas no projeto.
 - Ajustado o topo da tela W-API para reduzir espacos vazios acima do titulo e antes do card.
 - Tela W-API passou a compactar o proprio container `dashboard-main` com classe especifica.
 - Compactacao adicional do container W-API com reducao do padding superior e do espaco entre titulo e card.
+- Corrigido o esticamento vertical do grid da tela W-API para manter titulo e card agrupados no topo.
