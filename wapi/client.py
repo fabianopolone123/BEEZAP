@@ -7,13 +7,14 @@ from django.conf import settings
 from accounts.models import WapiConfiguration
 
 
-SEND_TEXT_PATH = '/send-text'
+SEND_TEXT_PATH = '/v1/message/send-text'
 
 
 @dataclass
 class WapiSendResult:
     success: bool
     message_id: str | None = None
+    inserted_id: str | None = None
     status_code: int | None = None
     error: str | None = None
 
@@ -29,6 +30,22 @@ def _extract_message_id(payload):
         nested = payload.get(nested_key)
         if isinstance(nested, dict):
             nested_id = _extract_message_id(nested)
+            if nested_id:
+                return nested_id
+    return None
+
+
+def _extract_inserted_id(payload):
+    if not isinstance(payload, dict):
+        return None
+    for key in ('insertedId', 'inserted_id'):
+        value = payload.get(key)
+        if isinstance(value, str) and value:
+            return value
+    for nested_key in ('message', 'data', 'result'):
+        nested = payload.get(nested_key)
+        if isinstance(nested, dict):
+            nested_id = _extract_inserted_id(nested)
             if nested_id:
                 return nested_id
     return None
@@ -78,6 +95,7 @@ def send_text_message(phone, message):
             return WapiSendResult(
                 success=200 <= response.status < 300,
                 message_id=_extract_message_id(parsed_body),
+                inserted_id=_extract_inserted_id(parsed_body),
                 status_code=response.status,
                 error=None if 200 <= response.status < 300 else 'Nao foi possivel enviar a mensagem. Verifique a instancia, o token e tente novamente.',
             )

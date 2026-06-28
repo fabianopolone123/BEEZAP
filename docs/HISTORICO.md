@@ -20,3 +20,4 @@ Registro curto das alterações feitas no projeto.
 - Etapa documental concluída: removidos arquivos de plano/contexto duplicados e mantido `docs/HISTORICO.md` como registro oficial do que já foi feito e decidido.
 - Configuracao inicial da W-API adicionada para ADM, com armazenamento de instance ID/token e base tecnica de envio de texto sem expor token na interface.
 - Rota oficial de envio de texto da W-API confirmada e aplicada no cliente para instancias Lite usando `POST /send-text` com `instanceId` em query string.
+- URL oficial de envio da W-API ajustada para `POST /v1/message/send-text` com `instanceId` em query string e retorno estruturado com `messageId` e `insertedId`.
