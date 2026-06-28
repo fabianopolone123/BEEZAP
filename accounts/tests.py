@@ -1,8 +1,12 @@
+from types import SimpleNamespace
+from unittest.mock import patch
+
 from django.contrib.messages import get_messages
+from django.contrib.auth.hashers import check_password
 from django.test import TestCase
 from django.urls import reverse
 
-from .models import Attendant, User
+from .models import Attendant, PasswordResetCode, User
 
 
 class AttendantsViewTests(TestCase):
@@ -223,3 +227,130 @@ class AttendantsViewTests(TestCase):
         response = self.client.get(reverse('dashboard'))
 
         self.assertEqual(response.status_code, 200)
+
+
+class PasswordRecoveryTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            email='atendente@beezap.com',
+            password='SenhaAntiga123',
+            role=User.Role.USUARIO,
+        )
+        self.attendant = Attendant.objects.create(
+            user=self.user,
+            name='Atendente',
+            phone='(11) 99999-9999',
+            must_change_password=False,
+        )
+
+    @patch('accounts.views.secrets.randbelow', return_value=123456)
+    @patch('accounts.views.send_text_message')
+    def test_request_password_recovery_sends_code_without_exposing_it(self, mock_send, mock_randbelow):
+        mock_send.return_value = SimpleNamespace(success=True)
+
+        response = self.client.post(
+            reverse('password-recovery-request'),
+            {'email': 'atendente@beezap.com'},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Se os dados estiverem corretos')
+        self.assertNotContains(response, '123456')
+        mock_send.assert_called_once()
+        self.assertEqual(mock_send.call_args.kwargs['phone'], '11999999999')
+        self.assertIn('123456', mock_send.call_args.kwargs['message'])
+        reset_code = PasswordResetCode.objects.get(user=self.user)
+        self.assertTrue(check_password('123456', reset_code.code_hash))
+        self.assertNotEqual(reset_code.code_hash, '123456')
+        self.assertEqual(self.client.session['password_recovery_code_id'], reset_code.id)
+
+    @patch('accounts.views.send_text_message')
+    def test_request_password_recovery_keeps_generic_message_for_unknown_email(self, mock_send):
+        response = self.client.post(
+            reverse('password-recovery-request'),
+            {'email': 'naoexiste@beezap.com'},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Se os dados estiverem corretos')
+        self.assertNotContains(response, 'nao encontrado')
+        mock_send.assert_not_called()
+        self.assertFalse(PasswordResetCode.objects.exists())
+
+    @patch('accounts.views.send_text_message')
+    def test_request_password_recovery_keeps_generic_message_without_phone(self, mock_send):
+        self.attendant.phone = ''
+        self.attendant.save()
+
+        response = self.client.post(
+            reverse('password-recovery-request'),
+            {'email': 'atendente@beezap.com'},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Se os dados estiverem corretos')
+        mock_send.assert_not_called()
+        self.assertFalse(PasswordResetCode.objects.exists())
+
+    @patch('accounts.views.secrets.randbelow', return_value=123456)
+    @patch('accounts.views.send_text_message')
+    def test_wrong_code_counts_attempts_and_blocks_after_limit(self, mock_send, mock_randbelow):
+        mock_send.return_value = SimpleNamespace(success=True)
+        self.client.post(reverse('password-recovery-request'), {'email': 'atendente@beezap.com'})
+        reset_code = PasswordResetCode.objects.get(user=self.user)
+
+        for _ in range(4):
+            response = self.client.post(reverse('password-recovery-verify'), {'code': '000000'})
+            self.assertContains(response, 'Codigo invalido ou expirado')
+
+        response = self.client.post(reverse('password-recovery-verify'), {'code': '000000'})
+
+        reset_code.refresh_from_db()
+        self.assertContains(response, 'Muitas tentativas')
+        self.assertEqual(reset_code.attempts, 5)
+        self.assertIsNotNone(reset_code.used_at)
+
+    @patch('accounts.views.secrets.randbelow', return_value=123456)
+    @patch('accounts.views.send_text_message')
+    def test_recovery_changes_password_after_valid_code(self, mock_send, mock_randbelow):
+        mock_send.return_value = SimpleNamespace(success=True)
+        self.client.post(reverse('password-recovery-request'), {'email': 'atendente@beezap.com'})
+        verify_response = self.client.post(reverse('password-recovery-verify'), {'code': '123456'})
+
+        self.assertEqual(verify_response.status_code, 200)
+        self.assertContains(verify_response, 'Criar nova senha')
+
+        response = self.client.post(
+            reverse('password-recovery-set-password'),
+            {
+                'new_password': 'SenhaNova123',
+                'confirm_password': 'SenhaNova123',
+            },
+            follow=True,
+        )
+
+        self.assertRedirects(response, reverse('login'))
+        self.user.refresh_from_db()
+        reset_code = PasswordResetCode.objects.get(user=self.user)
+        self.assertTrue(self.user.check_password('SenhaNova123'))
+        self.assertFalse(self.client.login(email='atendente@beezap.com', password='SenhaAntiga123'))
+        self.assertTrue(self.client.login(email='atendente@beezap.com', password='SenhaNova123'))
+        self.assertIsNotNone(reset_code.used_at)
+
+    @patch('accounts.views.secrets.randbelow', return_value=123456)
+    @patch('accounts.views.send_text_message')
+    def test_recovery_rejects_mismatched_passwords(self, mock_send, mock_randbelow):
+        mock_send.return_value = SimpleNamespace(success=True)
+        self.client.post(reverse('password-recovery-request'), {'email': 'atendente@beezap.com'})
+        self.client.post(reverse('password-recovery-verify'), {'code': '123456'})
+
+        response = self.client.post(
+            reverse('password-recovery-set-password'),
+            {
+                'new_password': 'SenhaNova123',
+                'confirm_password': 'SenhaOutra123',
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'As senhas digitadas nao conferem.')

@@ -1,6 +1,8 @@
 from django.contrib.auth.models import AbstractUser, BaseUserManager
 from django.conf import settings
+from django.contrib.auth.hashers import check_password
 from django.db import models
+from django.utils import timezone
 import re
 
 
@@ -112,3 +114,32 @@ class Attendant(models.Model):
 
     def __str__(self):
         return self.name
+
+
+class PasswordResetCode(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='password_reset_codes')
+    code_hash = models.CharField(max_length=128)
+    expires_at = models.DateTimeField()
+    used_at = models.DateTimeField(blank=True, null=True)
+    attempts = models.PositiveSmallIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = 'Codigo de recuperacao de senha'
+        verbose_name_plural = 'Codigos de recuperacao de senha'
+        ordering = ('-created_at',)
+
+    @property
+    def is_expired(self):
+        return timezone.now() >= self.expires_at
+
+    @property
+    def is_available(self):
+        return self.used_at is None and not self.is_expired and self.attempts < 5
+
+    def matches(self, code):
+        return self.is_available and check_password(code, self.code_hash)
+
+    def invalidate(self):
+        self.used_at = timezone.now()
+        self.save(update_fields=['used_at'])

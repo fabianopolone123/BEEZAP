@@ -4,6 +4,7 @@
 {% block title %}Entrar | BEEZap{% endblock %}
 {% block extra_head %}
 <link rel="stylesheet" href="{% static 'css/login.css' %}">
+<link rel="stylesheet" href="{% static 'css/password_recovery.css' %}">
 {% endblock %}
 
 {% block content %}
@@ -23,14 +24,6 @@
 
       <form class="login-form" method="post">
         {% csrf_token %}
-        {% if messages %}
-          <div class="form-message">
-            {% for message in messages %}
-              <p class="form-message-item">{{ message }}</p>
-            {% endfor %}
-          </div>
-        {% endif %}
-
         <label>
           <span>E-mail</span>
           {{ form.email }}
@@ -44,9 +37,86 @@
         </label>
 
         <button type="submit">Entrar</button>
-        <a href="#" class="forgot-password">Esqueci minha senha</a>
+        <button type="button" class="forgot-password" data-password-recovery-open>Recuperar senha</button>
       </form>
     </div>
   </section>
 </main>
+
+<div class="password-recovery-modal {% if recovery_open %}is-open{% endif %}" data-password-recovery-modal>
+  <div class="password-recovery-backdrop" data-password-recovery-close></div>
+  <div class="password-recovery-dialog" role="dialog" aria-modal="true">
+    <button type="button" class="password-recovery-close" aria-label="Fechar" data-password-recovery-close>×</button>
+
+    <section class="password-recovery-step {% if recovery_step == 'request' %}is-active{% endif %}" data-recovery-step="request">
+      <div class="password-recovery-head">
+        <h2>Recuperar senha</h2>
+        <p>Digite seu e-mail para receber um codigo no WhatsApp cadastrado.</p>
+      </div>
+      <form method="post" action="{% url 'password-recovery-request' %}" class="password-recovery-form">
+        {% csrf_token %}
+        <label>
+          <span>E-mail</span>
+          {{ recovery_request_form.email }}
+          {% if recovery_request_form.email.errors %}<small class="field-error">{{ recovery_request_form.email.errors|striptags }}</small>{% endif %}
+        </label>
+        <button type="submit">Enviar codigo</button>
+      </form>
+    </section>
+
+    <section class="password-recovery-step {% if recovery_step == 'code' %}is-active{% endif %}" data-recovery-step="code">
+      <div class="password-recovery-head">
+        <h2>Codigo de verificacao</h2>
+        <p>Digite o codigo de 6 digitos enviado para o WhatsApp cadastrado.</p>
+      </div>
+      <form method="post" action="{% url 'password-recovery-verify' %}" class="password-recovery-form">
+        {% csrf_token %}
+        <label>
+          <span>Codigo</span>
+          {{ recovery_code_form.code }}
+          {% if recovery_code_form.code.errors %}<small class="field-error">{{ recovery_code_form.code.errors|striptags }}</small>{% endif %}
+        </label>
+        <button type="submit">Verificar codigo</button>
+      </form>
+      <form method="post" action="{% url 'password-recovery-resend' %}" class="password-recovery-resend">
+        {% csrf_token %}
+        <button type="submit">Reenviar codigo</button>
+      </form>
+    </section>
+
+    <section class="password-recovery-step {% if recovery_step == 'password' %}is-active{% endif %}" data-recovery-step="password">
+      <div class="password-recovery-head">
+        <h2>Criar nova senha</h2>
+        <p>Digite e confirme sua nova senha.</p>
+      </div>
+      <form method="post" action="{% url 'password-recovery-set-password' %}" class="password-recovery-form">
+        {% csrf_token %}
+        <label>
+          <span>Nova senha</span>
+          {{ recovery_password_form.new_password }}
+          {% if recovery_password_form.new_password.errors %}<small class="field-error">{{ recovery_password_form.new_password.errors|striptags }}</small>{% endif %}
+        </label>
+        <label>
+          <span>Confirmar nova senha</span>
+          {{ recovery_password_form.confirm_password }}
+          {% if recovery_password_form.confirm_password.errors %}<small class="field-error">{{ recovery_password_form.confirm_password.errors|striptags }}</small>{% endif %}
+        </label>
+        <button type="submit">Salvar nova senha</button>
+      </form>
+    </section>
+  </div>
+</div>
+
+<script>
+  (function () {
+    const modal = document.querySelector('[data-password-recovery-modal]');
+    const openButton = document.querySelector('[data-password-recovery-open]');
+    if (!modal || !openButton) return;
+
+    openButton.addEventListener('click', () => modal.classList.add('is-open'));
+    document.querySelectorAll('[data-password-recovery-close]').forEach((button) => {
+      button.addEventListener('click', () => modal.classList.remove('is-open'));
+    });
+  }());
+</script>
 {% endblock %}

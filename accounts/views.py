@@ -1,19 +1,33 @@
+import secrets
+from datetime import timedelta
+
 from django.contrib import messages
+from django.contrib.auth.hashers import make_password
 from django.contrib.auth import authenticate, login, logout, update_session_auth_hash
 from django.contrib.auth.decorators import login_required
 from django.db import IntegrityError, transaction
 from django.http import HttpResponseForbidden
 from django.shortcuts import get_object_or_404, redirect, render
+from django.utils import timezone
 
 from .forms import (
     AttendantForm,
     InitialPasswordChangeForm,
     LoginForm,
+    PasswordRecoveryCodeForm,
+    PasswordRecoveryNewPasswordForm,
+    PasswordRecoveryRequestForm,
     WapiConfigurationForm,
     WapiSendTextForm,
 )
-from .models import Attendant, User, WapiConfiguration
+from .models import Attendant, PasswordResetCode, User, WapiConfiguration
 from wapi.client import send_text_message
+
+
+PASSWORD_RECOVERY_CODE_ID_KEY = 'password_recovery_code_id'
+PASSWORD_RECOVERY_EMAIL_KEY = 'password_recovery_email'
+PASSWORD_RECOVERY_VERIFIED_ID_KEY = 'password_recovery_verified_id'
+PASSWORD_RECOVERY_GENERIC_MESSAGE = 'Se os dados estiverem corretos, enviaremos um codigo para o WhatsApp cadastrado.'
 
 
 ROLE_RANK = {
@@ -58,6 +72,82 @@ def split_name_parts(full_name):
     return first_name, last_name
 
 
+def build_login_context(
+    request,
+    form=None,
+    recovery_step='request',
+    recovery_open=False,
+    recovery_request_form=None,
+    recovery_code_form=None,
+    recovery_password_form=None,
+):
+    return {
+        'form': form or LoginForm(),
+        'recovery_open': recovery_open,
+        'recovery_step': recovery_step,
+        'recovery_request_form': recovery_request_form or PasswordRecoveryRequestForm(
+            initial={'email': request.session.get(PASSWORD_RECOVERY_EMAIL_KEY, '')}
+        ),
+        'recovery_code_form': recovery_code_form or PasswordRecoveryCodeForm(),
+        'recovery_password_form': recovery_password_form or PasswordRecoveryNewPasswordForm(),
+    }
+
+
+def render_login(request, **context):
+    return render(request, 'accounts/login.html', build_login_context(request, **context))
+
+
+def get_user_recovery_phone(user):
+    try:
+        return Attendant.normalize_phone(user.attendant_profile.phone)
+    except Attendant.DoesNotExist:
+        return ''
+
+
+def clear_password_recovery_session(request):
+    for key in (
+        PASSWORD_RECOVERY_CODE_ID_KEY,
+        PASSWORD_RECOVERY_EMAIL_KEY,
+        PASSWORD_RECOVERY_VERIFIED_ID_KEY,
+    ):
+        request.session.pop(key, None)
+
+
+def create_and_send_password_recovery_code(user, phone):
+    code = f'{secrets.randbelow(1000000):06d}'
+    now = timezone.now()
+    PasswordResetCode.objects.filter(user=user, used_at__isnull=True).update(used_at=now)
+    reset_code = PasswordResetCode.objects.create(
+        user=user,
+        code_hash=make_password(code),
+        expires_at=now + timedelta(minutes=10),
+    )
+    message = (
+        f'Seu codigo de recuperacao de senha do BEEZAP e: {code}\n\n'
+        'Este codigo expira em 10 minutos.'
+    )
+    result = send_text_message(phone=phone, message=message)
+    return reset_code if result.success else None
+
+
+def request_password_recovery_code(request, email):
+    request.session[PASSWORD_RECOVERY_EMAIL_KEY] = email
+    request.session.pop(PASSWORD_RECOVERY_CODE_ID_KEY, None)
+    request.session.pop(PASSWORD_RECOVERY_VERIFIED_ID_KEY, None)
+
+    user = User.objects.filter(email__iexact=email, is_active=True).first()
+    if not user:
+        return
+
+    phone = get_user_recovery_phone(user)
+    if not phone:
+        return
+
+    reset_code = create_and_send_password_recovery_code(user, phone)
+    if reset_code:
+        request.session[PASSWORD_RECOVERY_CODE_ID_KEY] = reset_code.id
+
+
 def must_change_initial_password(user):
     if not user.is_authenticated:
         return False
@@ -84,7 +174,100 @@ def login_view(request):
             return redirect('dashboard')
         messages.error(request, 'E-mail ou senha invalidos.')
 
-    return render(request, 'accounts/login.html', {'form': form})
+    return render_login(request, form=form)
+
+
+def password_recovery_request_view(request):
+    if request.method != 'POST':
+        return redirect('login')
+
+    form = PasswordRecoveryRequestForm(request.POST)
+    if form.is_valid():
+        request_password_recovery_code(request, form.cleaned_data['email'].strip().lower())
+        messages.info(request, PASSWORD_RECOVERY_GENERIC_MESSAGE)
+        return render_login(request, recovery_step='code', recovery_open=True, recovery_request_form=form)
+
+    messages.error(request, 'Nao foi possivel concluir a recuperacao de senha. Tente novamente.')
+    return render_login(request, recovery_step='request', recovery_open=True, recovery_request_form=form)
+
+
+def password_recovery_resend_view(request):
+    if request.method != 'POST':
+        return redirect('login')
+
+    email = request.session.get(PASSWORD_RECOVERY_EMAIL_KEY, '')
+    if email:
+        request_password_recovery_code(request, email)
+    messages.info(request, PASSWORD_RECOVERY_GENERIC_MESSAGE)
+    return render_login(request, recovery_step='code', recovery_open=True)
+
+
+def password_recovery_verify_code_view(request):
+    if request.method != 'POST':
+        return redirect('login')
+
+    form = PasswordRecoveryCodeForm(request.POST)
+    if not form.is_valid():
+        messages.error(request, 'Codigo invalido ou expirado. Verifique e tente novamente.')
+        return render_login(request, recovery_step='code', recovery_open=True, recovery_code_form=form)
+
+    reset_code = PasswordResetCode.objects.filter(
+        pk=request.session.get(PASSWORD_RECOVERY_CODE_ID_KEY),
+        used_at__isnull=True,
+    ).select_related('user').first()
+
+    if not reset_code or not reset_code.is_available:
+        messages.error(request, 'Codigo invalido ou expirado. Verifique e tente novamente.')
+        return render_login(request, recovery_step='code', recovery_open=True, recovery_code_form=form)
+
+    if reset_code.matches(form.cleaned_data['code']):
+        request.session[PASSWORD_RECOVERY_VERIFIED_ID_KEY] = reset_code.id
+        messages.info(request, 'Codigo confirmado. Crie sua nova senha.')
+        return render_login(request, recovery_step='password', recovery_open=True)
+
+    reset_code.attempts += 1
+    update_fields = ['attempts']
+    if reset_code.attempts >= 5:
+        reset_code.used_at = timezone.now()
+        update_fields.append('used_at')
+        request.session.pop(PASSWORD_RECOVERY_CODE_ID_KEY, None)
+        messages.error(request, 'Muitas tentativas. Solicite um novo codigo.')
+    else:
+        messages.error(request, 'Codigo invalido ou expirado. Verifique e tente novamente.')
+    reset_code.save(update_fields=update_fields)
+    return render_login(request, recovery_step='code', recovery_open=True, recovery_code_form=form)
+
+
+def password_recovery_set_password_view(request):
+    if request.method != 'POST':
+        return redirect('login')
+
+    reset_code = PasswordResetCode.objects.filter(
+        pk=request.session.get(PASSWORD_RECOVERY_VERIFIED_ID_KEY),
+        used_at__isnull=True,
+    ).select_related('user').first()
+
+    if not reset_code or not reset_code.is_available:
+        clear_password_recovery_session(request)
+        messages.error(request, 'Codigo invalido ou expirado. Verifique e tente novamente.')
+        return render_login(request, recovery_step='request', recovery_open=True)
+
+    form = PasswordRecoveryNewPasswordForm(request.POST, user=reset_code.user)
+    if form.is_valid():
+        reset_code.user.set_password(form.cleaned_data['new_password'])
+        reset_code.user.save(update_fields=['password'])
+        reset_code.invalidate()
+        clear_password_recovery_session(request)
+        messages.success(request, 'Senha alterada com sucesso. Faca login com sua nova senha.')
+        return redirect('login')
+
+    if form.errors.get('confirm_password'):
+        messages.error(request, 'As senhas digitadas nao conferem.')
+    elif form.errors.get('new_password'):
+        messages.error(request, 'Escolha uma senha mais segura.')
+    else:
+        messages.error(request, 'Nao foi possivel concluir a recuperacao de senha. Tente novamente.')
+    return render_login(request, recovery_step='password', recovery_open=True, recovery_password_form=form)
 
 
 @login_required

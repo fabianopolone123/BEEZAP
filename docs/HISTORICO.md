@@ -35,3 +35,4 @@ Registro curto das alterações feitas no projeto.
 - Criada a tela de atendentes para ADM com cadastro, edicao em modal e vinculo de usuario com senha inicial 1234.
 - Implementada troca obrigatoria de senha inicial para atendentes no primeiro acesso.
 - Removida a barra piscando de digitacao em elementos nao editaveis, preservando campos reais de formulario e documentando a regra de UX.
+- Implementada recuperacao de senha por codigo de 6 digitos enviado via WhatsApp, com hash, expiracao e limite de tentativas.
