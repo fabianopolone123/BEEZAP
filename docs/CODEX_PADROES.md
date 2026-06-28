@@ -1,4 +1,4 @@
-# Padrões Codex do Projeto
+﻿# Padrões Codex do Projeto
 
 Este arquivo define os padrões de trabalho para o projeto BEEZAP.
 
@@ -12,6 +12,36 @@ Este arquivo define os padrões de trabalho para o projeto BEEZAP.
 6. O sistema deve ser didático, simples de usar e pensado para pessoas com pouca experiência técnica.
 7. O acesso deve ser controlado por perfil de usuário, liberando botões e funções conforme o nível logado.
 8. A evolução do sistema deve ser feita com calma, por partes, sempre preservando uma base sólida e funcional.
+
+## Padrões de interface e CSS
+
+1. O sistema deve manter interface simples, clara e amigável para usuário final.
+2. Evitar termos técnicos desnecessários nas telas.
+3. Mensagens de sucesso, erro, aviso e informação devem usar o padrão visual de notificação suspensa/toast do sistema.
+4. Não criar alertas grandes dentro do conteúdo da página, salvo se for uma exceção explicitamente solicitada.
+5. Mensagens para usuário final devem ser curtas e compreensíveis.
+6. Não exibir dados técnicos sensíveis nas mensagens, como token, payload, headers, traceback, resposta bruta de API ou IDs técnicos desnecessários.
+7. Quando uma página tiver estilos próprios, criar um CSS específico para ela.
+8. O arquivo `dashboard.css` deve ficar reservado para estilos gerais do painel.
+9. CSS específico de página deve usar uma classe raiz própria para evitar conflito com outras telas.
+10. Exemplo de organização:
+   - `static/css/dashboard.css` para base geral do painel
+   - `static/css/wapi_settings.css` para tela WhatsApp / W-API
+   - futuras telas podem ter CSS próprio quando necessário
+11. Não misturar regras muito específicas de uma tela dentro do CSS global, quando isso puder afetar outras páginas.
+12. Antes de concluir ajuste visual, validar no navegador quando possível.
+13. Após alterar CSS, testar com recarregamento forçado, como Ctrl + F5, para evitar cache.
+14. O layout deve ser responsivo e não deve criar rolagem horizontal.
+15. Cada tela deve evitar poluição visual e excesso de botões.
+
+## Padrão de notificações
+
+1. Usar o padrão toast para notificações do sistema.
+2. A notificação deve ser pequena, discreta e bonita.
+3. Deve funcionar para sucesso, erro, aviso e informação.
+4. Deve ter texto simples para usuário final.
+5. Deve desaparecer automaticamente ou permitir fechamento manual, se isso já estiver disponível no padrão do sistema.
+6. Não usar notificações como card grande no meio da página sem pedido explícito.
 
 ## Padrão de commit
 

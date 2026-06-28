@@ -27,3 +27,4 @@ Registro curto das alterações feitas no projeto.
 - Reduzido o espacamento vertical entre o titulo e o card principal da tela W-API.
 - Ajustado o gap da pagina W-API para aproximar o card principal do cabecalho.
 - Tela W-API passou a usar CSS especifico em `static/css/wapi_settings.css`.
+- Documentados os padroes de interface, CSS por pagina e notificacoes toast no projeto.
