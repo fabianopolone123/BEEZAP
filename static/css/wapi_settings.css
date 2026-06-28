@@ -1,6 +1,11 @@
+.wapi-page-shell {
+  padding-top: 12px;
+  gap: 10px;
+}
+
 .wapi-settings-page {
   display: grid;
-  gap: 28px;
+  gap: 16px;
 }
 
 .wapi-settings-page .settings-stack {
@@ -103,7 +108,7 @@
 }
 
 .wapi-settings-page .wapi-card {
-  margin-top: 8px;
+  margin-top: 0;
 }
 
 @media (max-width: 1200px) {
@@ -121,7 +126,11 @@
 }
 
 @media (max-width: 760px) {
+  .wapi-page-shell {
+    padding-top: 10px;
+  }
+
   .wapi-settings-page {
-    gap: 24px;
+    gap: 14px;
   }
 }
