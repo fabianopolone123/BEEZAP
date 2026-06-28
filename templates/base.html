@@ -12,6 +12,34 @@
     {% block extra_head %}{% endblock %}
   </head>
   <body>
+    {% if messages %}
+      <div class="toast-container" aria-live="polite" aria-atomic="true">
+        {% for message in messages %}
+          <div class="toast-message toast-{{ message.tags|default:'info' }}" role="status" data-toast-message>
+            <span class="toast-marker" aria-hidden="true"></span>
+            <div class="toast-content">{{ message }}</div>
+            <button type="button" class="toast-close" aria-label="Fechar notificação" data-toast-close>×</button>
+          </div>
+        {% endfor %}
+      </div>
+    {% endif %}
     {% block content %}{% endblock %}
+    <script>
+      (function () {
+        const toasts = document.querySelectorAll('[data-toast-message]');
+        if (!toasts.length) return;
+        toasts.forEach((toast) => {
+          const closeButton = toast.querySelector('[data-toast-close]');
+          const dismiss = () => {
+            toast.classList.add('toast-hiding');
+            window.setTimeout(() => toast.remove(), 220);
+          };
+          if (closeButton) {
+            closeButton.addEventListener('click', dismiss);
+          }
+          window.setTimeout(dismiss, 4200);
+        });
+      }());
+    </script>
   </body>
 </html>

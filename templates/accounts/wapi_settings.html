@@ -49,14 +49,6 @@
       </div>
     </header>
 
-    {% if messages %}
-      <section class="stack-block">
-        {% for message in messages %}
-          <div class="settings-flash settings-flash-{{ message.tags|default:'info' }}">{{ message }}</div>
-        {% endfor %}
-      </section>
-    {% endif %}
-
     <section class="settings-stack">
       <article class="settings-card settings-card-split">
         <div class="settings-column">

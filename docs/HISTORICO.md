@@ -23,3 +23,4 @@ Registro curto das alterações feitas no projeto.
 - URL oficial de envio da W-API ajustada para `POST /v1/message/send-text` com `instanceId` em query string e retorno estruturado com `messageId` e `insertedId`.
 - Tela de configuracao da W-API reorganizada em um unico card com duas colunas responsivas para configuracao e teste de envio.
 - Ajuste visual dos alertas da tela W-API para mensagens mais compactas e simples para o usuario final.
+- Notificacoes do sistema convertidas para toast compacto reaproveitavel no template base.
