@@ -32,11 +32,22 @@
 
         <label>
           <span>Senha</span>
-          {{ form.password }}
+          <div class="password-field">
+            {{ form.password }}
+            <button type="button" class="password-visibility-toggle" aria-label="Mostrar senha" data-password-toggle>
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path d="M1.5 12s3.8-6.5 10.5-6.5S22.5 12 22.5 12s-3.8 6.5-10.5 6.5S1.5 12 1.5 12Z"></path>
+                <circle cx="12" cy="12" r="3.2"></circle>
+              </svg>
+            </button>
+          </div>
           {% if form.password.errors %}<small class="field-error">{{ form.password.errors|striptags }}</small>{% endif %}
         </label>
 
-        <button type="submit">Entrar</button>
+        <button type="submit" class="login-submit-button" data-login-submit>
+          <span data-login-label>Entrar</span>
+          <span class="login-submit-spinner" data-login-spinner aria-hidden="true"></span>
+        </button>
         <button type="button" class="forgot-password" data-password-recovery-open>Recuperar senha</button>
       </form>
     </div>
@@ -46,7 +57,7 @@
 <div class="password-recovery-modal {% if recovery_open %}is-open{% endif %}" data-password-recovery-modal>
   <div class="password-recovery-backdrop" data-password-recovery-close></div>
   <div class="password-recovery-dialog" role="dialog" aria-modal="true">
-    <button type="button" class="password-recovery-close" aria-label="Fechar" data-password-recovery-close>×</button>
+    <button type="button" class="password-recovery-close" aria-label="Fechar" data-password-recovery-close>&times;</button>
 
     <section class="password-recovery-step {% if recovery_step == 'request' %}is-active{% endif %}" data-recovery-step="request">
       <div class="password-recovery-head">
@@ -111,12 +122,51 @@
   (function () {
     const modal = document.querySelector('[data-password-recovery-modal]');
     const openButton = document.querySelector('[data-password-recovery-open]');
-    if (!modal || !openButton) return;
+    const loginForm = document.querySelector('.login-form');
+    const passwordInput = loginForm ? loginForm.querySelector('input[name="password"]') : null;
+    const passwordToggle = loginForm ? loginForm.querySelector('[data-password-toggle]') : null;
+    const submitButton = loginForm ? loginForm.querySelector('[data-login-submit]') : null;
+    const submitLabel = loginForm ? loginForm.querySelector('[data-login-label]') : null;
 
-    openButton.addEventListener('click', () => modal.classList.add('is-open'));
-    document.querySelectorAll('[data-password-recovery-close]').forEach((button) => {
-      button.addEventListener('click', () => modal.classList.remove('is-open'));
-    });
+    function revealPassword() {
+      if (passwordInput) {
+        passwordInput.type = 'text';
+      }
+    }
+
+    function hidePassword() {
+      if (passwordInput) {
+        passwordInput.type = 'password';
+      }
+    }
+
+    if (passwordToggle && passwordInput) {
+      ['pointerdown', 'mousedown', 'touchstart'].forEach((eventName) => {
+        passwordToggle.addEventListener(eventName, (event) => {
+          event.preventDefault();
+          revealPassword();
+        });
+      });
+
+      ['pointerup', 'pointerleave', 'pointercancel', 'mouseup', 'mouseleave', 'touchend', 'touchcancel', 'blur'].forEach((eventName) => {
+        passwordToggle.addEventListener(eventName, hidePassword);
+      });
+    }
+
+    if (loginForm && submitButton && submitLabel) {
+      loginForm.addEventListener('submit', () => {
+        submitButton.disabled = true;
+        submitButton.classList.add('is-loading');
+        submitLabel.textContent = 'Entrando...';
+      });
+    }
+
+    if (modal && openButton) {
+      openButton.addEventListener('click', () => modal.classList.add('is-open'));
+      document.querySelectorAll('[data-password-recovery-close]').forEach((button) => {
+        button.addEventListener('click', () => modal.classList.remove('is-open'));
+      });
+    }
   }());
 </script>
 {% endblock %}
