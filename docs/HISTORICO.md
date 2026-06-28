@@ -43,3 +43,4 @@ Registro curto das alterações feitas no projeto.
 - Ajustado o caret dos campos da tela de login para nao ficar piscando em foco parado, mantendo indicacao discreta durante a digitacao.
 - Restaurado o caret normal dentro dos campos editaveis de e-mail e senha na tela de login.
 - Ajustado o clique na area vazia final dos campos de e-mail e senha para nao posicionar o caret no fim do texto.
+- Corrigido o cursor indevido na tela de login com regra de caret limitada a elementos nao editaveis e sem interferir nos campos reais.

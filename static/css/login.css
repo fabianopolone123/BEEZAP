@@ -14,14 +14,13 @@
   box-sizing: border-box;
 }
 
-body :where(:not(input):not(textarea):not(select):not([contenteditable="true"])) {
+.login-page :where(:not(input):not(textarea):not(select):not([contenteditable="true"])),
+.password-recovery-modal :where(:not(input):not(textarea):not(select):not([contenteditable="true"])) {
   caret-color: transparent;
 }
 
-input,
-textarea,
-select,
-[contenteditable="true"] {
+.login-page :where(input, textarea, select, [contenteditable="true"]),
+.password-recovery-modal :where(input, textarea, select, [contenteditable="true"]) {
   caret-color: auto;
 }
 

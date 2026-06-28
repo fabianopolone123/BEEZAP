@@ -127,7 +127,6 @@
     const passwordToggle = loginForm ? loginForm.querySelector('[data-password-toggle]') : null;
     const submitButton = loginForm ? loginForm.querySelector('[data-login-submit]') : null;
     const submitLabel = loginForm ? loginForm.querySelector('[data-login-label]') : null;
-    const loginInputs = loginForm ? loginForm.querySelectorAll('input') : [];
 
     function revealPassword() {
       if (passwordInput) {
@@ -153,40 +152,6 @@
         passwordToggle.addEventListener(eventName, hidePassword);
       });
     }
-
-    function getTextWidth(input) {
-      const canvas = getTextWidth.canvas || (getTextWidth.canvas = document.createElement('canvas'));
-      const context = canvas.getContext('2d');
-      const style = window.getComputedStyle(input);
-      const text = input.type === 'password' ? 'x'.repeat(input.value.length) : input.value;
-
-      context.font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
-      return context.measureText(text).width;
-    }
-
-    function isTrailingEmptyClick(input, event) {
-      if (!input.value || event.pointerType === 'touch') {
-        return false;
-      }
-
-      const rect = input.getBoundingClientRect();
-      const style = window.getComputedStyle(input);
-      const paddingLeft = parseFloat(style.paddingLeft) || 0;
-      const paddingRight = parseFloat(style.paddingRight) || 0;
-      const textEnd = rect.left + paddingLeft + getTextWidth(input) + 14;
-      const usableRight = rect.right - paddingRight;
-
-      return event.clientX > textEnd && event.clientX < usableRight;
-    }
-
-    loginInputs.forEach((input) => {
-      input.addEventListener('pointerdown', (event) => {
-        if (isTrailingEmptyClick(input, event)) {
-          event.preventDefault();
-          input.blur();
-        }
-      });
-    });
 
     if (loginForm && submitButton && submitLabel) {
       loginForm.addEventListener('submit', () => {
