@@ -19,7 +19,7 @@
 
     <nav class="sidebar-nav">
       {% for item in nav_items %}
-        <a href="#" class="nav-item {% if item.active %}active{% endif %}">
+        <a href="{% if item.href %}{% url item.href %}{% else %}#{% endif %}" class="nav-item {% if item.active %}active{% endif %}">
           <span class="nav-dot"></span>
           <span>{{ item.label }}</span>
         </a>

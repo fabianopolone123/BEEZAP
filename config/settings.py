@@ -10,6 +10,7 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
+import os
 from pathlib import Path
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -126,6 +127,11 @@ AUTHENTICATION_BACKENDS = [
     'accounts.backends.EmailBackend',
     'django.contrib.auth.backends.ModelBackend',
 ]
+
+WAPI_BASE_URL = os.getenv('WAPI_BASE_URL', 'https://api.w-api.app')
+WAPI_INSTANCE_ID = os.getenv('WAPI_INSTANCE_ID', '')
+WAPI_TOKEN = os.getenv('WAPI_TOKEN', '')
+WAPI_SEND_TEXT_PATH = os.getenv('WAPI_SEND_TEXT_PATH', '')
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field

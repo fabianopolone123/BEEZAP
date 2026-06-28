@@ -430,6 +430,118 @@ a {
   overflow-x: auto;
 }
 
+.settings-stack {
+  display: grid;
+  gap: 18px;
+}
+
+.stack-block {
+  display: grid;
+  gap: 12px;
+}
+
+.settings-card {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 22px;
+  box-shadow: var(--shadow);
+  padding: 20px;
+}
+
+.settings-form-grid {
+  display: grid;
+  gap: 18px;
+  margin-top: 14px;
+}
+
+.settings-field {
+  display: grid;
+  gap: 8px;
+}
+
+.settings-field label {
+  font-size: 0.92rem;
+  font-weight: 600;
+}
+
+.settings-field input,
+.settings-field textarea {
+  width: 100%;
+  padding: 15px 16px;
+  border: 1px solid rgba(100, 116, 139, 0.2);
+  border-radius: 16px;
+  background: #fff;
+  color: var(--text);
+  font: inherit;
+  outline: none;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.settings-field textarea {
+  min-height: 120px;
+  resize: vertical;
+}
+
+.settings-field input:focus,
+.settings-field textarea:focus {
+  border-color: rgba(33, 194, 94, 0.65);
+  box-shadow: 0 0 0 4px rgba(33, 194, 94, 0.12);
+}
+
+.settings-actions {
+  display: flex;
+  justify-content: flex-start;
+}
+
+.primary-button {
+  padding: 14px 20px;
+  border: 0;
+  border-radius: 16px;
+  background: linear-gradient(135deg, var(--primary), var(--primary-deep));
+  color: #fff;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 14px 30px rgba(17, 152, 74, 0.24);
+}
+
+.settings-flash {
+  padding: 14px 16px;
+  border-radius: 16px;
+  border: 1px solid transparent;
+  box-shadow: var(--shadow);
+}
+
+.settings-flash-success {
+  background: rgba(33, 194, 94, 0.1);
+  border-color: rgba(33, 194, 94, 0.18);
+  color: var(--primary-deep);
+}
+
+.settings-flash-error {
+  background: rgba(239, 91, 91, 0.1);
+  border-color: rgba(239, 91, 91, 0.18);
+  color: #b42318;
+}
+
+.settings-flash-info {
+  background: rgba(45, 108, 223, 0.1);
+  border-color: rgba(45, 108, 223, 0.18);
+  color: var(--blue);
+}
+
+.field-help {
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+.field-error {
+  color: #b42318;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
 table {
   width: 100%;
   border-collapse: collapse;

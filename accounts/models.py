@@ -1,4 +1,5 @@
 from django.contrib.auth.models import AbstractUser, BaseUserManager
+from django.conf import settings
 from django.db import models
 
 
@@ -48,4 +49,31 @@ class User(AbstractUser):
     def __str__(self):
         return self.email
 
-# Create your models here.
+
+class WapiConfiguration(models.Model):
+    instance_id = models.CharField(max_length=120, blank=True)
+    token = models.CharField(max_length=255, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'Configuracao W-API'
+        verbose_name_plural = 'Configuracoes W-API'
+
+    @classmethod
+    def get_solo(cls):
+        config, _ = cls.objects.get_or_create(pk=1)
+        return config
+
+    @property
+    def has_token(self):
+        return bool(self.token or settings.WAPI_TOKEN)
+
+    def resolved_instance_id(self):
+        return self.instance_id or settings.WAPI_INSTANCE_ID
+
+    def resolved_token(self):
+        return self.token or settings.WAPI_TOKEN
+
+    def __str__(self):
+        return 'Configuracao W-API'
