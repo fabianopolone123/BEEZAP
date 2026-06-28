@@ -184,15 +184,15 @@ body {
   position: absolute;
   top: 50%;
   right: 12px;
-  width: 40px;
-  height: 40px;
+  width: 34px;
+  height: 34px;
   margin: 0;
   padding: 0;
   border: 0;
-  border-radius: 12px;
+  border-radius: 50%;
   background: transparent;
   box-shadow: none;
-  color: #5b6b84;
+  color: rgba(100, 116, 139, 0.72);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -210,10 +210,10 @@ body {
 }
 
 .password-visibility-toggle svg {
-  width: 20px;
-  height: 20px;
+  width: 18px;
+  height: 18px;
   stroke: currentColor;
-  stroke-width: 1.8;
+  stroke-width: 1.7;
   fill: none;
 }
 
@@ -240,11 +240,30 @@ body {
   filter: brightness(1.02);
 }
 
+.login-form .password-visibility-toggle {
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  color: rgba(100, 116, 139, 0.72);
+  box-shadow: none;
+}
+
+.login-form .password-visibility-toggle:hover,
+.login-form .password-visibility-toggle:focus-visible {
+  background: rgba(20, 33, 61, 0.05);
+  color: rgba(17, 152, 74, 0.86);
+  filter: none;
+}
+
 .login-submit-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 10px;
+}
+
+.login-form .login-submit-button span {
+  color: #ffffff;
 }
 
 .login-submit-button:disabled {

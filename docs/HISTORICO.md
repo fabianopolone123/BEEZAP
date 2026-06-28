@@ -38,3 +38,4 @@ Registro curto das alterações feitas no projeto.
 - Implementada recuperacao de senha por codigo de 6 digitos enviado via WhatsApp, com hash, expiracao e limite de tentativas.
 - Restaurado o visual discreto do botao de recuperacao de senha na tela de login.
 - Melhorada a experiencia da tela de login com olhinho para revelar a senha ao pressionar e indicador visual de carregamento no botao Entrar.
+- Corrigido o contraste do texto do botao Entrar e refinado o visual discreto do olhinho da senha.
