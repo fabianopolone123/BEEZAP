@@ -1,11 +1,11 @@
-.wapi-page-shell {
+.dashboard-main.dashboard-main-wapi {
   padding-top: 12px;
-  gap: 10px;
+  gap: 8px;
 }
 
 .wapi-settings-page {
   display: grid;
-  gap: 16px;
+  gap: 12px;
 }
 
 .wapi-settings-page .settings-stack {
@@ -126,11 +126,11 @@
 }
 
 @media (max-width: 760px) {
-  .wapi-page-shell {
+  .dashboard-main.dashboard-main-wapi {
     padding-top: 10px;
   }
 
   .wapi-settings-page {
-    gap: 14px;
+    gap: 10px;
   }
 }

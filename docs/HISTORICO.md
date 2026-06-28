@@ -29,3 +29,4 @@ Registro curto das alterações feitas no projeto.
 - Tela W-API passou a usar CSS especifico em `static/css/wapi_settings.css`.
 - Documentados os padroes de interface, CSS por pagina e notificacoes toast no projeto.
 - Ajustado o topo da tela W-API para reduzir espacos vazios acima do titulo e antes do card.
+- Tela W-API passou a compactar o proprio container `dashboard-main` com classe especifica.
