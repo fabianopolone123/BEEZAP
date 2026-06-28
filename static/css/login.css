@@ -177,26 +177,28 @@ body {
 }
 
 .password-field input {
-  padding-right: 56px;
+  padding-right: 64px;
 }
 
 .password-visibility-toggle {
   position: absolute;
   top: 50%;
-  right: 12px;
-  width: 34px;
+  right: 6px;
+  width: 52px;
   height: 34px;
   margin: 0;
   padding: 0;
   border: 0;
-  border-radius: 50%;
+  border-radius: 14px;
   background: transparent;
   box-shadow: none;
   color: rgba(100, 116, 139, 0.72);
+  caret-color: transparent;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
+  user-select: none;
   transform: translateY(-50%);
   transition: background-color 0.2s ease, color 0.2s ease;
 }
@@ -215,6 +217,7 @@ body {
   stroke: currentColor;
   stroke-width: 1.7;
   fill: none;
+  pointer-events: none;
 }
 
 .field-error {
