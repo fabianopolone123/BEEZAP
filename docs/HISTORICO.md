@@ -42,3 +42,4 @@ Registro curto das alterações feitas no projeto.
 - Ajustada a area clicavel do olhinho da senha para evitar caret piscando ao clicar na lateral do icone.
 - Ajustado o caret dos campos da tela de login para nao ficar piscando em foco parado, mantendo indicacao discreta durante a digitacao.
 - Restaurado o caret normal dentro dos campos editaveis de e-mail e senha na tela de login.
+- Ajustado o clique na area vazia final dos campos de e-mail e senha para nao posicionar o caret no fim do texto.
