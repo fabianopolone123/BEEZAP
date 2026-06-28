@@ -22,3 +22,4 @@ Registro curto das alterações feitas no projeto.
 - Rota oficial de envio de texto da W-API confirmada e aplicada no cliente para instancias Lite usando `POST /send-text` com `instanceId` em query string.
 - URL oficial de envio da W-API ajustada para `POST /v1/message/send-text` com `instanceId` em query string e retorno estruturado com `messageId` e `insertedId`.
 - Tela de configuracao da W-API reorganizada em um unico card com duas colunas responsivas para configuracao e teste de envio.
+- Ajuste visual dos alertas da tela W-API para mensagens mais compactas e simples para o usuario final.

@@ -437,7 +437,7 @@ a {
 
 .stack-block {
   display: grid;
-  gap: 12px;
+  gap: 10px;
 }
 
 .settings-card {
@@ -522,10 +522,11 @@ a {
 }
 
 .settings-flash {
-  padding: 14px 16px;
-  border-radius: 16px;
+  padding: 12px 14px;
+  border-radius: 14px;
   border: 1px solid transparent;
   box-shadow: var(--shadow);
+  line-height: 1.35;
 }
 
 .settings-flash-success {

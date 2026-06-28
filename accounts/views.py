@@ -125,7 +125,7 @@ def wapi_settings_view(request):
             if new_token:
                 config.token = new_token
             config.save()
-            messages.success(request, 'Configuracao da W-API salva com sucesso.')
+            messages.success(request, 'Configuracao salva com sucesso.')
             return redirect('wapi-settings')
 
         if form_type == 'send-test' and send_form.is_valid():
@@ -134,12 +134,12 @@ def wapi_settings_view(request):
                 message=send_form.cleaned_data['message'].strip(),
             )
             if result.success:
-                success_text = 'Mensagem enviada para a fila da W-API.'
-                if result.message_id:
-                    success_text += f' ID retornado: {result.message_id}.'
-                messages.success(request, success_text)
+                messages.success(request, 'Mensagem enviada com sucesso.')
             else:
-                messages.error(request, result.error or 'Nao foi possivel enviar a mensagem.')
+                messages.error(
+                    request,
+                    result.error or 'Nao foi possivel enviar a mensagem. Verifique o telefone, o Instance ID e o Token.',
+                )
             return redirect('wapi-settings')
 
     return render(
