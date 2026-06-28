@@ -123,6 +123,7 @@
     const modal = document.querySelector('[data-password-recovery-modal]');
     const openButton = document.querySelector('[data-password-recovery-open]');
     const loginForm = document.querySelector('.login-form');
+    const emailInput = loginForm ? loginForm.querySelector('input[name="email"]') : null;
     const passwordInput = loginForm ? loginForm.querySelector('input[name="password"]') : null;
     const passwordToggle = loginForm ? loginForm.querySelector('[data-password-toggle]') : null;
     const submitButton = loginForm ? loginForm.querySelector('[data-login-submit]') : null;
@@ -150,6 +151,30 @@
 
       ['pointerup', 'pointerleave', 'pointercancel', 'mouseup', 'mouseleave', 'touchend', 'touchcancel', 'blur'].forEach((eventName) => {
         passwordToggle.addEventListener(eventName, hidePassword);
+      });
+    }
+
+    function getInputTextWidth(input) {
+      const canvas = getInputTextWidth.canvas || (getInputTextWidth.canvas = document.createElement('canvas'));
+      const context = canvas.getContext('2d');
+      const style = window.getComputedStyle(input);
+      const text = input.value || input.placeholder || '';
+
+      context.font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+      return context.measureText(text).width;
+    }
+
+    if (emailInput) {
+      emailInput.addEventListener('pointerdown', (event) => {
+        const rect = emailInput.getBoundingClientRect();
+        const style = window.getComputedStyle(emailInput);
+        const paddingLeft = parseFloat(style.paddingLeft) || 0;
+        const textEnd = rect.left + paddingLeft + getInputTextWidth(emailInput) + 16;
+
+        if (event.clientX > textEnd) {
+          event.preventDefault();
+          emailInput.blur();
+        }
       });
     }
 
