@@ -58,79 +58,81 @@
     {% endif %}
 
     <section class="settings-stack">
-      <article class="settings-card">
-        <div class="panel-head">
-          <div>
-            <h2>Configuracao da W-API</h2>
-            <span>Defina a instancia ativa e o token de autenticacao.</span>
-          </div>
-        </div>
-
-        <form method="post" class="settings-form-grid">
-          {% csrf_token %}
-          <input type="hidden" name="form_type" value="config">
-
-          <div class="settings-field">
-            <label for="{{ config_form.instance_id.id_for_label }}">Instance ID</label>
-            {{ config_form.instance_id }}
-            {% if config_form.instance_id.errors %}
-              <small class="field-error">{{ config_form.instance_id.errors|striptags }}</small>
-            {% endif %}
+      <article class="settings-card settings-card-split">
+        <div class="settings-column">
+          <div class="panel-head">
+            <div>
+              <h2>Configuracao da W-API</h2>
+              <span>Defina a instancia ativa e o token de autenticacao.</span>
+            </div>
           </div>
 
-          <div class="settings-field">
-            <label for="{{ config_form.token.id_for_label }}">Token</label>
-            {{ config_form.token }}
-            <small class="field-help">
-              {% if token_configured %}
-                Token configurado. Deixe o campo em branco para manter o token atual.
-              {% else %}
-                Nenhum token salvo ainda. O valor digitado nao sera exibido depois de salvo.
+          <form method="post" class="settings-form-grid">
+            {% csrf_token %}
+            <input type="hidden" name="form_type" value="config">
+
+            <div class="settings-field">
+              <label for="{{ config_form.instance_id.id_for_label }}">Instance ID</label>
+              {{ config_form.instance_id }}
+              {% if config_form.instance_id.errors %}
+                <small class="field-error">{{ config_form.instance_id.errors|striptags }}</small>
               {% endif %}
-            </small>
-            {% if config_form.token.errors %}
-              <small class="field-error">{{ config_form.token.errors|striptags }}</small>
-            {% endif %}
-          </div>
+            </div>
 
-          <div class="settings-actions">
-            <button type="submit" class="primary-button">Salvar configuracao</button>
-          </div>
-        </form>
-      </article>
+            <div class="settings-field">
+              <label for="{{ config_form.token.id_for_label }}">Token</label>
+              {{ config_form.token }}
+              <small class="field-help">
+                {% if token_configured %}
+                  Token configurado. Deixe o campo em branco para manter o token atual.
+                {% else %}
+                  Nenhum token salvo ainda. O valor digitado nao sera exibido depois de salvo.
+                {% endif %}
+              </small>
+              {% if config_form.token.errors %}
+                <small class="field-error">{{ config_form.token.errors|striptags }}</small>
+              {% endif %}
+            </div>
 
-      <article class="settings-card">
-        <div class="panel-head">
-          <div>
-            <h2>Teste de envio de texto</h2>
-            <span>Envia uma mensagem simples usando a configuracao ativa da W-API.</span>
-          </div>
+            <div class="settings-actions">
+              <button type="submit" class="primary-button">Salvar configuracao</button>
+            </div>
+          </form>
         </div>
 
-        <form method="post" class="settings-form-grid">
-          {% csrf_token %}
-          <input type="hidden" name="form_type" value="send-test">
-
-          <div class="settings-field">
-            <label for="{{ send_form.phone.id_for_label }}">Telefone de destino</label>
-            {{ send_form.phone }}
-            {% if send_form.phone.errors %}
-              <small class="field-error">{{ send_form.phone.errors|striptags }}</small>
-            {% endif %}
+        <div class="settings-column settings-column-divider">
+          <div class="panel-head">
+            <div>
+              <h2>Teste de envio de texto</h2>
+              <span>Envia uma mensagem simples usando a configuracao ativa da W-API.</span>
+            </div>
           </div>
 
-          <div class="settings-field">
-            <label for="{{ send_form.message.id_for_label }}">Mensagem</label>
-            {{ send_form.message }}
-            {% if send_form.message.errors %}
-              <small class="field-error">{{ send_form.message.errors|striptags }}</small>
-            {% endif %}
-          </div>
+          <form method="post" class="settings-form-grid">
+            {% csrf_token %}
+            <input type="hidden" name="form_type" value="send-test">
 
-          <div class="settings-actions">
-            <button type="submit" class="primary-button">Enviar teste</button>
-          </div>
-        </form>
+            <div class="settings-field">
+              <label for="{{ send_form.phone.id_for_label }}">Telefone de destino</label>
+              {{ send_form.phone }}
+              {% if send_form.phone.errors %}
+                <small class="field-error">{{ send_form.phone.errors|striptags }}</small>
+              {% endif %}
+            </div>
+
+            <div class="settings-field">
+              <label for="{{ send_form.message.id_for_label }}">Mensagem</label>
+              {{ send_form.message }}
+              {% if send_form.message.errors %}
+                <small class="field-error">{{ send_form.message.errors|striptags }}</small>
+              {% endif %}
+            </div>
+
+            <div class="settings-actions">
+              <button type="submit" class="primary-button">Enviar teste</button>
+            </div>
+          </form>
+        </div>
       </article>
     </section>
   </section>

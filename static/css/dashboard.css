@@ -448,6 +448,22 @@ a {
   padding: 20px;
 }
 
+.settings-card-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 28px;
+  align-items: start;
+}
+
+.settings-column {
+  min-width: 0;
+}
+
+.settings-column-divider {
+  padding-left: 28px;
+  border-left: 1px solid rgba(100, 116, 139, 0.14);
+}
+
 .settings-form-grid {
   display: grid;
   gap: 18px;
@@ -578,6 +594,18 @@ tbody tr:last-child td {
   .content-grid,
   .stats-grid {
     grid-template-columns: 1fr;
+  }
+
+  .settings-card-split {
+    grid-template-columns: 1fr;
+    gap: 22px;
+  }
+
+  .settings-column-divider {
+    padding-left: 0;
+    padding-top: 22px;
+    border-left: 0;
+    border-top: 1px solid rgba(100, 116, 139, 0.14);
   }
 }
 
