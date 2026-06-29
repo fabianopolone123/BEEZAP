@@ -10,8 +10,8 @@
 
 {% block content %}
 <!-- Dados JSON para o JS -->
-<script type="application/json" id="sec-init-state">{{ sector_state_json }}</script>
-<script type="application/json" id="sec-att-data">{{ attendants_data_json }}</script>
+{{ sector_state|json_script:"sec-init-state" }}
+{{ attendants_data|json_script:"sec-att-data" }}
 
 <main class="dashboard-shell sectors-shell">
 

@@ -611,8 +611,8 @@ def sectors_view(request):
             'show_modal': show_modal,
             'modal_mode': modal_mode,
             'editing_sector': editing_sector,
-            'sector_state_json': json.dumps(sector_state, ensure_ascii=False),
-            'attendants_data_json': json.dumps(attendants_data, ensure_ascii=False),
+            'sector_state': sector_state,
+            'attendants_data': attendants_data,
         },
     )
 

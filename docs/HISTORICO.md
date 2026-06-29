@@ -51,3 +51,4 @@ Registro curto das alterações feitas no projeto.
 - Reestruturado o campo de e-mail do login para separar area editavel e sobra visual, evitando cursor piscando na lateral vazia.
 - Criada tela visual de Conversas com layout em 3 colunas (lista, chat, informacoes do contato), dados ficticios, animacao de digitacao e CSS especifico em static/css/conversations.css.
 - Criada tela de Setores com model Sector (ManyToMany com Attendant), drag and drop nativo, modal de cadastro/edicao/exclusao, alternativa de adicao via botao para mobile, salvamento via AJAX e CSS especifico em static/css/sectors.css.
+- Corrigida criacao de setor: substituidas variaveis JSON com auto-escaping do Django (que convertia aspas para &quot; quebrando JSON.parse) pelo filtro json_script, resolvendo o SyntaxError que impedia o registro de todos os event listeners incluindo o botao Novo setor.
