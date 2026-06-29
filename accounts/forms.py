@@ -2,7 +2,7 @@ from django import forms
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
 
-from .models import Attendant, User
+from .models import Attendant, Sector, User
 
 
 class LoginForm(forms.Form):
@@ -143,6 +143,38 @@ class InitialPasswordChangeForm(forms.Form):
         if new_password and confirm_password and new_password != confirm_password:
             self.add_error('confirm_password', 'As senhas digitadas nao conferem.')
         return cleaned_data
+
+
+class SectorForm(forms.ModelForm):
+    class Meta:
+        model = Sector
+        fields = ['name', 'description']
+        labels = {
+            'name': 'Nome do setor',
+            'description': 'Descrição',
+        }
+        widgets = {
+            'name': forms.TextInput(attrs={
+                'placeholder': 'Nome do setor',
+                'autocomplete': 'off',
+            }),
+            'description': forms.Textarea(attrs={
+                'placeholder': 'Descrição (opcional)',
+                'rows': 3,
+                'autocomplete': 'off',
+            }),
+        }
+
+    def clean_name(self):
+        name = self.cleaned_data.get('name', '').strip()
+        if not name:
+            raise forms.ValidationError('O nome do setor é obrigatório.')
+        qs = Sector.objects.filter(name__iexact=name)
+        if self.instance and self.instance.pk:
+            qs = qs.exclude(pk=self.instance.pk)
+        if qs.exists():
+            raise forms.ValidationError('Já existe um setor com este nome.')
+        return name
 
 
 class PasswordRecoveryRequestForm(forms.Form):

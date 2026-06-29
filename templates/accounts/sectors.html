@@ -1,0 +1,704 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Setores | BEEZap{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/dashboard.css' %}">
+<link rel="stylesheet" href="{% static 'css/sectors.css' %}">
+{% endblock %}
+
+{% block content %}
+<!-- Dados JSON para o JS -->
+<script type="application/json" id="sec-init-state">{{ sector_state_json }}</script>
+<script type="application/json" id="sec-att-data">{{ attendants_data_json }}</script>
+
+<main class="dashboard-shell sectors-shell">
+
+  <!-- ===== SIDEBAR ===== -->
+  <aside class="sidebar">
+    <div class="sidebar-brand">
+      <img src="{% static 'images/logo-transparent.png' %}" alt="BEEZap" class="sidebar-logo">
+      <div>
+        <strong>BEEZap</strong>
+        <span>Central de atendimento</span>
+      </div>
+    </div>
+    <nav class="sidebar-nav">
+      {% for item in nav_items %}
+        <a href="{% if item.href %}{% url item.href %}{% else %}#{% endif %}"
+           class="nav-item {% if item.active %}active{% endif %}">
+          <span class="nav-dot"></span>
+          <span>{{ item.label }}</span>
+        </a>
+      {% endfor %}
+    </nav>
+  </aside>
+
+  <!-- ===== TELA DE SETORES ===== -->
+  <section class="sectors-page">
+
+    <!-- Topbar -->
+    <header class="sec-topbar">
+      <div class="sec-topbar-left">
+        <h1>Setores</h1>
+        <p>Organize os atendentes nos setores da empresa.</p>
+      </div>
+      <div class="sec-topbar-right">
+        <div class="profile-chip">
+          <div class="profile-avatar">{{ user_initial }}</div>
+          <div>
+            <strong>{{ request.user.get_full_name|default:request.user.email }}</strong>
+            <span>{{ role_label }}</span>
+          </div>
+        </div>
+        <a href="{% url 'logout' %}" class="logout-link">Sair</a>
+      </div>
+    </header>
+
+    <!-- Barra de ações -->
+    <div class="sec-actions-bar">
+      <div class="sec-hint">
+        <span class="sec-hint-icon" aria-hidden="true">&#9432;</span>
+        Arraste os atendentes para os setores desejados.
+      </div>
+      <div class="sec-actions-right">
+        <span class="sec-dirty-msg" id="sec-dirty-msg" aria-live="polite">Existem alterações não salvas.</span>
+        <button type="button" class="sec-btn-outline" id="btn-new-sector">
+          &#43; Novo setor
+        </button>
+        <button type="button" class="sec-btn-primary" id="btn-save-org">
+          Salvar organização
+        </button>
+      </div>
+    </div>
+
+    <!-- Corpo: coluna fixa + área de setores -->
+    <div class="sec-body">
+
+      <!-- =========================================
+           COLUNA FIXA — Atendentes disponíveis
+           ========================================= -->
+      <div class="sec-available" id="sec-available">
+        <div class="sec-available-head">
+          <h2>Atendentes disponíveis</h2>
+          <div class="sec-search-wrap">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2.2" aria-hidden="true">
+              <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+            </svg>
+            <input type="search" class="sec-search-input" id="sec-search"
+                   placeholder="Buscar atendente..." aria-label="Buscar atendente">
+          </div>
+        </div>
+
+        <ul class="sec-att-list" id="sec-available-list" role="list">
+          {% for att in attendants %}
+          <li class="sec-att-card"
+              draggable="true"
+              data-attendant-id="{{ att.id }}"
+              data-attendant-name="{{ att.name|escapejs }}"
+              data-attendant-email="{{ att.user.email|escapejs }}"
+              data-source="available"
+              role="listitem">
+            <div class="sec-att-avatar" aria-hidden="true">{{ att.name|first|upper }}</div>
+            <div class="sec-att-info">
+              <span class="sec-att-name">{{ att.name }}</span>
+              <span class="sec-att-email">{{ att.user.email }}</span>
+            </div>
+            <span class="sec-drag-handle" aria-hidden="true">&#8942;&#8942;</span>
+          </li>
+          {% empty %}
+          <li class="sec-empty-msg">Nenhum atendente cadastrado.</li>
+          {% endfor %}
+        </ul>
+      </div>
+
+      <!-- =========================================
+           ÁREA DE SETORES — rolagem horizontal
+           ========================================= -->
+      <div class="sec-area" id="sec-area">
+
+        {% for sector in sectors %}
+        <div class="sector-card" data-sector-id="{{ sector.id }}">
+
+          <!-- Cabeçalho do setor -->
+          <div class="sector-head">
+            <div class="sector-head-left">
+              <span class="sector-icon" aria-hidden="true">&#128193;</span>
+              <div>
+                <span class="sector-name">{{ sector.name }}</span>
+                <span class="sector-count"
+                      data-sector-id="{{ sector.id }}">{{ sector.attendants.count }} atendente{{ sector.attendants.count|pluralize }}</span>
+              </div>
+            </div>
+            <div class="sector-head-actions">
+              <button type="button" class="sec-icon-btn btn-edit-sector"
+                      data-sector-id="{{ sector.id }}"
+                      data-sector-name="{{ sector.name|escapejs }}"
+                      data-sector-description="{{ sector.description|escapejs }}"
+                      aria-label="Editar setor {{ sector.name }}"
+                      title="Editar setor">&#9998;</button>
+              <button type="button" class="sec-icon-btn btn-delete-sector"
+                      data-sector-id="{{ sector.id }}"
+                      data-sector-name="{{ sector.name|escapejs }}"
+                      aria-label="Excluir setor {{ sector.name }}"
+                      title="Excluir setor">&#8942;</button>
+            </div>
+          </div>
+
+          <!-- Lista de atendentes do setor -->
+          <ul class="sector-att-list" data-sector-id="{{ sector.id }}" role="list">
+            {% for att in sector.attendants.all %}
+            <li class="sec-att-card sec-att-in-sector"
+                draggable="true"
+                data-attendant-id="{{ att.id }}"
+                data-attendant-name="{{ att.name|escapejs }}"
+                data-attendant-email="{{ att.user.email|escapejs }}"
+                data-source="sector"
+                data-sector-id="{{ sector.id }}"
+                role="listitem">
+              <div class="sec-att-avatar" aria-hidden="true">{{ att.name|first|upper }}</div>
+              <div class="sec-att-info">
+                <span class="sec-att-name">{{ att.name }}</span>
+                <span class="sec-att-email">{{ att.user.email }}</span>
+              </div>
+              <button type="button" class="sec-remove-btn"
+                      data-attendant-id="{{ att.id }}"
+                      data-sector-id="{{ sector.id }}"
+                      aria-label="Remover {{ att.name }} do setor">&#x2715;</button>
+            </li>
+            {% endfor %}
+          </ul>
+
+          <!-- Zona de drop -->
+          <div class="sector-drop-zone {% if not sector.attendants.count %}sector-drop-zone-empty{% endif %}"
+               data-sector-id="{{ sector.id }}"
+               aria-hidden="true">
+            <span class="drop-icon">&#x2191;</span>
+            <span class="drop-label">Solte aqui</span>
+            <span class="drop-sub">para adicionar ao setor</span>
+          </div>
+
+          <!-- Botão alternativo para mobile/acessibilidade -->
+          <button type="button" class="sector-add-att-btn btn-add-att"
+                  data-sector-id="{{ sector.id }}"
+                  data-sector-name="{{ sector.name|escapejs }}">
+            &#43; Adicionar atendente
+          </button>
+
+        </div>
+        {% empty %}
+        <div class="sec-no-sectors" id="sec-no-sectors">
+          <div class="sec-no-sectors-icon" aria-hidden="true">&#128193;</div>
+          <p>Nenhum setor criado ainda.</p>
+          <p>Clique em <strong>+ Novo setor</strong> para começar.</p>
+        </div>
+        {% endfor %}
+
+      </div>
+    </div>
+  </section>
+</main>
+
+<!-- =============================================
+     MODAL — Criar / Editar setor
+     ============================================= -->
+<div class="sec-overlay" id="sec-modal" aria-hidden="true" role="dialog" aria-modal="true"
+     aria-labelledby="sec-modal-title">
+  <div class="sec-modal">
+    <div class="sec-modal-head">
+      <h2 id="sec-modal-title">Novo setor</h2>
+      <button type="button" class="sec-modal-close" id="sec-modal-close"
+              aria-label="Fechar">&#x2715;</button>
+    </div>
+    <form method="post" action="{% url 'sectors' %}" id="sec-sector-form" novalidate>
+      {% csrf_token %}
+      <input type="hidden" name="sector_id" id="modal-sector-id" value="">
+
+      <div class="sec-form-group">
+        <label for="id_name">Nome do setor <span class="sec-required">*</span></label>
+        {{ form.name }}
+        {% if form.name.errors %}
+          <span class="sec-field-error">{{ form.name.errors.0 }}</span>
+        {% endif %}
+      </div>
+
+      <div class="sec-form-group">
+        <label for="id_description">Descrição</label>
+        {{ form.description }}
+        {% if form.description.errors %}
+          <span class="sec-field-error">{{ form.description.errors.0 }}</span>
+        {% endif %}
+      </div>
+
+      <div class="sec-modal-footer">
+        <button type="button" class="sec-btn-ghost" id="sec-modal-cancel">Cancelar</button>
+        <button type="submit" class="sec-btn-primary">Salvar</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- =============================================
+     MODAL — Confirmar exclusão
+     ============================================= -->
+<div class="sec-overlay" id="sec-delete-modal" aria-hidden="true" role="dialog" aria-modal="true"
+     aria-labelledby="sec-delete-title">
+  <div class="sec-modal sec-modal-sm">
+    <div class="sec-modal-head">
+      <h2 id="sec-delete-title">Excluir setor</h2>
+      <button type="button" class="sec-modal-close" id="sec-delete-close"
+              aria-label="Fechar">&#x2715;</button>
+    </div>
+    <p class="sec-delete-msg">
+      Tem certeza que deseja excluir o setor <strong id="sec-delete-name"></strong>?
+      Os vínculos com atendentes serão desfeitos.
+    </p>
+    <form method="post" action="{% url 'sectors' %}" id="sec-delete-form">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="delete">
+      <input type="hidden" name="sector_id" id="delete-sector-id" value="">
+      <div class="sec-modal-footer">
+        <button type="button" class="sec-btn-ghost" id="sec-delete-cancel">Cancelar</button>
+        <button type="submit" class="sec-btn-danger">Excluir</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- =============================================
+     MODAL — Adicionar atendente (mobile/acessibilidade)
+     ============================================= -->
+<div class="sec-overlay" id="sec-add-modal" aria-hidden="true" role="dialog" aria-modal="true"
+     aria-labelledby="sec-add-title">
+  <div class="sec-modal">
+    <div class="sec-modal-head">
+      <h2 id="sec-add-title">Adicionar atendente</h2>
+      <button type="button" class="sec-modal-close" id="sec-add-close"
+              aria-label="Fechar">&#x2715;</button>
+    </div>
+    <div class="sec-search-wrap sec-add-search-wrap">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2.2" aria-hidden="true">
+        <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+      </svg>
+      <input type="search" class="sec-search-input" id="sec-add-search"
+             placeholder="Buscar atendente..." aria-label="Buscar atendente">
+    </div>
+    <ul class="sec-add-list" id="sec-add-list" role="list"></ul>
+    <div class="sec-modal-footer">
+      <button type="button" class="sec-btn-ghost" id="sec-add-cancel">Fechar</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  /* ─── Dados do servidor ─────────────────────────────── */
+  const INIT_STATE  = JSON.parse(document.getElementById('sec-init-state').textContent);
+  const ATTENDANTS  = JSON.parse(document.getElementById('sec-att-data').textContent);
+
+  /* Estado atual: {sectorId(num): Set<attendantId(num)>} */
+  const state = {};
+  for (const [sid, ids] of Object.entries(INIT_STATE)) {
+    state[parseInt(sid)] = new Set(ids.map(Number));
+  }
+
+  /* Estado inicial (cópia para dirty check) */
+  const initSnapshot = () => {
+    const snap = {};
+    for (const [sid, set] of Object.entries(state)) {
+      snap[sid] = new Set(set);
+    }
+    return snap;
+  };
+  let savedSnapshot = initSnapshot();
+
+  /* ─── Utilitários ───────────────────────────────────── */
+  function escHtml(str) {
+    return String(str)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  function getCsrf() {
+    const m = document.cookie.match(/(?:^|;\s*)csrftoken=([^;]+)/);
+    return m ? decodeURIComponent(m[1]) : '';
+  }
+
+  function showToast(type, msg) {
+    let container = document.querySelector('.toast-container');
+    if (!container) {
+      container = document.createElement('div');
+      container.className = 'toast-container';
+      container.setAttribute('aria-live', 'polite');
+      document.body.appendChild(container);
+    }
+    const toast = document.createElement('div');
+    toast.className = 'toast-message toast-' + type;
+    toast.setAttribute('role', 'status');
+    toast.setAttribute('data-toast-message', '');
+    toast.innerHTML =
+      '<span class="toast-marker" aria-hidden="true"></span>' +
+      '<div class="toast-content">' + escHtml(msg) + '</div>' +
+      '<button type="button" class="toast-close" aria-label="Fechar notificação" data-toast-close>×</button>';
+    const dismiss = () => {
+      toast.classList.add('toast-hiding');
+      setTimeout(() => toast.remove(), 220);
+    };
+    toast.querySelector('[data-toast-close]').addEventListener('click', dismiss);
+    setTimeout(dismiss, 4200);
+    container.appendChild(toast);
+  }
+
+  /* ─── Dirty indicator ───────────────────────────────── */
+  const dirtyEl = document.getElementById('sec-dirty-msg');
+
+  function isDirty() {
+    for (const [sid, initSet] of Object.entries(savedSnapshot)) {
+      const cur = state[sid];
+      if (!cur) return true;
+      if (initSet.size !== cur.size) return true;
+      for (const id of initSet) { if (!cur.has(id)) return true; }
+      for (const id of cur)     { if (!initSet.has(id)) return true; }
+    }
+    for (const sid of Object.keys(state)) {
+      if (!(sid in savedSnapshot)) { if (state[sid].size > 0) return true; }
+    }
+    return false;
+  }
+
+  function refreshDirty() {
+    dirtyEl.style.display = isDirty() ? '' : 'none';
+  }
+
+  /* ─── Contadores e zonas de drop ────────────────────── */
+  function updateCount(sectorId) {
+    const count = state[sectorId] ? state[sectorId].size : 0;
+    const el = document.querySelector('.sector-count[data-sector-id="' + sectorId + '"]');
+    if (el) el.textContent = count + (count === 1 ? ' atendente' : ' atendentes');
+  }
+
+  function updateDropZone(sectorId) {
+    const count = state[sectorId] ? state[sectorId].size : 0;
+    const zone = document.querySelector('.sector-drop-zone[data-sector-id="' + sectorId + '"]');
+    if (zone) zone.classList.toggle('sector-drop-zone-empty', count === 0);
+  }
+
+  /* ─── Criar card de atendente dentro de um setor ────── */
+  function createSectorCard(attId, sectorId) {
+    const att = ATTENDANTS[attId];
+    if (!att) return null;
+    const li = document.createElement('li');
+    li.className = 'sec-att-card sec-att-in-sector';
+    li.draggable = true;
+    li.dataset.attendantId = attId;
+    li.dataset.attendantName = att.name;
+    li.dataset.attendantEmail = att.email;
+    li.dataset.source = 'sector';
+    li.dataset.sectorId = sectorId;
+    li.setAttribute('role', 'listitem');
+    li.innerHTML =
+      '<div class="sec-att-avatar" aria-hidden="true">' + escHtml(att.initials) + '</div>' +
+      '<div class="sec-att-info">' +
+        '<span class="sec-att-name">' + escHtml(att.name) + '</span>' +
+        '<span class="sec-att-email">' + escHtml(att.email) + '</span>' +
+      '</div>' +
+      '<button type="button" class="sec-remove-btn" ' +
+        'data-attendant-id="' + attId + '" data-sector-id="' + sectorId + '" ' +
+        'aria-label="Remover ' + escHtml(att.name) + ' do setor">✕</button>';
+    initDraggable(li);
+    li.querySelector('.sec-remove-btn').addEventListener('click', function () {
+      removeFromSector(attId, sectorId, li);
+    });
+    return li;
+  }
+
+  function removeFromSector(attId, sectorId, cardEl) {
+    const sid = parseInt(sectorId);
+    const aid = parseInt(attId);
+    if (state[sid]) state[sid].delete(aid);
+    if (cardEl) cardEl.remove();
+    updateCount(sid);
+    updateDropZone(sid);
+    refreshDirty();
+  }
+
+  /* ─── DnD ───────────────────────────────────────────── */
+  let draggingEl = null;
+
+  function initDraggable(el) {
+    el.addEventListener('dragstart', function (e) {
+      draggingEl = el;
+      e.dataTransfer.setData('attendant-id',    el.dataset.attendantId);
+      e.dataTransfer.setData('source-type',     el.dataset.source || 'available');
+      e.dataTransfer.setData('source-sector',   el.dataset.sectorId || '');
+      e.dataTransfer.effectAllowed = 'move';
+      requestAnimationFrame(() => el.classList.add('dragging'));
+    });
+    el.addEventListener('dragend', function () {
+      el.classList.remove('dragging');
+      document.querySelectorAll('.drag-over').forEach(z => z.classList.remove('drag-over'));
+      draggingEl = null;
+    });
+  }
+
+  function initDropSector(sectorCard) {
+    const sectorId = parseInt(sectorCard.dataset.sectorId);
+
+    sectorCard.addEventListener('dragover', function (e) {
+      e.preventDefault();
+      sectorCard.classList.add('drag-over');
+    });
+    sectorCard.addEventListener('dragleave', function (e) {
+      if (!sectorCard.contains(e.relatedTarget)) {
+        sectorCard.classList.remove('drag-over');
+      }
+    });
+    sectorCard.addEventListener('drop', function (e) {
+      e.preventDefault();
+      sectorCard.classList.remove('drag-over');
+
+      const attId       = parseInt(e.dataTransfer.getData('attendant-id'));
+      const sourceType  = e.dataTransfer.getData('source-type');
+      const sourceSec   = e.dataTransfer.getData('source-sector');
+      const sourceSid   = sourceSec ? parseInt(sourceSec) : null;
+
+      if (!attId) return;
+      if (!state[sectorId]) state[sectorId] = new Set();
+      if (state[sectorId].has(attId)) return; /* já está aqui */
+
+      /* Adiciona ao setor alvo */
+      state[sectorId].add(attId);
+      const list = sectorCard.querySelector('.sector-att-list');
+      const card = createSectorCard(attId, sectorId);
+      if (card) list.appendChild(card);
+
+      /* Remove do setor de origem (se veio de outro setor) */
+      if (sourceType === 'sector' && sourceSid && sourceSid !== sectorId) {
+        if (state[sourceSid]) state[sourceSid].delete(attId);
+        const srcCard = sectorCard.closest('.sec-area')
+          .querySelector('.sector-card[data-sector-id="' + sourceSid + '"] ' +
+                         '.sec-att-in-sector[data-attendant-id="' + attId + '"]');
+        if (srcCard) srcCard.remove();
+        updateCount(sourceSid);
+        updateDropZone(sourceSid);
+      }
+
+      updateCount(sectorId);
+      updateDropZone(sectorId);
+      refreshDirty();
+    });
+  }
+
+  /* ─── Salvar organização ────────────────────────────── */
+  document.getElementById('btn-save-org').addEventListener('click', async function () {
+    const btn = this;
+    btn.disabled = true;
+    const orig = btn.textContent;
+    btn.textContent = 'Salvando...';
+
+    const payload = {};
+    for (const [sid, set] of Object.entries(state)) {
+      payload[sid] = Array.from(set);
+    }
+
+    try {
+      const res  = await fetch('{% url "sectors-save" %}', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCsrf() },
+        body: JSON.stringify({ sectors: payload }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        savedSnapshot = initSnapshot();
+        refreshDirty();
+        showToast('success', 'Organização salva com sucesso.');
+      } else {
+        showToast('error', data.error || 'Não foi possível salvar a organização. Tente novamente.');
+      }
+    } catch (_) {
+      showToast('error', 'Não foi possível salvar a organização. Tente novamente.');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = orig;
+    }
+  });
+
+  /* ─── Modal helpers ─────────────────────────────────── */
+  function openModal(id) {
+    const el = document.getElementById(id);
+    el.removeAttribute('aria-hidden');
+    el.classList.add('open');
+    const first = el.querySelector('input, textarea, button');
+    if (first) first.focus();
+  }
+  function closeModal(id) {
+    const el = document.getElementById(id);
+    el.setAttribute('aria-hidden', 'true');
+    el.classList.remove('open');
+  }
+
+  document.querySelectorAll('.sec-overlay').forEach(function (overlay) {
+    overlay.addEventListener('click', function (e) {
+      if (e.target === overlay) closeModal(overlay.id);
+    });
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') {
+      document.querySelectorAll('.sec-overlay.open').forEach(el => closeModal(el.id));
+    }
+  });
+
+  /* ─── Modal: criar setor ────────────────────────────── */
+  document.getElementById('btn-new-sector').addEventListener('click', function () {
+    document.getElementById('sec-modal-title').textContent = 'Novo setor';
+    document.getElementById('modal-sector-id').value = '';
+    document.getElementById('id_name').value = '';
+    document.getElementById('id_description').value = '';
+    openModal('sec-modal');
+  });
+
+  document.getElementById('sec-modal-cancel').addEventListener('click', () => closeModal('sec-modal'));
+  document.getElementById('sec-modal-close').addEventListener('click',  () => closeModal('sec-modal'));
+
+  /* ─── Modal: editar setor ───────────────────────────── */
+  document.querySelectorAll('.btn-edit-sector').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      document.getElementById('sec-modal-title').textContent = 'Editar setor';
+      document.getElementById('modal-sector-id').value       = btn.dataset.sectorId;
+      document.getElementById('id_name').value               = btn.dataset.sectorName;
+      document.getElementById('id_description').value        = btn.dataset.sectorDescription;
+      openModal('sec-modal');
+    });
+  });
+
+  /* ─── Modal: excluir setor ──────────────────────────── */
+  document.querySelectorAll('.btn-delete-sector').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      document.getElementById('sec-delete-name').textContent = btn.dataset.sectorName;
+      document.getElementById('delete-sector-id').value      = btn.dataset.sectorId;
+      openModal('sec-delete-modal');
+    });
+  });
+  document.getElementById('sec-delete-cancel').addEventListener('click', () => closeModal('sec-delete-modal'));
+  document.getElementById('sec-delete-close').addEventListener('click',  () => closeModal('sec-delete-modal'));
+
+  /* ─── Modal: adicionar atendente (mobile) ───────────── */
+  let currentAddSectorId = null;
+
+  function openAddModal(sectorId, sectorName) {
+    currentAddSectorId = sectorId;
+    document.getElementById('sec-add-title').textContent = 'Adicionar a: ' + sectorName;
+    document.getElementById('sec-add-search').value = '';
+    renderAddList('');
+    openModal('sec-add-modal');
+  }
+
+  function renderAddList(query) {
+    const list = document.getElementById('sec-add-list');
+    list.innerHTML = '';
+    const q  = query.toLowerCase().trim();
+    const inSector = state[currentAddSectorId] || new Set();
+    let count = 0;
+
+    Object.entries(ATTENDANTS).forEach(function ([id, att]) {
+      const attId = parseInt(id);
+      if (inSector.has(attId)) return;
+      if (q && !att.name.toLowerCase().includes(q) && !att.email.toLowerCase().includes(q)) return;
+      count++;
+      const li = document.createElement('li');
+      li.className = 'sec-add-item';
+      li.setAttribute('role', 'button');
+      li.setAttribute('tabindex', '0');
+      li.innerHTML =
+        '<div class="sec-att-avatar" aria-hidden="true">' + escHtml(att.initials) + '</div>' +
+        '<div class="sec-att-info">' +
+          '<span class="sec-att-name">' + escHtml(att.name) + '</span>' +
+          '<span class="sec-att-email">' + escHtml(att.email) + '</span>' +
+        '</div>';
+
+      function doAdd() {
+        addToSector(attId, currentAddSectorId);
+        closeModal('sec-add-modal');
+      }
+      li.addEventListener('click', doAdd);
+      li.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); doAdd(); }
+      });
+      list.appendChild(li);
+    });
+
+    if (!count) {
+      const li = document.createElement('li');
+      li.className = 'sec-empty-msg';
+      li.textContent = inSector.size === Object.keys(ATTENDANTS).length
+        ? 'Todos os atendentes já estão neste setor.'
+        : 'Nenhum atendente encontrado.';
+      list.appendChild(li);
+    }
+  }
+
+  document.getElementById('sec-add-search').addEventListener('input', function () {
+    renderAddList(this.value);
+  });
+  document.getElementById('sec-add-cancel').addEventListener('click', () => closeModal('sec-add-modal'));
+  document.getElementById('sec-add-close').addEventListener('click',  () => closeModal('sec-add-modal'));
+
+  document.querySelectorAll('.btn-add-att').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      openAddModal(parseInt(btn.dataset.sectorId), btn.dataset.sectorName);
+    });
+  });
+
+  function addToSector(attId, sectorId) {
+    if (!state[sectorId]) state[sectorId] = new Set();
+    if (state[sectorId].has(attId)) return;
+    state[sectorId].add(attId);
+    const list = document.querySelector('.sector-att-list[data-sector-id="' + sectorId + '"]');
+    if (list) {
+      const card = createSectorCard(attId, sectorId);
+      if (card) list.appendChild(card);
+    }
+    updateCount(sectorId);
+    updateDropZone(sectorId);
+    refreshDirty();
+  }
+
+  /* ─── Busca na coluna de disponíveis ────────────────── */
+  document.getElementById('sec-search').addEventListener('input', function () {
+    const q = this.value.toLowerCase().trim();
+    document.querySelectorAll('#sec-available-list .sec-att-card').forEach(function (card) {
+      const name  = (card.dataset.attendantName  || '').toLowerCase();
+      const email = (card.dataset.attendantEmail || '').toLowerCase();
+      card.style.display = (!q || name.includes(q) || email.includes(q)) ? '' : 'none';
+    });
+  });
+
+  /* ─── Inicializar DnD em cards já no DOM ────────────── */
+  document.querySelectorAll('.sec-att-card[draggable="true"]').forEach(initDraggable);
+  document.querySelectorAll('.sector-card').forEach(initDropSector);
+
+  /* Botões de remover já no DOM */
+  document.querySelectorAll('.sec-remove-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      const card = btn.closest('.sec-att-in-sector');
+      removeFromSector(btn.dataset.attendantId, btn.dataset.sectorId, card);
+    });
+  });
+
+  /* ─── Abrir modal se houver erros de form ───────────── */
+  {% if show_modal %}
+  openModal('sec-modal');
+  {% if editing_sector %}
+  document.getElementById('modal-sector-id').value = '{{ editing_sector.id }}';
+  {% endif %}
+  {% endif %}
+
+  /* Inicializa dirty indicator */
+  refreshDirty();
+
+}());
+</script>
+{% endblock %}

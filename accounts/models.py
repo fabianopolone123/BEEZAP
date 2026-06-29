@@ -116,6 +116,27 @@ class Attendant(models.Model):
         return self.name
 
 
+class Sector(models.Model):
+    name = models.CharField('Nome', max_length=100, unique=True)
+    description = models.TextField('Descrição', blank=True, default='')
+    attendants = models.ManyToManyField(
+        Attendant,
+        blank=True,
+        related_name='sectors',
+        verbose_name='Atendentes',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['name']
+        verbose_name = 'Setor'
+        verbose_name_plural = 'Setores'
+
+    def __str__(self):
+        return self.name
+
+
 class PasswordResetCode(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='password_reset_codes')
     code_hash = models.CharField(max_length=128)

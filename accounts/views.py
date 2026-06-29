@@ -1,3 +1,4 @@
+import json
 import secrets
 from datetime import timedelta
 
@@ -6,9 +7,10 @@ from django.contrib.auth.hashers import make_password
 from django.contrib.auth import authenticate, login, logout, update_session_auth_hash
 from django.contrib.auth.decorators import login_required
 from django.db import IntegrityError, transaction
-from django.http import HttpResponseForbidden
+from django.http import HttpResponseForbidden, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
+from django.views.decorators.http import require_POST
 
 from .forms import (
     AttendantForm,
@@ -17,10 +19,11 @@ from .forms import (
     PasswordRecoveryCodeForm,
     PasswordRecoveryNewPasswordForm,
     PasswordRecoveryRequestForm,
+    SectorForm,
     WapiConfigurationForm,
     WapiSendTextForm,
 )
-from .models import Attendant, PasswordResetCode, User, WapiConfiguration
+from .models import Attendant, PasswordResetCode, Sector, User, WapiConfiguration
 from wapi.client import send_text_message
 
 
@@ -42,7 +45,7 @@ NAV_ITEMS = [
     {'label': 'Atendimentos', 'required': 'leitor', 'url_name': None},
     {'label': 'Contatos', 'required': 'leitor', 'url_name': None},
     {'label': 'Atendentes', 'required': 'adm', 'url_name': 'attendants'},
-    {'label': 'Setores', 'required': 'usuario', 'url_name': None},
+    {'label': 'Setores', 'required': 'adm', 'url_name': 'sectors'},
     {'label': 'Campanhas', 'required': 'usuario', 'url_name': None},
     {'label': 'Relatorios', 'required': 'leitor', 'url_name': None},
     {'label': 'Automacao', 'required': 'usuario', 'url_name': None},
@@ -526,6 +529,132 @@ def conversations_view(request):
             'contact':       contact,
         },
     )
+
+
+@login_required
+def sectors_view(request):
+    if request.user.role != 'adm':
+        return HttpResponseForbidden('Acesso restrito.')
+
+    sectors = Sector.objects.prefetch_related('attendants__user').all()
+    attendants = Attendant.objects.select_related('user').filter(user__is_active=True)
+
+    form = SectorForm()
+    show_modal = False
+    modal_mode = 'create'
+    editing_sector = None
+
+    if request.method == 'POST':
+        action = request.POST.get('action', '')
+        sector_id_str = request.POST.get('sector_id', '').strip()
+
+        if action == 'delete' and sector_id_str:
+            try:
+                sector_obj = Sector.objects.get(pk=int(sector_id_str))
+                sector_obj.delete()
+                messages.success(request, 'Setor removido com sucesso.')
+            except (Sector.DoesNotExist, ValueError):
+                messages.error(request, 'Setor não encontrado.')
+            return redirect('sectors')
+
+        if sector_id_str:
+            try:
+                editing_sector = Sector.objects.get(pk=int(sector_id_str))
+                modal_mode = 'edit'
+            except (Sector.DoesNotExist, ValueError):
+                messages.error(request, 'Setor não encontrado.')
+                return redirect('sectors')
+
+        form = SectorForm(request.POST, instance=editing_sector)
+        show_modal = True
+
+        if form.is_valid():
+            form.save()
+            msg = 'Setor atualizado com sucesso.' if editing_sector else 'Setor cadastrado com sucesso.'
+            messages.success(request, msg)
+            return redirect('sectors')
+
+        if 'name' in form.errors:
+            err_text = ' '.join(str(e) for e in form.errors['name'])
+            if 'já existe' in err_text.lower():
+                messages.error(request, 'Já existe um setor com este nome.')
+            else:
+                messages.error(request, 'Não foi possível salvar o setor. Verifique os dados e tente novamente.')
+        else:
+            messages.error(request, 'Não foi possível salvar o setor. Verifique os dados e tente novamente.')
+
+    sector_state = {
+        str(s.id): list(s.attendants.values_list('id', flat=True))
+        for s in sectors
+    }
+
+    attendants_data = {
+        att.id: {
+            'name': att.name,
+            'email': att.user.email,
+            'initials': att.name[0].upper() if att.name else '?',
+        }
+        for att in attendants
+    }
+
+    return render(
+        request,
+        'accounts/sectors.html',
+        {
+            'role': request.user.role,
+            'nav_items': build_nav_items(request.user.role, 'Setores'),
+            'role_label': request.user.get_role_display(),
+            'user_initial': (request.user.first_name[:1] or request.user.email[:1]).upper(),
+            'sectors': sectors,
+            'attendants': attendants,
+            'form': form,
+            'show_modal': show_modal,
+            'modal_mode': modal_mode,
+            'editing_sector': editing_sector,
+            'sector_state_json': json.dumps(sector_state, ensure_ascii=False),
+            'attendants_data_json': json.dumps(attendants_data, ensure_ascii=False),
+        },
+    )
+
+
+@require_POST
+def sectors_save_organization_view(request):
+    if not request.user.is_authenticated:
+        return JsonResponse({'ok': False, 'error': 'Sessão expirada. Faça login novamente.'}, status=401)
+    if request.user.role != 'adm':
+        return JsonResponse({'ok': False, 'error': 'Acesso restrito.'}, status=403)
+
+    try:
+        data = json.loads(request.body)
+    except (json.JSONDecodeError, ValueError):
+        return JsonResponse({'ok': False, 'error': 'Dados inválidos.'}, status=400)
+
+    sectors_data = data.get('sectors', {})
+    if not isinstance(sectors_data, dict):
+        return JsonResponse({'ok': False, 'error': 'Dados inválidos.'}, status=400)
+
+    try:
+        for sector_id_str, attendant_ids in sectors_data.items():
+            try:
+                sector_id = int(sector_id_str)
+            except (ValueError, TypeError):
+                continue
+            sector_obj = Sector.objects.filter(pk=sector_id).first()
+            if not sector_obj:
+                continue
+            if not isinstance(attendant_ids, list):
+                continue
+            valid_ids = list(
+                Attendant.objects.filter(pk__in=attendant_ids).values_list('id', flat=True)
+            )
+            sector_obj.attendants.set(valid_ids)
+    except Exception:
+        return JsonResponse(
+            {'ok': False, 'error': 'Não foi possível salvar a organização. Tente novamente.'},
+            status=500,
+        )
+
+    return JsonResponse({'ok': True})
 
 
 def logout_view(request):
