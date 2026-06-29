@@ -49,3 +49,4 @@ Registro curto das alterações feitas no projeto.
 - Reestruturado o campo de senha do login para separar input e botao do olhinho, evitando sobreposicao e cursor indevido na lateral.
 - Ajustado o clique na sobra vazia do campo de e-mail do login para nao posicionar cursor fora do texto ou placeholder.
 - Reestruturado o campo de e-mail do login para separar area editavel e sobra visual, evitando cursor piscando na lateral vazia.
+- Criada tela visual de Conversas com layout em 3 colunas (lista, chat, informacoes do contato), dados ficticios, animacao de digitacao e CSS especifico em static/css/conversations.css.

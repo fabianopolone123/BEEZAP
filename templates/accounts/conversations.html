@@ -1,0 +1,300 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Conversas | BEEZap{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/dashboard.css' %}">
+<link rel="stylesheet" href="{% static 'css/conversations.css' %}">
+{% endblock %}
+
+{% block content %}
+<main class="dashboard-shell conv-shell">
+
+  <!-- ===== SIDEBAR ===== -->
+  <aside class="sidebar">
+    <div class="sidebar-brand">
+      <img src="{% static 'images/logo-transparent.png' %}" alt="BEEZap" class="sidebar-logo">
+      <div>
+        <strong>BEEZap</strong>
+        <span>Central de atendimento</span>
+      </div>
+    </div>
+
+    <nav class="sidebar-nav">
+      {% for item in nav_items %}
+        <a href="{% if item.href %}{% url item.href %}{% else %}#{% endif %}"
+           class="nav-item {% if item.active %}active{% endif %}">
+          <span class="nav-dot"></span>
+          <span>{{ item.label }}</span>
+        </a>
+      {% endfor %}
+    </nav>
+  </aside>
+
+  <!-- ===== TELA DE CONVERSAS ===== -->
+  <section class="conversations-page">
+
+    <!-- Topbar -->
+    <header class="conv-topbar">
+      <div class="conv-topbar-left">
+        <h1>Conversas</h1>
+      </div>
+      <div class="conv-topbar-right">
+        <div class="profile-chip">
+          <div class="profile-avatar">{{ user_initial }}</div>
+          <div>
+            <strong>{{ request.user.get_full_name|default:request.user.email }}</strong>
+            <span>{{ role_label }}</span>
+          </div>
+        </div>
+        <a href="{% url 'logout' %}" class="logout-link">Sair</a>
+      </div>
+    </header>
+
+    <!-- Corpo: 3 colunas -->
+    <div class="conv-body">
+
+      <!-- =========================================
+           COLUNA ESQUERDA — Lista de conversas
+           ========================================= -->
+      <div class="conv-list-col">
+
+        <!-- Cabeçalho da lista -->
+        <div class="conv-list-head">
+          <div class="conv-search-bar">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2.2" aria-hidden="true">
+              <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+            </svg>
+            <input type="search" class="conv-search-input" placeholder="Buscar conversas...">
+            <button type="button" class="conv-filter-btn" aria-label="Filtrar conversas">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/>
+              </svg>
+            </button>
+          </div>
+
+          <div class="conv-chips" role="group" aria-label="Filtros de conversa">
+            <button type="button" class="conv-chip active" data-filter="todas">
+              Todas <span class="chip-count">24</span>
+            </button>
+            <button type="button" class="conv-chip" data-filter="nao-lidas">
+              Não lidas <span class="chip-count">6</span>
+            </button>
+            <button type="button" class="conv-chip" data-filter="em-atendimento">
+              Em atendimento <span class="chip-count">8</span>
+            </button>
+            <button type="button" class="conv-chip" data-filter="aguardando">
+              Aguardando <span class="chip-count">3</span>
+            </button>
+            <button type="button" class="conv-chip" data-filter="finalizadas">
+              Finalizadas
+            </button>
+          </div>
+        </div>
+
+        <!-- Itens de conversa -->
+        <ul class="conv-list" role="listbox" aria-label="Lista de conversas">
+          {% for conv in conversations %}
+          <li class="conv-item {% if conv.active %}conv-item-active{% endif %}"
+              role="option"
+              aria-selected="{% if conv.active %}true{% else %}false{% endif %}"
+              data-conv-id="{{ conv.id }}"
+              tabindex="0">
+            <div class="conv-avatar" aria-hidden="true">{{ conv.initials }}</div>
+            <div class="conv-item-body">
+              <div class="conv-item-top">
+                <span class="conv-item-name">{{ conv.name }}</span>
+                <span class="conv-item-time">{{ conv.time }}</span>
+              </div>
+              <div class="conv-item-bottom">
+                <span class="conv-item-preview">{{ conv.preview }}</span>
+                {% if conv.unread %}
+                  <span class="conv-unread-badge" aria-label="{{ conv.unread }} mensagens não lidas">{{ conv.unread }}</span>
+                {% endif %}
+              </div>
+            </div>
+          </li>
+          {% endfor %}
+        </ul>
+
+        <button type="button" class="conv-load-more">↓ Carregar mais conversas</button>
+      </div>
+
+      <!-- =========================================
+           COLUNA CENTRAL — Chat
+           ========================================= -->
+      <div class="conv-chat-col">
+
+        <!-- Header do chat -->
+        <div class="conv-chat-header">
+          <div class="conv-chat-header-left">
+            <div class="conv-avatar conv-avatar-md" aria-hidden="true">{{ contact.initials }}</div>
+            <div>
+              <div class="conv-chat-name">{{ contact.name }}</div>
+              <div class="conv-chat-phone">{{ contact.phone }}</div>
+            </div>
+          </div>
+          <div class="conv-chat-header-right">
+            <span class="conv-status-badge">&#9679; Em atendimento</span>
+            <button type="button" class="conv-icon-btn" aria-label="Favoritar conversa" title="Favoritar">&#9734;</button>
+            <button type="button" class="conv-icon-btn" aria-label="Mais opções" title="Mais opções">&#8942;</button>
+            <button type="button" class="conv-transfer-btn">&#8644; Transferir atendimento</button>
+          </div>
+        </div>
+
+        <!-- Linha de contexto -->
+        <div class="conv-chat-meta">
+          Atendente: <strong>{{ contact.responsible }}</strong>
+        </div>
+
+        <!-- Mensagens -->
+        <div class="conv-messages" id="conv-messages" role="log" aria-label="Mensagens da conversa" aria-live="polite">
+          {% for msg in chat_messages %}
+          <div class="conv-msg conv-msg-{{ msg.type }}">
+            <div class="conv-bubble">
+              {% if msg.text %}
+                {{ msg.text|linebreaksbr }}
+              {% endif %}
+              {% if msg.attachment %}
+                <div class="conv-attachment">
+                  <span class="conv-attachment-icon" aria-hidden="true">&#128196;</span>
+                  <div>
+                    <div class="conv-attachment-name">{{ msg.attachment.name }}</div>
+                    <div class="conv-attachment-size">{{ msg.attachment.size }}</div>
+                  </div>
+                </div>
+              {% endif %}
+              <span class="conv-msg-time">
+                {{ msg.time }}{% if msg.type == 'sent' %} &#10003;&#10003;{% endif %}
+              </span>
+            </div>
+          </div>
+          {% endfor %}
+
+          <!-- Indicador de digitação -->
+          <div class="conv-typing" aria-live="polite" aria-label="João está digitando">
+            <span class="conv-typing-name">João está digitando</span>
+            <span class="conv-typing-dots" aria-hidden="true">
+              <span></span><span></span><span></span>
+            </span>
+          </div>
+        </div>
+
+        <!-- Rodapé / campo de mensagem -->
+        <div class="conv-chat-footer" role="toolbar" aria-label="Compor mensagem">
+          <button type="button" class="conv-footer-btn" aria-label="Inserir emoji" title="Emoji">&#128522;</button>
+          <input type="text" class="conv-input" placeholder="Digite sua mensagem..." aria-label="Campo de mensagem">
+          <button type="button" class="conv-footer-btn" aria-label="Anexar arquivo" title="Anexar">&#128206;</button>
+          <button type="button" class="conv-footer-btn" aria-label="Templates de mensagem" title="Templates">&#128203;</button>
+          <button type="button" class="conv-footer-btn" aria-label="Gravar áudio" title="Áudio">&#127897;</button>
+          <button type="button" class="conv-send-btn" aria-label="Enviar mensagem" title="Enviar">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- =========================================
+           COLUNA DIREITA — Informações do contato
+           ========================================= -->
+      <div class="conv-info-col">
+
+        <div class="conv-info-head">
+          <span>Informações do contato</span>
+          <button type="button" class="conv-info-collapse" aria-label="Recolher painel">&#8963;</button>
+        </div>
+
+        <dl class="conv-info-list">
+          <dt>Nome</dt>
+          <dd>{{ contact.name }}</dd>
+
+          <dt>Telefone</dt>
+          <dd>
+            {{ contact.phone }}
+            <a href="#" class="conv-wapp-link" aria-label="Abrir no WhatsApp">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="#21c25e" aria-hidden="true">
+                <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
+              </svg>
+            </a>
+          </dd>
+
+          <dt>E-mail</dt>
+          <dd>{{ contact.email }}</dd>
+
+          <dt>Empresa</dt>
+          <dd>{{ contact.company }}</dd>
+
+          <dt>Tags</dt>
+          <dd>
+            <div class="conv-tags">
+              {% for tag in contact.tags %}
+                <span class="conv-tag">{{ tag }}</span>
+              {% endfor %}
+            </div>
+          </dd>
+
+          <dt>Responsável</dt>
+          <dd>
+            <div class="conv-responsible">
+              <div class="conv-avatar conv-avatar-sm" aria-hidden="true">MS</div>
+              {{ contact.responsible }}
+            </div>
+          </dd>
+
+          <dt>Último contato</dt>
+          <dd>{{ contact.last_contact }}</dd>
+
+          <dt>Observações</dt>
+          <dd>{{ contact.notes }}</dd>
+        </dl>
+
+        <a href="#" class="conv-history-link">&#8635; Ver histórico completo</a>
+      </div>
+
+    </div>
+  </section>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  /* Seleção de conversa */
+  var items = document.querySelectorAll('.conv-item');
+  items.forEach(function (item) {
+    function selectItem() {
+      items.forEach(function (i) {
+        i.classList.remove('conv-item-active');
+        i.setAttribute('aria-selected', 'false');
+      });
+      item.classList.add('conv-item-active');
+      item.setAttribute('aria-selected', 'true');
+    }
+    item.addEventListener('click', selectItem);
+    item.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        selectItem();
+      }
+    });
+  });
+
+  /* Chips de filtro */
+  var chips = document.querySelectorAll('.conv-chip');
+  chips.forEach(function (chip) {
+    chip.addEventListener('click', function () {
+      chips.forEach(function (c) { c.classList.remove('active'); });
+      chip.classList.add('active');
+    });
+  });
+
+  /* Rolar mensagens para o final ao carregar */
+  var messagesEl = document.getElementById('conv-messages');
+  if (messagesEl) {
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+  }
+}());
+</script>
+{% endblock %}

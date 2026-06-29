@@ -38,7 +38,7 @@ ROLE_RANK = {
 
 NAV_ITEMS = [
     {'label': 'Dashboard', 'required': 'leitor', 'url_name': 'dashboard'},
-    {'label': 'Conversas', 'required': 'leitor', 'url_name': None},
+    {'label': 'Conversas', 'required': 'leitor', 'url_name': 'conversations'},
     {'label': 'Atendimentos', 'required': 'leitor', 'url_name': None},
     {'label': 'Contatos', 'required': 'leitor', 'url_name': None},
     {'label': 'Atendentes', 'required': 'adm', 'url_name': 'attendants'},
@@ -470,6 +470,62 @@ def change_initial_password_view(request):
         messages.error(request, 'Nao foi possivel alterar a senha. Verifique os dados e tente novamente.')
 
     return render(request, 'accounts/change_initial_password.html', {'form': form})
+
+
+@login_required
+def conversations_view(request):
+    role = request.user.role
+
+    conversations = [
+        {'id': 1, 'name': 'João Silva',     'initials': 'JS', 'preview': 'Quero saber mais sobre os planos...', 'time': '09:42', 'unread': 2, 'active': True},
+        {'id': 2, 'name': 'Maria Eduarda',  'initials': 'ME', 'preview': 'Ainda tem disponibilidade?',          'time': '09:40', 'unread': 1, 'active': False},
+        {'id': 3, 'name': 'Carlos Lima',    'initials': 'CL', 'preview': 'Preciso de ajuda com meu pedido.',    'time': '09:36', 'unread': 0, 'active': False},
+        {'id': 4, 'name': 'Juliana Costa',  'initials': 'JC', 'preview': 'Como funciona o pagamento?',          'time': '09:30', 'unread': 0, 'active': False},
+        {'id': 5, 'name': 'Pedro Almeida',  'initials': 'PA', 'preview': 'Quando vence meu boleto?',            'time': '09:22', 'unread': 0, 'active': False},
+        {'id': 6, 'name': 'Ana Paula',      'initials': 'AP', 'preview': 'Gostaria de agendar uma demonstração.', 'time': '09:15', 'unread': 0, 'active': False},
+        {'id': 7, 'name': 'Ricardo Oliveira', 'initials': 'RO', 'preview': 'Vocês emitem nota fiscal?',         'time': '09:10', 'unread': 0, 'active': False},
+        {'id': 8, 'name': 'Fernanda Rocha', 'initials': 'FR', 'preview': 'Tudo certo, obrigado!',               'time': 'Ontem', 'unread': 0, 'active': False},
+    ]
+
+    chat_messages = [
+        {'type': 'received', 'text': 'Olá! Quero saber mais sobre os planos disponíveis.', 'time': '09:42', 'attachment': None},
+        {'type': 'sent',     'text': 'Olá, João! Claro, posso te ajudar. 😊\nTemos 3 planos disponíveis.\nQuer que eu te envie mais detalhes?', 'time': '09:43', 'attachment': None},
+        {'type': 'received', 'text': 'Sim, por favor.', 'time': '09:43', 'attachment': None},
+        {'type': 'sent',     'text': None, 'time': '09:44', 'attachment': {'name': 'Planos_BEEZAP.pdf', 'size': 'PDF · 1,2 MB'}},
+        {'type': 'received', 'text': 'Ótimo! Qual é o plano mais indicado para equipes pequenas?', 'time': '09:44', 'attachment': None},
+        {'type': 'sent',     'text': 'Recomendamos o plano Profissional 👍\nAté 5 atendentes e integrações avançadas.', 'time': '09:44', 'attachment': None},
+        {'type': 'received', 'text': 'Perfeito! E o pagamento, como funciona?', 'time': '09:45', 'attachment': None},
+        {'type': 'sent',     'text': 'Aceitamos cartão, boleto e PIX.\nPosso gerar um boleto para você?', 'time': '09:46', 'attachment': None},
+        {'type': 'received', 'text': 'Pode sim, por favor.', 'time': '09:46', 'attachment': None},
+        {'type': 'sent',     'text': 'Pronto! Segue o boleto em anexo.', 'time': '09:47', 'attachment': None},
+        {'type': 'sent',     'text': None, 'time': '09:47', 'attachment': {'name': 'Boleto_123456.pdf', 'size': 'PDF · 210 KB'}},
+    ]
+
+    contact = {
+        'name':         'João Silva',
+        'initials':     'JS',
+        'phone':        '(11) 99999-8888',
+        'email':        'joao.silva@email.com',
+        'company':      'Silva Consultoria Ltda.',
+        'tags':         ['Cliente', 'Interessado'],
+        'responsible':  'Maria Santos',
+        'last_contact': 'Hoje às 09:42',
+        'notes':        'Interessado em plano para equipe pequena. Pediu boleto.',
+    }
+
+    return render(
+        request,
+        'accounts/conversations.html',
+        {
+            'role':          role,
+            'nav_items':     build_nav_items(role, 'Conversas'),
+            'role_label':    request.user.get_role_display(),
+            'user_initial':  (request.user.first_name[:1] or request.user.email[:1]).upper(),
+            'conversations': conversations,
+            'chat_messages': chat_messages,
+            'contact':       contact,
+        },
+    )
 
 
 def logout_view(request):

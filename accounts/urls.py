@@ -3,6 +3,7 @@ from django.urls import path
 from .views import (
     attendants_view,
     change_initial_password_view,
+    conversations_view,
     dashboard_view,
     login_view,
     logout_view,
@@ -20,6 +21,7 @@ urlpatterns = [
     path('recuperar-senha/verificar/', password_recovery_verify_code_view, name='password-recovery-verify'),
     path('recuperar-senha/nova-senha/', password_recovery_set_password_view, name='password-recovery-set-password'),
     path('dashboard/', dashboard_view, name='dashboard'),
+    path('conversas/', conversations_view, name='conversations'),
     path('atendentes/', attendants_view, name='attendants'),
     path('trocar-senha-inicial/', change_initial_password_view, name='change-initial-password'),
     path('configuracoes/wapi/', wapi_settings_view, name='wapi-settings'),
