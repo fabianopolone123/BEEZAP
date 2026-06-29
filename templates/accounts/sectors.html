@@ -373,6 +373,33 @@
     dirtyEl.style.display = isDirty() ? '' : 'none';
   }
 
+  /* ─── Disponibilidade na coluna de atendentes ───────── */
+  function isInAnySector(attId) {
+    const id = parseInt(attId);
+    return Object.values(state).some(function (set) { return set.has(id); });
+  }
+
+  function hideFromAvailable(attId) {
+    const card = document.querySelector(
+      '#sec-available-list [data-attendant-id="' + attId + '"]'
+    );
+    if (!card) return;
+    card.dataset.inSector = '1';
+    card.style.display = 'none';
+  }
+
+  function showInAvailable(attId) {
+    const card = document.querySelector(
+      '#sec-available-list [data-attendant-id="' + attId + '"]'
+    );
+    if (!card) return;
+    delete card.dataset.inSector;
+    const q = (document.getElementById('sec-search').value || '').toLowerCase().trim();
+    const name  = (card.dataset.attendantName  || '').toLowerCase();
+    const email = (card.dataset.attendantEmail || '').toLowerCase();
+    card.style.display = (!q || name.includes(q) || email.includes(q)) ? '' : 'none';
+  }
+
   /* ─── Contadores e zonas de drop ────────────────────── */
   function updateCount(sectorId) {
     const count = state[sectorId] ? state[sectorId].size : 0;
@@ -420,6 +447,7 @@
     const aid = parseInt(attId);
     if (state[sid]) state[sid].delete(aid);
     if (cardEl) cardEl.remove();
+    if (!isInAnySector(aid)) showInAvailable(aid);
     updateCount(sid);
     updateDropZone(sid);
     refreshDirty();
@@ -485,6 +513,9 @@
         updateCount(sourceSid);
         updateDropZone(sourceSid);
       }
+
+      /* Oculta da lista de disponíveis se veio da coluna de disponíveis */
+      if (sourceType === 'available') hideFromAvailable(attId);
 
       updateCount(sectorId);
       updateDropZone(sectorId);
@@ -661,6 +692,7 @@
       const card = createSectorCard(attId, sectorId);
       if (card) list.appendChild(card);
     }
+    hideFromAvailable(attId);
     updateCount(sectorId);
     updateDropZone(sectorId);
     refreshDirty();
@@ -670,6 +702,7 @@
   document.getElementById('sec-search').addEventListener('input', function () {
     const q = this.value.toLowerCase().trim();
     document.querySelectorAll('#sec-available-list .sec-att-card').forEach(function (card) {
+      if (card.dataset.inSector) return;
       const name  = (card.dataset.attendantName  || '').toLowerCase();
       const email = (card.dataset.attendantEmail || '').toLowerCase();
       card.style.display = (!q || name.includes(q) || email.includes(q)) ? '' : 'none';
@@ -687,6 +720,11 @@
       removeFromSector(btn.dataset.attendantId, btn.dataset.sectorId, card);
     });
   });
+
+  /* Oculta atendentes já alocados em algum setor ao carregar */
+  for (const ids of Object.values(INIT_STATE)) {
+    ids.forEach(function (id) { hideFromAvailable(id); });
+  }
 
   /* ─── Abrir modal se houver erros de form ───────────── */
   {% if show_modal %}
