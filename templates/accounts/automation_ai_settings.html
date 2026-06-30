@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}IA de atendimento | BEEZap{% endblock %}
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/dashboard.css' %}">
+<link rel="stylesheet" href="{% static 'css/automation_ai.css' %}">
+{% endblock %}
+
+{% block content %}
+<main class="dashboard-shell">
+  <aside class="sidebar">
+    <div class="sidebar-brand">
+      <img src="{% static 'images/logo-transparent.png' %}" alt="BEEZap" class="sidebar-logo">
+      <div>
+        <strong>BEEZap</strong>
+        <span>Central de atendimento</span>
+      </div>
+    </div>
+
+    <nav class="sidebar-nav">
+      {% for item in nav_items %}
+        <a href="{% if item.href %}{% url item.href %}{% else %}#{% endif %}" class="nav-item {% if item.active %}active{% endif %}">
+          <span class="nav-dot"></span>
+          <span>{{ item.label }}</span>
+        </a>
+      {% endfor %}
+    </nav>
+  </aside>
+
+  <section class="dashboard-main dashboard-main-ai">
+    <div class="automation-ai-page">
+      <header class="topbar">
+        <div class="topbar-left">
+          <button class="icon-button" type="button" aria-label="Abrir menu">&#9776;</button>
+          <div>
+            <p class="page-kicker">Automacao</p>
+            <h1>IA de atendimento</h1>
+          </div>
+        </div>
+
+        <div class="topbar-right">
+          <div class="profile-chip">
+            <div class="profile-avatar">{{ user_initial }}</div>
+            <div>
+              <strong>{{ request.user.get_full_name|default:request.user.email }}</strong>
+              <span>{{ role_label }}</span>
+            </div>
+          </div>
+          <a href="{% url 'logout' %}" class="logout-link">Sair</a>
+        </div>
+      </header>
+
+      <section class="ai-card">
+        <div class="ai-card-head">
+          <div>
+            <h2>Teste da IA local</h2>
+            <p>Teste respostas automaticas antes de ativar a automacao nas conversas.</p>
+          </div>
+          <span class="ai-status">Modo teste</span>
+        </div>
+
+        <form method="post" class="ai-form">
+          {% csrf_token %}
+
+          <div class="ai-grid">
+            <div class="ai-field">
+              <label for="{{ form.model.id_for_label }}">Modelo local</label>
+              {{ form.model }}
+              {% if form.model.errors %}<small class="field-error">{{ form.model.errors|striptags }}</small>{% endif %}
+            </div>
+
+            <div class="ai-field">
+              <label for="{{ form.ollama_url.id_for_label }}">URL do Ollama</label>
+              {{ form.ollama_url }}
+              {% if form.ollama_url.errors %}<small class="field-error">{{ form.ollama_url.errors|striptags }}</small>{% endif %}
+            </div>
+
+            <div class="ai-field">
+              <label for="{{ form.timeout.id_for_label }}">Tempo maximo de resposta</label>
+              {{ form.timeout }}
+              {% if form.timeout.errors %}<small class="field-error">{{ form.timeout.errors|striptags }}</small>{% endif %}
+            </div>
+          </div>
+
+          <div class="ai-field">
+            <label for="{{ form.message.id_for_label }}">Mensagem de teste</label>
+            {{ form.message }}
+            {% if form.message.errors %}<small class="field-error">{{ form.message.errors|striptags }}</small>{% endif %}
+          </div>
+
+          <div class="ai-actions">
+            <button type="submit" class="primary-button">Testar IA</button>
+          </div>
+        </form>
+
+        <div class="ai-result" aria-live="polite">
+          <span>Resposta da IA</span>
+          <p>{{ ai_reply|default:"A resposta gerada aparecera aqui." }}</p>
+        </div>
+
+        <p class="ai-note">Nesta etapa, a IA esta apenas em modo de teste e nao envia mensagens automaticamente.</p>
+      </section>
+    </div>
+  </section>
+</main>
+{% endblock %}

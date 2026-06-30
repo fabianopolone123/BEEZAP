@@ -1,4 +1,5 @@
 from django import forms
+from django.conf import settings
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
 
@@ -58,6 +59,53 @@ class WapiSendTextForm(forms.Form):
             'placeholder': 'Digite a mensagem de teste',
         }),
     )
+
+
+class AutomationAiTestForm(forms.Form):
+    MODEL_CHOICES = (
+        ('qwen2.5:1.5b', 'qwen2.5:1.5b'),
+        ('qwen2.5:0.5b', 'qwen2.5:0.5b'),
+        ('llama3.2:1b', 'llama3.2:1b'),
+    )
+
+    model = forms.ChoiceField(
+        label='Modelo local',
+        choices=MODEL_CHOICES,
+        initial=settings.OLLAMA_MODEL,
+        widget=forms.Select(attrs={'autocomplete': 'off'}),
+    )
+    ollama_url = forms.URLField(
+        label='URL do Ollama',
+        initial=settings.OLLAMA_BASE_URL,
+        widget=forms.URLInput(attrs={
+            'placeholder': 'http://localhost:11434',
+            'autocomplete': 'off',
+        }),
+    )
+    timeout = forms.IntegerField(
+        label='Tempo maximo de resposta',
+        min_value=5,
+        max_value=60,
+        initial=settings.OLLAMA_TIMEOUT,
+        widget=forms.NumberInput(attrs={
+            'placeholder': '20',
+            'autocomplete': 'off',
+        }),
+    )
+    message = forms.CharField(
+        label='Mensagem de teste',
+        max_length=1200,
+        widget=forms.Textarea(attrs={
+            'rows': 5,
+            'placeholder': 'Digite uma mensagem curta para testar a IA',
+        }),
+    )
+
+    def clean_message(self):
+        message = self.cleaned_data['message'].strip()
+        if not message:
+            raise forms.ValidationError('Informe uma mensagem para testar a IA.')
+        return message
 
 
 class AttendantForm(forms.Form):

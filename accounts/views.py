@@ -13,6 +13,7 @@ from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from .forms import (
+    AutomationAiTestForm,
     AttendantForm,
     InitialPasswordChangeForm,
     LoginForm,
@@ -24,6 +25,7 @@ from .forms import (
     WapiSendTextForm,
 )
 from .models import Attendant, PasswordResetCode, Sector, User, WapiConfiguration
+from ai_engine.services import generate_ai_reply
 from wapi.client import send_text_message
 
 
@@ -48,7 +50,7 @@ NAV_ITEMS = [
     {'label': 'Setores', 'required': 'adm', 'url_name': 'sectors'},
     {'label': 'Campanhas', 'required': 'usuario', 'url_name': None},
     {'label': 'Relatorios', 'required': 'leitor', 'url_name': None},
-    {'label': 'Automacao', 'required': 'usuario', 'url_name': None},
+    {'label': 'Automacao', 'required': 'adm', 'url_name': 'automation-ai'},
     {'label': 'Configuracoes', 'required': 'adm', 'url_name': 'wapi-settings'},
 ]
 
@@ -367,6 +369,43 @@ def wapi_settings_view(request):
             'role_label': request.user.get_role_display(),
             'user_initial': (request.user.first_name[:1] or request.user.email[:1]).upper(),
             'token_configured': config.has_token,
+        },
+    )
+
+
+@login_required
+def automation_ai_view(request):
+    if request.user.role != 'adm':
+        return HttpResponseForbidden('Acesso restrito.')
+
+    form = AutomationAiTestForm(request.POST or None)
+    ai_reply = ''
+
+    if request.method == 'POST':
+        if form.is_valid():
+            result = generate_ai_reply(
+                message=form.cleaned_data['message'],
+                model=form.cleaned_data['model'],
+                base_url=form.cleaned_data['ollama_url'],
+                timeout=form.cleaned_data['timeout'],
+            )
+            ai_reply = result.reply
+            if result.success:
+                messages.success(request, 'Resposta gerada com sucesso.')
+            else:
+                messages.error(request, result.error)
+        else:
+            messages.error(request, 'Nao foi possivel gerar resposta agora. Verifique a mensagem e tente novamente.')
+
+    return render(
+        request,
+        'accounts/automation_ai_settings.html',
+        {
+            'form': form,
+            'ai_reply': ai_reply,
+            'nav_items': build_nav_items(request.user.role, 'Automacao'),
+            'role_label': request.user.get_role_display(),
+            'user_initial': (request.user.first_name[:1] or request.user.email[:1]).upper(),
         },
     )
 

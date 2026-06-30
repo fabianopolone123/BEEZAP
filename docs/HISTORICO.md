@@ -53,3 +53,4 @@ Registro curto das alterações feitas no projeto.
 - Criada tela de Setores com model Sector (ManyToMany com Attendant), drag and drop nativo, modal de cadastro/edicao/exclusao, alternativa de adicao via botao para mobile, salvamento via AJAX e CSS especifico em static/css/sectors.css.
 - Corrigida criacao de setor: substituidas variaveis JSON com auto-escaping do Django (que convertia aspas para &quot; quebrando JSON.parse) pelo filtro json_script, resolvendo o SyntaxError que impedia o registro de todos os event listeners incluindo o botao Novo setor.
 - Atendentes alocados em setores agora somem da lista de disponíveis (ao arrastar, ao adicionar via modal mobile e ao carregar a pagina); reaparecem ao serem removidos do setor quando não estão em mais nenhum outro.
+- Preparada a base tecnica de IA local com Ollama em modo de teste, tela de Automacao para ADM e fallback seguro sem envio pelo WhatsApp.
