@@ -88,6 +88,21 @@
               {% endif %}
             </div>
 
+            <div class="settings-field">
+              <label for="{{ config_form.webhook_token.id_for_label }}">Token do webhook</label>
+              {{ config_form.webhook_token }}
+              <small class="field-help">
+                {% if webhook_token_configured %}
+                  Token do webhook configurado. Deixe em branco para manter o token atual.
+                {% else %}
+                  Use um token diferente do token da W-API para proteger o recebimento.
+                {% endif %}
+              </small>
+              {% if config_form.webhook_token.errors %}
+                <small class="field-error">{{ config_form.webhook_token.errors|striptags }}</small>
+              {% endif %}
+            </div>
+
             <div class="settings-actions">
               <button type="submit" class="primary-button">Salvar configuracao</button>
             </div>
@@ -128,8 +143,88 @@
           </form>
         </div>
       </article>
+
+      <article class="settings-card webhook-card">
+        <div class="panel-head webhook-head">
+          <div>
+            <h2>Recebimento de mensagens</h2>
+            <span>Configure esta URL na W-API no campo "Ao receber uma mensagem".</span>
+          </div>
+        </div>
+
+        <div class="webhook-url-box">
+          <span>URL do webhook</span>
+          <strong data-webhook-url>{{ webhook_url }}</strong>
+          <button type="button" class="secondary-button" data-copy-webhook>Copiar URL</button>
+        </div>
+
+        <p class="webhook-note">
+          Para receber mensagens reais, esta URL precisa estar acessivel pela internet. Em ambiente local, use um tunel como ngrok ou Cloudflare Tunnel.
+        </p>
+
+        <form method="post" class="webhook-test-form">
+          {% csrf_token %}
+          <input type="hidden" name="form_type" value="webhook-test">
+          <button type="submit" class="primary-button">Testar recebimento</button>
+        </form>
+
+        <div class="webhook-events">
+          <h3>Ultimos eventos recebidos</h3>
+          {% if latest_webhook_events %}
+            <div class="webhook-event-list">
+              {% for event in latest_webhook_events %}
+                <article class="webhook-event-row">
+                  <div>
+                    <span class="event-label">Data/hora</span>
+                    <strong>{{ event.received_at|date:"d/m/Y H:i" }}</strong>
+                  </div>
+                  <div>
+                    <span class="event-label">Tipo</span>
+                    <span>{{ event.event_type }}</span>
+                  </div>
+                  <div>
+                    <span class="event-label">Telefone</span>
+                    <span>{{ event.phone|default:"-" }}</span>
+                  </div>
+                  <div>
+                    <span class="event-label">Nome</span>
+                    <span>{{ event.contact_name|default:"-" }}</span>
+                  </div>
+                  <div class="event-message">
+                    <span class="event-label">Mensagem</span>
+                    <span>{{ event.short_text|default:"-" }}</span>
+                  </div>
+                  <div>
+                    <span class="event-label">Status</span>
+                    <span class="event-status">{{ event.status_label }}</span>
+                  </div>
+                </article>
+              {% endfor %}
+            </div>
+          {% else %}
+            <p class="webhook-empty">Nenhuma mensagem recebida ainda.</p>
+          {% endif %}
+        </div>
+      </article>
     </section>
     </div>
   </section>
 </main>
+
+<script>
+  (function () {
+    const copyButton = document.querySelector('[data-copy-webhook]');
+    const urlElement = document.querySelector('[data-webhook-url]');
+    if (!copyButton || !urlElement || !navigator.clipboard) return;
+
+    copyButton.addEventListener('click', function () {
+      navigator.clipboard.writeText(urlElement.textContent.trim()).then(function () {
+        copyButton.textContent = 'URL copiada';
+        window.setTimeout(function () {
+          copyButton.textContent = 'Copiar URL';
+        }, 1800);
+      });
+    });
+  }());
+</script>
 {% endblock %}

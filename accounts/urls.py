@@ -15,6 +15,7 @@ from .views import (
     password_recovery_verify_code_view,
     sectors_save_organization_view,
     sectors_view,
+    wapi_webhook_view,
     wapi_settings_view,
 )
 
@@ -33,5 +34,6 @@ urlpatterns = [
     path('atendentes/', attendants_view, name='attendants'),
     path('trocar-senha-inicial/', change_initial_password_view, name='change-initial-password'),
     path('configuracoes/wapi/', wapi_settings_view, name='wapi-settings'),
+    path('webhook/wapi/', wapi_webhook_view, name='wapi-webhook'),
     path('logout/', logout_view, name='logout'),
 ]

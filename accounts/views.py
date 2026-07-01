@@ -1,7 +1,9 @@
 import json
 import secrets
+from hmac import compare_digest
 from datetime import timedelta
 
+from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.hashers import make_password
 from django.contrib.auth import authenticate, login, logout, update_session_auth_hash
@@ -10,7 +12,9 @@ from django.db import IntegrityError, transaction
 from django.db.models import Q
 from django.http import HttpResponseForbidden, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.utils import timezone
+from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 
 from .forms import (
@@ -26,15 +30,35 @@ from .forms import (
     WapiConfigurationForm,
     WapiSendTextForm,
 )
-from .models import Attendant, AutomationRule, PasswordResetCode, Sector, User, WapiConfiguration
+from .models import (
+    Attendant,
+    AutomationRule,
+    PasswordResetCode,
+    Sector,
+    User,
+    WapiConfiguration,
+    WapiWebhookEvent,
+)
 from ai_engine.services import generate_ai_reply, generate_ai_reply_with_rules
 from wapi.client import send_text_message
+from wapi.parser import parse_wapi_webhook_payload
 
 
 PASSWORD_RECOVERY_CODE_ID_KEY = 'password_recovery_code_id'
 PASSWORD_RECOVERY_EMAIL_KEY = 'password_recovery_email'
 PASSWORD_RECOVERY_VERIFIED_ID_KEY = 'password_recovery_verified_id'
 PASSWORD_RECOVERY_GENERIC_MESSAGE = 'Se os dados estiverem corretos, enviaremos um codigo para o WhatsApp cadastrado.'
+
+WAPI_TEST_WEBHOOK_PAYLOAD = {
+    'event': 'message.received',
+    'instanceId': 'test-instance',
+    'phone': '5511999999999',
+    'contactName': 'Cliente Teste',
+    'messageId': 'test-message-id',
+    'messageType': 'text',
+    'text': 'Ola, preciso de atendimento',
+    'fromMe': False,
+}
 
 
 ROLE_RANK = {
@@ -153,6 +177,31 @@ def request_password_recovery_code(request, email):
     reset_code = create_and_send_password_recovery_code(user, phone)
     if reset_code:
         request.session[PASSWORD_RECOVERY_CODE_ID_KEY] = reset_code.id
+
+
+def create_wapi_webhook_event(payload):
+    parsed_payload = parse_wapi_webhook_payload(payload)
+    return WapiWebhookEvent.objects.create(
+        raw_payload=payload if isinstance(payload, dict) else {},
+        **parsed_payload,
+    )
+
+
+def is_valid_wapi_webhook_token(request):
+    config = WapiConfiguration.get_solo()
+    expected_token = config.resolved_webhook_token().strip()
+    if not expected_token:
+        return settings.DEBUG
+
+    received_token = (
+        request.headers.get('X-BEEZAP-WEBHOOK-TOKEN', '').strip()
+        or request.GET.get('token', '').strip()
+    )
+    return bool(received_token) and compare_digest(received_token, expected_token)
+
+
+def build_wapi_webhook_url(request):
+    return request.build_absolute_uri(reverse('wapi-webhook'))
 
 
 def must_change_initial_password(user):
@@ -342,6 +391,9 @@ def wapi_settings_view(request):
             new_token = config_form.cleaned_data['token'].strip()
             if new_token:
                 config.token = new_token
+            new_webhook_token = config_form.cleaned_data['webhook_token'].strip()
+            if new_webhook_token:
+                config.webhook_token = new_webhook_token
             config.save()
             messages.success(request, 'Configuracao salva com sucesso.')
             return redirect('wapi-settings')
@@ -360,6 +412,14 @@ def wapi_settings_view(request):
                 )
             return redirect('wapi-settings')
 
+        if form_type == 'webhook-test':
+            try:
+                create_wapi_webhook_event(WAPI_TEST_WEBHOOK_PAYLOAD)
+                messages.success(request, 'Evento de teste registrado com sucesso.')
+            except Exception:
+                messages.error(request, 'Nao foi possivel registrar o teste de recebimento.')
+            return redirect('wapi-settings')
+
     return render(
         request,
         'accounts/wapi_settings.html',
@@ -367,10 +427,13 @@ def wapi_settings_view(request):
             'config_form': config_form,
             'send_form': send_form,
             'config': config,
+            'webhook_url': build_wapi_webhook_url(request),
+            'latest_webhook_events': WapiWebhookEvent.objects.all()[:10],
             'nav_items': build_nav_items(request.user.role, 'Configuracoes'),
             'role_label': request.user.get_role_display(),
             'user_initial': (request.user.first_name[:1] or request.user.email[:1]).upper(),
             'token_configured': config.has_token,
+            'webhook_token_configured': config.has_webhook_token,
         },
     )
 
@@ -825,6 +888,27 @@ def sectors_save_organization_view(request):
         )
 
     return JsonResponse({'ok': True})
+
+
+@csrf_exempt
+def wapi_webhook_view(request):
+    if request.method != 'POST':
+        return JsonResponse({'ok': False, 'error': 'Metodo nao permitido.'}, status=405)
+
+    if not is_valid_wapi_webhook_token(request):
+        return JsonResponse({'ok': False, 'error': 'Token de webhook invalido.'}, status=403)
+
+    try:
+        payload = json.loads(request.body.decode('utf-8') or '{}')
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        payload = {}
+
+    try:
+        create_wapi_webhook_event(payload)
+    except Exception:
+        return JsonResponse({'ok': False, 'error': 'Nao foi possivel registrar o webhook.'}, status=500)
+
+    return JsonResponse({'ok': True, 'message': 'Webhook recebido com sucesso.'})
 
 
 def logout_view(request):

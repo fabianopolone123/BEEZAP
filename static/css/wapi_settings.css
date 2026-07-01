@@ -83,21 +83,31 @@
   box-shadow: 0 0 0 4px rgba(33, 194, 94, 0.12);
 }
 
-.wapi-settings-page .settings-actions {
+.wapi-settings-page .settings-actions,
+.wapi-settings-page .webhook-test-form {
   display: flex;
   justify-content: flex-start;
 }
 
-.wapi-settings-page .primary-button {
+.wapi-settings-page .primary-button,
+.wapi-settings-page .secondary-button {
   padding: 14px 20px;
   border: 0;
   border-radius: 16px;
-  background: linear-gradient(135deg, var(--primary), var(--primary-deep));
-  color: #fff;
   font: inherit;
   font-weight: 700;
   cursor: pointer;
+}
+
+.wapi-settings-page .primary-button {
+  background: linear-gradient(135deg, var(--primary), var(--primary-deep));
+  color: #fff;
   box-shadow: 0 14px 30px rgba(17, 152, 74, 0.24);
+}
+
+.wapi-settings-page .secondary-button {
+  background: rgba(45, 108, 223, 0.1);
+  color: var(--blue);
 }
 
 .wapi-settings-page .field-help {
@@ -116,6 +126,99 @@
   margin-top: 0;
 }
 
+.wapi-settings-page .webhook-card {
+  display: grid;
+  gap: 18px;
+}
+
+.wapi-settings-page .panel-head h2,
+.wapi-settings-page .webhook-events h3 {
+  margin: 0 0 6px;
+}
+
+.wapi-settings-page .panel-head span,
+.wapi-settings-page .webhook-note,
+.wapi-settings-page .webhook-empty {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.wapi-settings-page .webhook-url-box {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px 14px;
+  align-items: center;
+  padding: 16px;
+  border: 1px solid rgba(100, 116, 139, 0.16);
+  border-radius: 18px;
+  background: rgba(248, 250, 252, 0.92);
+}
+
+.wapi-settings-page .webhook-url-box span {
+  grid-column: 1 / -1;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.wapi-settings-page .webhook-url-box strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 0.95rem;
+}
+
+.wapi-settings-page .webhook-events {
+  display: grid;
+  gap: 12px;
+}
+
+.wapi-settings-page .webhook-event-list {
+  overflow: hidden;
+  border: 1px solid rgba(100, 116, 139, 0.14);
+  border-radius: 18px;
+}
+
+.wapi-settings-page .webhook-event-row {
+  display: grid;
+  grid-template-columns: minmax(120px, 0.8fr) minmax(110px, 0.7fr) minmax(130px, 0.8fr) minmax(130px, 0.8fr) minmax(0, 1.3fr) minmax(100px, 0.55fr);
+  gap: 14px;
+  padding: 15px 16px;
+  border-bottom: 1px solid rgba(100, 116, 139, 0.12);
+  align-items: center;
+}
+
+.wapi-settings-page .webhook-event-row:last-child {
+  border-bottom: 0;
+}
+
+.wapi-settings-page .webhook-event-row > * {
+  min-width: 0;
+}
+
+.wapi-settings-page .webhook-event-row span,
+.wapi-settings-page .webhook-event-row strong {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.wapi-settings-page .event-label {
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.wapi-settings-page .event-status {
+  width: fit-content;
+  padding: 7px 10px;
+  border-radius: 999px;
+  background: rgba(33, 194, 94, 0.12);
+  color: var(--primary-deep);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
 @media (max-width: 1200px) {
   .wapi-settings-page .settings-card-split {
     grid-template-columns: 1fr;
@@ -128,6 +231,14 @@
     border-left: 0;
     border-top: 1px solid rgba(100, 116, 139, 0.14);
   }
+
+  .wapi-settings-page .webhook-event-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .wapi-settings-page .event-message {
+    grid-column: 1 / -1;
+  }
 }
 
 @media (max-width: 760px) {
@@ -137,5 +248,15 @@
 
   .wapi-settings-page {
     gap: 8px;
+  }
+
+  .wapi-settings-page .webhook-url-box,
+  .wapi-settings-page .webhook-event-row {
+    grid-template-columns: 1fr;
+  }
+
+  .wapi-settings-page .primary-button,
+  .wapi-settings-page .secondary-button {
+    width: 100%;
   }
 }

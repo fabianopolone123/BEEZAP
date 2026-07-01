@@ -133,6 +133,7 @@ AUTHENTICATION_BACKENDS = [
 WAPI_BASE_URL = os.getenv('WAPI_BASE_URL', 'https://api.w-api.app')
 WAPI_INSTANCE_ID = os.getenv('WAPI_INSTANCE_ID', '')
 WAPI_TOKEN = os.getenv('WAPI_TOKEN', '')
+WAPI_WEBHOOK_TOKEN = os.getenv('WAPI_WEBHOOK_TOKEN', '')
 
 OLLAMA_BASE_URL = os.getenv('OLLAMA_BASE_URL', 'http://localhost:11434')
 OLLAMA_MODEL = os.getenv('OLLAMA_MODEL', 'qwen2.5:1.5b')

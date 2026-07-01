@@ -56,6 +56,7 @@ class User(AbstractUser):
 class WapiConfiguration(models.Model):
     instance_id = models.CharField(max_length=120, blank=True)
     token = models.CharField(max_length=255, blank=True)
+    webhook_token = models.CharField(max_length=255, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -72,14 +73,53 @@ class WapiConfiguration(models.Model):
     def has_token(self):
         return bool(self.token or settings.WAPI_TOKEN)
 
+    @property
+    def has_webhook_token(self):
+        return bool(self.webhook_token or settings.WAPI_WEBHOOK_TOKEN)
+
     def resolved_instance_id(self):
         return self.instance_id or settings.WAPI_INSTANCE_ID
 
     def resolved_token(self):
         return self.token or settings.WAPI_TOKEN
 
+    def resolved_webhook_token(self):
+        return self.webhook_token or settings.WAPI_WEBHOOK_TOKEN
+
     def __str__(self):
         return 'Configuracao W-API'
+
+
+class WapiWebhookEvent(models.Model):
+    event_type = models.CharField(max_length=80, default='unknown')
+    instance_id = models.CharField(max_length=120, blank=True, default='')
+    phone = models.CharField(max_length=40, blank=True, default='')
+    contact_name = models.CharField(max_length=150, blank=True, default='')
+    message_id = models.CharField(max_length=160, blank=True, default='')
+    message_type = models.CharField(max_length=60, default='unknown')
+    message_text = models.TextField(blank=True, default='')
+    from_me = models.BooleanField(default=False)
+    raw_payload = models.JSONField(default=dict)
+    received_at = models.DateTimeField(auto_now_add=True)
+    processed = models.BooleanField(default=False)
+    processing_error = models.TextField(blank=True, default='')
+
+    class Meta:
+        ordering = ('-received_at',)
+        verbose_name = 'Evento webhook W-API'
+        verbose_name_plural = 'Eventos webhook W-API'
+
+    @property
+    def status_label(self):
+        return 'Processado' if self.processed else 'Recebido'
+
+    @property
+    def short_text(self):
+        text = ' '.join((self.message_text or '').split())
+        return text[:90] + '...' if len(text) > 90 else text
+
+    def __str__(self):
+        return f'{self.event_type} - {self.phone or "sem telefone"}'
 
 
 class Attendant(models.Model):

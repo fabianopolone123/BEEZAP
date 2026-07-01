@@ -58,3 +58,4 @@ Registro curto das alterações feitas no projeto.
 - Tela de teste da IA passou a permitir selecionar setor, usar regras cadastradas e exibir regras encontradas sem acionar W-API ou WhatsApp.
 - Configurado o cliente Ollama para usar CPU por padrao (`OLLAMA_NUM_GPU=0`), evitando erro CUDA no teste local da IA.
 - Aplicadas regras padrao editaveis para orientar o teste da IA em atendimento, encaminhamento, horario, financeiro, vendas e suporte.
+- Preparado webhook publico da W-API para registrar mensagens recebidas com parser defensivo, token separado e visualizacao dos ultimos eventos na tela de configuracao.

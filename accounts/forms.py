@@ -41,6 +41,15 @@ class WapiConfigurationForm(forms.Form):
             'autocomplete': 'new-password',
         }, render_value=False),
     )
+    webhook_token = forms.CharField(
+        label='Token do webhook',
+        max_length=255,
+        required=False,
+        widget=forms.PasswordInput(attrs={
+            'placeholder': 'Digite um token separado para proteger o webhook',
+            'autocomplete': 'new-password',
+        }, render_value=False),
+    )
 
 
 class WapiSendTextForm(forms.Form):
