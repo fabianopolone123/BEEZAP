@@ -137,6 +137,50 @@ class Sector(models.Model):
         return self.name
 
 
+class AutomationRule(models.Model):
+    title = models.CharField('Titulo da regra', max_length=120)
+    sector = models.ForeignKey(
+        Sector,
+        blank=True,
+        null=True,
+        on_delete=models.SET_NULL,
+        related_name='automation_rules',
+        verbose_name='Setor',
+    )
+    keywords = models.CharField('Palavras-chave', max_length=255)
+    customer_example = models.TextField('Pergunta/exemplo do cliente', blank=True, default='')
+    response_text = models.TextField('Resposta orientada')
+    internal_instruction = models.TextField('Instrucao interna', blank=True, default='')
+    is_active = models.BooleanField('Ativa', default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ('-is_active', 'title')
+        verbose_name = 'Regra de atendimento'
+        verbose_name_plural = 'Regras de atendimento'
+
+    @staticmethod
+    def normalize_keywords(value):
+        parts = [part.strip().lower() for part in (value or '').replace(';', ',').split(',')]
+        return ', '.join(part for part in parts if part)
+
+    @property
+    def sector_label(self):
+        return self.sector.name if self.sector else 'Geral'
+
+    @property
+    def status_label(self):
+        return 'Ativa' if self.is_active else 'Inativa'
+
+    @property
+    def keyword_list(self):
+        return [part.strip().lower() for part in self.keywords.split(',') if part.strip()]
+
+    def __str__(self):
+        return self.title
+
+
 class PasswordResetCode(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='password_reset_codes')
     code_hash = models.CharField(max_length=128)

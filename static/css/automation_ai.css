@@ -21,6 +21,31 @@
   caret-color: auto;
 }
 
+.automation-ai-page .automation-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.automation-ai-page .automation-tabs a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 11px 15px;
+  border: 1px solid rgba(100, 116, 139, 0.16);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.78);
+  color: var(--muted);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.automation-ai-page .automation-tabs a.active {
+  border-color: rgba(33, 194, 94, 0.24);
+  background: rgba(33, 194, 94, 0.12);
+  color: var(--primary-deep);
+}
+
 .automation-ai-page .ai-card {
   display: grid;
   gap: 20px;

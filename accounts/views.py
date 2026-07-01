@@ -7,6 +7,7 @@ from django.contrib.auth.hashers import make_password
 from django.contrib.auth import authenticate, login, logout, update_session_auth_hash
 from django.contrib.auth.decorators import login_required
 from django.db import IntegrityError, transaction
+from django.db.models import Q
 from django.http import HttpResponseForbidden, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
@@ -14,6 +15,7 @@ from django.views.decorators.http import require_POST
 
 from .forms import (
     AutomationAiTestForm,
+    AutomationRuleForm,
     AttendantForm,
     InitialPasswordChangeForm,
     LoginForm,
@@ -24,7 +26,7 @@ from .forms import (
     WapiConfigurationForm,
     WapiSendTextForm,
 )
-from .models import Attendant, PasswordResetCode, Sector, User, WapiConfiguration
+from .models import Attendant, AutomationRule, PasswordResetCode, Sector, User, WapiConfiguration
 from ai_engine.services import generate_ai_reply
 from wapi.client import send_text_message
 
@@ -403,6 +405,111 @@ def automation_ai_view(request):
         {
             'form': form,
             'ai_reply': ai_reply,
+            'nav_items': build_nav_items(request.user.role, 'Automacao'),
+            'role_label': request.user.get_role_display(),
+            'user_initial': (request.user.first_name[:1] or request.user.email[:1]).upper(),
+        },
+    )
+
+
+@login_required
+def automation_rules_view(request):
+    if request.user.role != 'adm':
+        return HttpResponseForbidden('Acesso restrito.')
+
+    query = request.GET.get('q', '').strip()
+    sector_filter = request.GET.get('sector', '').strip()
+    status_filter = request.GET.get('status', '').strip()
+    sectors = Sector.objects.all()
+    rules = AutomationRule.objects.select_related('sector').all()
+
+    if query:
+        rules = rules.filter(
+            Q(title__icontains=query)
+            | Q(keywords__icontains=query)
+            | Q(customer_example__icontains=query)
+            | Q(response_text__icontains=query)
+        )
+
+    if sector_filter == 'general':
+        rules = rules.filter(sector__isnull=True)
+    elif sector_filter:
+        try:
+            rules = rules.filter(sector_id=int(sector_filter))
+        except ValueError:
+            sector_filter = ''
+
+    if status_filter == 'active':
+        rules = rules.filter(is_active=True)
+    elif status_filter == 'inactive':
+        rules = rules.filter(is_active=False)
+    else:
+        status_filter = ''
+
+    form = AutomationRuleForm()
+    show_modal = request.GET.get('new') == '1'
+    modal_mode = 'create'
+    editing_rule = None
+
+    edit_id = request.GET.get('edit', '').strip()
+    if edit_id:
+        editing_rule = AutomationRule.objects.filter(pk=edit_id).first()
+        if editing_rule:
+            form = AutomationRuleForm(instance=editing_rule)
+            show_modal = True
+            modal_mode = 'edit'
+        else:
+            messages.error(request, 'Regra nao encontrada.')
+            return redirect('automation-rules')
+
+    if request.method == 'POST':
+        action = request.POST.get('action', 'save')
+        rule_id = request.POST.get('rule_id', '').strip()
+
+        if action == 'deactivate':
+            rule = AutomationRule.objects.filter(pk=rule_id).first()
+            if rule:
+                rule.is_active = False
+                rule.save(update_fields=['is_active', 'updated_at'])
+                messages.success(request, 'Regra inativada com sucesso.')
+            else:
+                messages.error(request, 'Regra nao encontrada.')
+            return redirect('automation-rules')
+
+        if rule_id:
+            editing_rule = AutomationRule.objects.filter(pk=rule_id).first()
+            if not editing_rule:
+                messages.error(request, 'Regra nao encontrada.')
+                return redirect('automation-rules')
+            modal_mode = 'edit'
+
+        form = AutomationRuleForm(request.POST, instance=editing_rule)
+        show_modal = True
+        if form.is_valid():
+            form.save()
+            if editing_rule:
+                messages.success(request, 'Regra atualizada com sucesso.')
+            else:
+                messages.success(request, 'Regra cadastrada com sucesso.')
+            return redirect('automation-rules')
+
+        messages.error(request, 'Nao foi possivel salvar a regra. Verifique os dados e tente novamente.')
+
+    return render(
+        request,
+        'accounts/automation_rules.html',
+        {
+            'rules': rules,
+            'sectors': sectors,
+            'form': form,
+            'show_modal': show_modal,
+            'modal_mode': modal_mode,
+            'editing_rule': editing_rule,
+            'filters': {
+                'q': query,
+                'sector': sector_filter,
+                'status': status_filter,
+            },
             'nav_items': build_nav_items(request.user.role, 'Automacao'),
             'role_label': request.user.get_role_display(),
             'user_initial': (request.user.first_name[:1] or request.user.email[:1]).upper(),

@@ -3,7 +3,7 @@ from django.conf import settings
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
 
-from .models import Attendant, Sector, User
+from .models import Attendant, AutomationRule, Sector, User
 
 
 class LoginForm(forms.Form):
@@ -106,6 +106,80 @@ class AutomationAiTestForm(forms.Form):
         if not message:
             raise forms.ValidationError('Informe uma mensagem para testar a IA.')
         return message
+
+
+class AutomationRuleForm(forms.ModelForm):
+    class Meta:
+        model = AutomationRule
+        fields = [
+            'title',
+            'sector',
+            'keywords',
+            'customer_example',
+            'response_text',
+            'internal_instruction',
+            'is_active',
+        ]
+        labels = {
+            'title': 'Titulo da regra',
+            'sector': 'Setor',
+            'keywords': 'Palavras-chave',
+            'customer_example': 'Pergunta/exemplo do cliente',
+            'response_text': 'Resposta orientada',
+            'internal_instruction': 'Instrucao interna',
+            'is_active': 'Regra ativa',
+        }
+        widgets = {
+            'title': forms.TextInput(attrs={
+                'placeholder': 'Ex: Horario de atendimento',
+                'autocomplete': 'off',
+            }),
+            'keywords': forms.TextInput(attrs={
+                'placeholder': 'horario, atendimento, aberto',
+                'autocomplete': 'off',
+            }),
+            'customer_example': forms.Textarea(attrs={
+                'placeholder': 'Ex: Qual o horario de atendimento?',
+                'rows': 3,
+            }),
+            'response_text': forms.Textarea(attrs={
+                'placeholder': 'Resposta curta e adequada para WhatsApp',
+                'rows': 4,
+            }),
+            'internal_instruction': forms.Textarea(attrs={
+                'placeholder': 'Ex: Se pedir desconto, encaminhar para atendente.',
+                'rows': 3,
+            }),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['sector'].required = False
+        self.fields['sector'].empty_label = 'Geral'
+
+    def clean_title(self):
+        title = ' '.join(self.cleaned_data.get('title', '').split())
+        if not title:
+            raise forms.ValidationError('Informe o titulo da regra.')
+        return title
+
+    def clean_keywords(self):
+        keywords = AutomationRule.normalize_keywords(self.cleaned_data.get('keywords', ''))
+        if not keywords:
+            raise forms.ValidationError('Informe ao menos uma palavra-chave.')
+        return keywords
+
+    def clean_response_text(self):
+        response_text = self.cleaned_data.get('response_text', '').strip()
+        if not response_text:
+            raise forms.ValidationError('Informe a resposta orientada.')
+        return response_text[:1200]
+
+    def clean_customer_example(self):
+        return self.cleaned_data.get('customer_example', '').strip()[:600]
+
+    def clean_internal_instruction(self):
+        return self.cleaned_data.get('internal_instruction', '').strip()[:600]
 
 
 class AttendantForm(forms.Form):

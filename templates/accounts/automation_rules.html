@@ -1,0 +1,210 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Regras de atendimento | BEEZap{% endblock %}
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/dashboard.css' %}">
+<link rel="stylesheet" href="{% static 'css/automation_rules.css' %}">
+{% endblock %}
+
+{% block content %}
+<main class="dashboard-shell">
+  <aside class="sidebar">
+    <div class="sidebar-brand">
+      <img src="{% static 'images/logo-transparent.png' %}" alt="BEEZap" class="sidebar-logo">
+      <div>
+        <strong>BEEZap</strong>
+        <span>Central de atendimento</span>
+      </div>
+    </div>
+
+    <nav class="sidebar-nav">
+      {% for item in nav_items %}
+        <a href="{% if item.href %}{% url item.href %}{% else %}#{% endif %}" class="nav-item {% if item.active %}active{% endif %}">
+          <span class="nav-dot"></span>
+          <span>{{ item.label }}</span>
+        </a>
+      {% endfor %}
+    </nav>
+  </aside>
+
+  <section class="dashboard-main dashboard-main-rules">
+    <div class="automation-rules-page">
+      <header class="topbar">
+        <div class="topbar-left">
+          <button class="icon-button" type="button" aria-label="Abrir menu">&#9776;</button>
+          <div>
+            <p class="page-kicker">Automacao</p>
+            <h1>Regras de atendimento</h1>
+          </div>
+        </div>
+
+        <div class="topbar-right">
+          <div class="profile-chip">
+            <div class="profile-avatar">{{ user_initial }}</div>
+            <div>
+              <strong>{{ request.user.get_full_name|default:request.user.email }}</strong>
+              <span>{{ role_label }}</span>
+            </div>
+          </div>
+          <a href="{% url 'logout' %}" class="logout-link">Sair</a>
+        </div>
+      </header>
+
+      <nav class="automation-tabs" aria-label="Navegacao da automacao">
+        <a href="{% url 'automation-ai' %}">IA de atendimento</a>
+        <a href="{% url 'automation-rules' %}" class="active">Regras de atendimento</a>
+      </nav>
+
+      <section class="rules-hero">
+        <div>
+          <h2>Regras de atendimento</h2>
+          <p>Cadastre respostas e orientacoes que a IA deve usar no atendimento.</p>
+        </div>
+        <a href="{% url 'automation-rules' %}?new=1" class="primary-button">Nova regra</a>
+      </section>
+
+      <form method="get" class="rules-filters">
+        <div class="rules-field">
+          <label for="rule-search">Buscar regra</label>
+          <input id="rule-search" name="q" type="search" value="{{ filters.q }}" placeholder="Buscar regra...">
+        </div>
+
+        <div class="rules-field">
+          <label for="rule-sector">Setor</label>
+          <select id="rule-sector" name="sector">
+            <option value="">Todos os setores</option>
+            <option value="general" {% if filters.sector == 'general' %}selected{% endif %}>Geral</option>
+            {% for sector in sectors %}
+              <option value="{{ sector.id }}" {% if filters.sector == sector.id|stringformat:'s' %}selected{% endif %}>{{ sector.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div class="rules-field">
+          <label for="rule-status">Status</label>
+          <select id="rule-status" name="status">
+            <option value="">Todos</option>
+            <option value="active" {% if filters.status == 'active' %}selected{% endif %}>Ativas</option>
+            <option value="inactive" {% if filters.status == 'inactive' %}selected{% endif %}>Inativas</option>
+          </select>
+        </div>
+
+        <div class="rules-filter-actions">
+          <button type="submit" class="secondary-button">Filtrar</button>
+          <a href="{% url 'automation-rules' %}" class="ghost-button">Limpar</a>
+        </div>
+      </form>
+
+      <section class="rules-list" aria-label="Lista de regras cadastradas">
+        {% if rules %}
+          {% for rule in rules %}
+            <article class="rule-row">
+              <div class="rule-main">
+                <span class="rule-label">Titulo</span>
+                <strong>{{ rule.title }}</strong>
+              </div>
+              <div>
+                <span class="rule-label">Setor</span>
+                <span>{{ rule.sector_label }}</span>
+              </div>
+              <div>
+                <span class="rule-label">Palavras-chave</span>
+                <span>{{ rule.keywords }}</span>
+              </div>
+              <div>
+                <span class="rule-label">Status</span>
+                <span class="status-badge {% if rule.is_active %}status-active{% else %}status-inactive{% endif %}">{{ rule.status_label }}</span>
+              </div>
+              <div class="rule-actions">
+                <a href="{% url 'automation-rules' %}?edit={{ rule.id }}" class="secondary-button">Editar</a>
+                {% if rule.is_active %}
+                  <form method="post" class="inline-form">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="deactivate">
+                    <input type="hidden" name="rule_id" value="{{ rule.id }}">
+                    <button type="submit" class="danger-button" onclick="return confirm('Inativar esta regra?');">Inativar</button>
+                  </form>
+                {% endif %}
+              </div>
+            </article>
+          {% endfor %}
+        {% else %}
+          <article class="rules-empty">
+            <strong>Nenhuma regra cadastrada.</strong>
+            <span>Use o botao Nova regra para cadastrar a primeira orientacao da IA.</span>
+          </article>
+        {% endif %}
+      </section>
+    </div>
+  </section>
+</main>
+
+{% if show_modal %}
+<div class="rules-modal is-open">
+  <a href="{% url 'automation-rules' %}" class="rules-modal-backdrop" aria-label="Fechar"></a>
+  <div class="rules-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="rule-modal-title">
+    <div class="rules-modal-head">
+      <h2 id="rule-modal-title">{% if modal_mode == 'edit' %}Editar regra{% else %}Nova regra{% endif %}</h2>
+      <a href="{% url 'automation-rules' %}" class="modal-close" aria-label="Fechar">&times;</a>
+    </div>
+
+    <form method="post" class="rules-form" novalidate>
+      {% csrf_token %}
+      <input type="hidden" name="action" value="save">
+      {% if editing_rule %}
+        <input type="hidden" name="rule_id" value="{{ editing_rule.id }}">
+      {% endif %}
+
+      <div class="rules-form-grid">
+        <div class="rules-field">
+          <label for="{{ form.title.id_for_label }}">Titulo da regra</label>
+          {{ form.title }}
+          {% if form.title.errors %}<small class="field-error">{{ form.title.errors|striptags }}</small>{% endif %}
+        </div>
+
+        <div class="rules-field">
+          <label for="{{ form.sector.id_for_label }}">Setor</label>
+          {{ form.sector }}
+          {% if form.sector.errors %}<small class="field-error">{{ form.sector.errors|striptags }}</small>{% endif %}
+        </div>
+      </div>
+
+      <div class="rules-field">
+        <label for="{{ form.keywords.id_for_label }}">Palavras-chave</label>
+        {{ form.keywords }}
+        {% if form.keywords.errors %}<small class="field-error">{{ form.keywords.errors|striptags }}</small>{% endif %}
+      </div>
+
+      <div class="rules-field">
+        <label for="{{ form.customer_example.id_for_label }}">Pergunta/exemplo do cliente</label>
+        {{ form.customer_example }}
+        {% if form.customer_example.errors %}<small class="field-error">{{ form.customer_example.errors|striptags }}</small>{% endif %}
+      </div>
+
+      <div class="rules-field">
+        <label for="{{ form.response_text.id_for_label }}">Resposta orientada</label>
+        {{ form.response_text }}
+        {% if form.response_text.errors %}<small class="field-error">{{ form.response_text.errors|striptags }}</small>{% endif %}
+      </div>
+
+      <div class="rules-field">
+        <label for="{{ form.internal_instruction.id_for_label }}">Instrucao interna</label>
+        {{ form.internal_instruction }}
+        {% if form.internal_instruction.errors %}<small class="field-error">{{ form.internal_instruction.errors|striptags }}</small>{% endif %}
+      </div>
+
+      <label class="rules-check" for="{{ form.is_active.id_for_label }}">
+        {{ form.is_active }}
+        <span>Regra ativa</span>
+      </label>
+
+      <div class="rules-form-actions">
+        <button type="submit" class="primary-button">Salvar</button>
+        <a href="{% url 'automation-rules' %}" class="secondary-button">Cancelar</a>
+      </div>
+    </form>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

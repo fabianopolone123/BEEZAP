@@ -2,6 +2,7 @@ from django.urls import path
 
 from .views import (
     automation_ai_view,
+    automation_rules_view,
     attendants_view,
     change_initial_password_view,
     conversations_view,
@@ -26,6 +27,7 @@ urlpatterns = [
     path('dashboard/', dashboard_view, name='dashboard'),
     path('conversas/', conversations_view, name='conversations'),
     path('automacao/ia/', automation_ai_view, name='automation-ai'),
+    path('automacao/regras/', automation_rules_view, name='automation-rules'),
     path('setores/', sectors_view, name='sectors'),
     path('setores/salvar/', sectors_save_organization_view, name='sectors-save'),
     path('atendentes/', attendants_view, name='attendants'),
