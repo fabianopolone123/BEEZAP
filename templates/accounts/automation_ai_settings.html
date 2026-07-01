@@ -56,19 +56,19 @@
         <a href="{% url 'automation-rules' %}">Regras de atendimento</a>
       </nav>
 
-      <section class="ai-card">
-        <div class="ai-card-head">
-          <div>
-            <h2>Teste da IA local</h2>
-            <p>Teste respostas automaticas antes de ativar a automacao nas conversas.</p>
+      <form method="post" class="ai-form">
+        {% csrf_token %}
+
+        <section class="ai-card">
+          <div class="ai-card-head">
+            <div>
+              <h2>Configuracao do teste</h2>
+              <p>Teste respostas automaticas antes de ativar qualquer automacao real.</p>
+            </div>
+            <span class="ai-status">Modo teste</span>
           </div>
-          <span class="ai-status">Modo teste</span>
-        </div>
 
-        <form method="post" class="ai-form">
-          {% csrf_token %}
-
-          <div class="ai-grid">
+          <div class="ai-grid ai-grid-config">
             <div class="ai-field">
               <label for="{{ form.model.id_for_label }}">Modelo local</label>
               {{ form.model }}
@@ -82,9 +82,32 @@
             </div>
 
             <div class="ai-field">
-              <label for="{{ form.timeout.id_for_label }}">Tempo maximo de resposta</label>
+              <label for="{{ form.timeout.id_for_label }}">Timeout</label>
               {{ form.timeout }}
               {% if form.timeout.errors %}<small class="field-error">{{ form.timeout.errors|striptags }}</small>{% endif %}
+            </div>
+
+            <div class="ai-field">
+              <label for="{{ form.sector.id_for_label }}">Setor</label>
+              {{ form.sector }}
+              {% if form.sector.errors %}<small class="field-error">{{ form.sector.errors|striptags }}</small>{% endif %}
+            </div>
+          </div>
+
+          <label class="ai-check" for="{{ form.use_rules.id_for_label }}">
+            {{ form.use_rules }}
+            <span>
+              <strong>Usar regras cadastradas</strong>
+              <small>{{ form.use_rules.help_text }}</small>
+            </span>
+          </label>
+        </section>
+
+        <section class="ai-card">
+          <div class="ai-card-head">
+            <div>
+              <h2>Mensagem de teste</h2>
+              <p>Digite uma mensagem como se fosse o cliente.</p>
             </div>
           </div>
 
@@ -97,15 +120,42 @@
           <div class="ai-actions">
             <button type="submit" class="primary-button">Testar IA</button>
           </div>
-        </form>
+        </section>
+      </form>
 
+      <section class="ai-card ai-result-card">
         <div class="ai-result" aria-live="polite">
           <span>Resposta da IA</span>
           <p>{{ ai_reply|default:"A resposta gerada aparecera aqui." }}</p>
         </div>
-
-        <p class="ai-note">Nesta etapa, a IA esta apenas em modo de teste e nao envia mensagens automaticamente.</p>
       </section>
+
+      {% if rules_checked %}
+        <section class="ai-card ai-rules-card">
+          <div class="ai-card-head">
+            <div>
+              <h2>Regras encontradas</h2>
+              <p>Regras encontradas para este teste.</p>
+            </div>
+          </div>
+
+          {% if rules_found %}
+            <div class="ai-rules-list">
+              {% for rule in rules_found %}
+                <article class="ai-rule-item">
+                  <strong>{{ rule.title }}</strong>
+                  <span>Setor: {{ rule.sector_label }}</span>
+                  <small>Palavras-chave: {{ rule.keywords }}</small>
+                </article>
+              {% endfor %}
+            </div>
+          {% else %}
+            <p class="ai-empty-rules">Nenhuma regra compativel foi encontrada.</p>
+          {% endif %}
+        </section>
+      {% endif %}
+
+      <p class="ai-note">Nesta etapa, a IA esta apenas em modo de teste e nao envia mensagens automaticamente.</p>
     </div>
   </section>
 </main>

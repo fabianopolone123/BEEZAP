@@ -96,6 +96,10 @@
   align-items: start;
 }
 
+.automation-ai-page .ai-grid-config {
+  grid-template-columns: minmax(180px, 0.8fr) minmax(240px, 1.2fr) minmax(130px, 0.45fr) minmax(180px, 0.7fr);
+}
+
 .automation-ai-page .ai-field {
   display: grid;
   gap: 8px;
@@ -137,6 +141,39 @@
   justify-content: flex-start;
 }
 
+.automation-ai-page .ai-check {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  width: fit-content;
+  padding: 14px 16px;
+  border: 1px solid rgba(33, 194, 94, 0.18);
+  border-radius: 16px;
+  background: rgba(33, 194, 94, 0.08);
+  color: var(--text);
+}
+
+.automation-ai-page .ai-check input {
+  width: 18px;
+  height: 18px;
+  margin-top: 2px;
+  accent-color: var(--primary-deep);
+}
+
+.automation-ai-page .ai-check span {
+  display: grid;
+  gap: 4px;
+}
+
+.automation-ai-page .ai-check strong {
+  font-size: 0.95rem;
+}
+
+.automation-ai-page .ai-check small {
+  color: var(--muted);
+  line-height: 1.45;
+}
+
 .automation-ai-page .primary-button {
   padding: 14px 20px;
   border: 0;
@@ -170,6 +207,37 @@
   line-height: 1.6;
 }
 
+.automation-ai-page .ai-rules-list {
+  display: grid;
+  gap: 12px;
+}
+
+.automation-ai-page .ai-rule-item {
+  display: grid;
+  gap: 6px;
+  padding: 15px 16px;
+  border: 1px solid rgba(100, 116, 139, 0.16);
+  border-radius: 16px;
+  background: rgba(248, 250, 252, 0.86);
+}
+
+.automation-ai-page .ai-rule-item strong,
+.automation-ai-page .ai-rule-item span,
+.automation-ai-page .ai-rule-item small {
+  overflow-wrap: anywhere;
+}
+
+.automation-ai-page .ai-rule-item span,
+.automation-ai-page .ai-rule-item small,
+.automation-ai-page .ai-empty-rules {
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.automation-ai-page .ai-empty-rules {
+  margin: 0;
+}
+
 .automation-ai-page .ai-note {
   margin: 0;
   color: var(--muted);
@@ -184,7 +252,8 @@
 }
 
 @media (max-width: 1050px) {
-  .automation-ai-page .ai-grid {
+  .automation-ai-page .ai-grid,
+  .automation-ai-page .ai-grid-config {
     grid-template-columns: 1fr;
   }
 }
@@ -200,5 +269,9 @@
 
   .automation-ai-page .ai-card-head {
     display: grid;
+  }
+
+  .automation-ai-page .ai-check {
+    width: 100%;
   }
 }

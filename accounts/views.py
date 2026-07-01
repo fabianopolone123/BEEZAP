@@ -27,7 +27,7 @@ from .forms import (
     WapiSendTextForm,
 )
 from .models import Attendant, AutomationRule, PasswordResetCode, Sector, User, WapiConfiguration
-from ai_engine.services import generate_ai_reply
+from ai_engine.services import generate_ai_reply, generate_ai_reply_with_rules
 from wapi.client import send_text_message
 
 
@@ -382,22 +382,43 @@ def automation_ai_view(request):
 
     form = AutomationAiTestForm(request.POST or None)
     ai_reply = ''
+    rules_found = []
+    use_rules = False
+    rules_checked = False
 
     if request.method == 'POST':
         if form.is_valid():
-            result = generate_ai_reply(
-                message=form.cleaned_data['message'],
-                model=form.cleaned_data['model'],
-                base_url=form.cleaned_data['ollama_url'],
-                timeout=form.cleaned_data['timeout'],
-            )
+            use_rules = form.cleaned_data.get('use_rules', False)
+            if use_rules:
+                rules_checked = True
+                result = generate_ai_reply_with_rules(
+                    message=form.cleaned_data['message'],
+                    sector=form.cleaned_data.get('sector'),
+                    model=form.cleaned_data['model'],
+                    base_url=form.cleaned_data['ollama_url'],
+                    timeout=form.cleaned_data['timeout'],
+                )
+                rules_found = result.rules
+            else:
+                result = generate_ai_reply(
+                    message=form.cleaned_data['message'],
+                    model=form.cleaned_data['model'],
+                    base_url=form.cleaned_data['ollama_url'],
+                    timeout=form.cleaned_data['timeout'],
+                )
             ai_reply = result.reply
             if result.success:
-                messages.success(request, 'Resposta gerada com sucesso.')
+                if result.no_rules_found:
+                    messages.info(request, 'Nenhuma regra compativel foi encontrada.')
+                else:
+                    messages.success(request, 'Resposta gerada com sucesso.')
             else:
                 messages.error(request, result.error)
         else:
-            messages.error(request, 'Nao foi possivel gerar resposta agora. Verifique a mensagem e tente novamente.')
+            if form.errors.get('message'):
+                messages.error(request, 'Digite uma mensagem para testar a IA.')
+            else:
+                messages.error(request, 'Nao foi possivel gerar resposta agora. Tente novamente.')
 
     return render(
         request,
@@ -405,6 +426,9 @@ def automation_ai_view(request):
         {
             'form': form,
             'ai_reply': ai_reply,
+            'rules_found': rules_found,
+            'use_rules': use_rules,
+            'rules_checked': rules_checked,
             'nav_items': build_nav_items(request.user.role, 'Automacao'),
             'role_label': request.user.get_role_display(),
             'user_initial': (request.user.first_name[:1] or request.user.email[:1]).upper(),

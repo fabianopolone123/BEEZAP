@@ -92,6 +92,18 @@ class AutomationAiTestForm(forms.Form):
             'autocomplete': 'off',
         }),
     )
+    sector = forms.ModelChoiceField(
+        label='Setor',
+        queryset=Sector.objects.none(),
+        required=False,
+        empty_label='Geral / sem setor',
+        widget=forms.Select(attrs={'autocomplete': 'off'}),
+    )
+    use_rules = forms.BooleanField(
+        label='Usar regras cadastradas',
+        required=False,
+        help_text='Quando ativado, a IA usara as regras cadastradas em Regras de atendimento para responder.',
+    )
     message = forms.CharField(
         label='Mensagem de teste',
         max_length=1200,
@@ -101,10 +113,14 @@ class AutomationAiTestForm(forms.Form):
         }),
     )
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['sector'].queryset = Sector.objects.all()
+
     def clean_message(self):
         message = self.cleaned_data['message'].strip()
         if not message:
-            raise forms.ValidationError('Informe uma mensagem para testar a IA.')
+            raise forms.ValidationError('Digite uma mensagem para testar a IA.')
         return message
 
 

@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from django.conf import settings
 
@@ -9,12 +9,14 @@ from .fallbacks import (
     AI_UNAVAILABLE_ERROR,
     AI_UNAVAILABLE_REPLY,
 )
-from .prompts import build_messages
+from .prompts import build_messages, build_messages_with_rules
 
 
 MAX_MESSAGE_LENGTH = 1200
 MAX_CONTEXT_LENGTH = 1600
 MAX_RELEVANT_RULES = 5
+RULES_HANDOFF_REPLY = 'Vou encaminhar sua solicitacao para um atendente.'
+RULES_UNAVAILABLE_REPLY = 'No momento nao consegui responder automaticamente. Vou encaminhar para um atendente.'
 
 
 @dataclass
@@ -23,6 +25,8 @@ class AiReplyResult:
     reply: str = ''
     error: str = ''
     unavailable: bool = False
+    rules: list = field(default_factory=list)
+    no_rules_found: bool = False
 
 
 def _clean_text(value, max_length):
@@ -79,6 +83,10 @@ def get_relevant_rules(message, sector=None, limit=MAX_RELEVANT_RULES):
 
 def build_rules_context(message, sector=None):
     rules = get_relevant_rules(message, sector=sector)
+    return build_rules_context_from_rules(rules)
+
+
+def build_rules_context_from_rules(rules):
     if not rules:
         return ''
 
@@ -130,4 +138,51 @@ def generate_ai_reply(message, context=None, model=None, base_url=None, timeout=
         reply=AI_UNAVAILABLE_REPLY,
         error=AI_UNAVAILABLE_ERROR if result.unavailable else AI_GENERAL_ERROR,
         unavailable=result.unavailable,
+    )
+
+
+def generate_ai_reply_with_rules(message, sector=None, model=None, base_url=None, timeout=None):
+    cleaned_message = _clean_text(message, MAX_MESSAGE_LENGTH)
+    if not cleaned_message:
+        return AiReplyResult(
+            success=False,
+            reply='',
+            error=AI_EMPTY_MESSAGE_ERROR,
+            no_rules_found=True,
+        )
+
+    rules = get_relevant_rules(cleaned_message, sector=sector)
+    if not rules:
+        return AiReplyResult(
+            success=True,
+            reply=RULES_HANDOFF_REPLY,
+            rules=[],
+            no_rules_found=True,
+        )
+
+    rules_context = _clean_text(build_rules_context_from_rules(rules), MAX_CONTEXT_LENGTH)
+    selected_model = model or settings.OLLAMA_MODEL
+    selected_base_url = base_url or settings.OLLAMA_BASE_URL
+    selected_timeout = timeout or settings.OLLAMA_TIMEOUT
+
+    result = chat_with_ollama(
+        base_url=selected_base_url,
+        model=selected_model,
+        messages=build_messages_with_rules(cleaned_message, rules_context),
+        timeout=selected_timeout,
+        temperature=settings.OLLAMA_TEMPERATURE,
+        num_predict=settings.OLLAMA_NUM_PREDICT,
+    )
+
+    if result.success:
+        reply = _clean_reply(result.content)
+        if reply:
+            return AiReplyResult(success=True, reply=reply, rules=rules)
+
+    return AiReplyResult(
+        success=False,
+        reply=RULES_UNAVAILABLE_REPLY,
+        error=AI_UNAVAILABLE_ERROR if result.unavailable else AI_GENERAL_ERROR,
+        unavailable=result.unavailable,
+        rules=rules,
     )
