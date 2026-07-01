@@ -1,0 +1,16 @@
+[Unit]
+Description=BEEZAP Django homologacao
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/beezap
+EnvironmentFile=/var/www/beezap/.env
+ExecStart=/var/www/beezap/.venv/bin/gunicorn config.wsgi:application --bind 127.0.0.1:8006 --workers 2 --timeout 60
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

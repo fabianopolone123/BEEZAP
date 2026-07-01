@@ -59,3 +59,4 @@ Registro curto das alterações feitas no projeto.
 - Configurado o cliente Ollama para usar CPU por padrao (`OLLAMA_NUM_GPU=0`), evitando erro CUDA no teste local da IA.
 - Aplicadas regras padrao editaveis para orientar o teste da IA em atendimento, encaminhamento, horario, financeiro, vendas e suporte.
 - Preparado webhook publico da W-API para registrar mensagens recebidas com parser defensivo, token separado e visualizacao dos ultimos eventos na tela de configuracao.
+- Preparado o projeto para deploy de homologacao em VPS Linux com settings por ambiente, exemplos de systemd/Nginx, requirements e documentacao de deploy.
