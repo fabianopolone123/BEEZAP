@@ -20,7 +20,7 @@ def _build_url(base_url):
     return base_url.rstrip('/') + CHAT_PATH
 
 
-def chat_with_ollama(base_url, model, messages, timeout, temperature=0.2, num_predict=180):
+def chat_with_ollama(base_url, model, messages, timeout, temperature=0.2, num_predict=180, num_gpu=0):
     payload = json.dumps({
         'model': model,
         'messages': messages,
@@ -28,6 +28,7 @@ def chat_with_ollama(base_url, model, messages, timeout, temperature=0.2, num_pr
         'options': {
             'temperature': temperature,
             'num_predict': num_predict,
+            'num_gpu': num_gpu,
         },
     }).encode('utf-8')
 

@@ -126,6 +126,7 @@ def generate_ai_reply(message, context=None, model=None, base_url=None, timeout=
         timeout=selected_timeout,
         temperature=settings.OLLAMA_TEMPERATURE,
         num_predict=settings.OLLAMA_NUM_PREDICT,
+        num_gpu=settings.OLLAMA_NUM_GPU,
     )
 
     if result.success:
@@ -172,6 +173,7 @@ def generate_ai_reply_with_rules(message, sector=None, model=None, base_url=None
         timeout=selected_timeout,
         temperature=settings.OLLAMA_TEMPERATURE,
         num_predict=settings.OLLAMA_NUM_PREDICT,
+        num_gpu=settings.OLLAMA_NUM_GPU,
     )
 
     if result.success:

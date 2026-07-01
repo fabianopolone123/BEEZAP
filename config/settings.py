@@ -139,6 +139,7 @@ OLLAMA_MODEL = os.getenv('OLLAMA_MODEL', 'qwen2.5:1.5b')
 OLLAMA_TIMEOUT = int(os.getenv('OLLAMA_TIMEOUT', '20'))
 OLLAMA_TEMPERATURE = float(os.getenv('OLLAMA_TEMPERATURE', '0.2'))
 OLLAMA_NUM_PREDICT = int(os.getenv('OLLAMA_NUM_PREDICT', '180'))
+OLLAMA_NUM_GPU = int(os.getenv('OLLAMA_NUM_GPU', '0'))
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field

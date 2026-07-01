@@ -56,3 +56,4 @@ Registro curto das alterações feitas no projeto.
 - Preparada a base tecnica de IA local com Ollama em modo de teste, tela de Automacao para ADM e fallback seguro sem envio pelo WhatsApp.
 - Criado cadastro administrativo de regras de atendimento para orientar a IA, com regras salvas no banco e busca simples de regras relevantes.
 - Tela de teste da IA passou a permitir selecionar setor, usar regras cadastradas e exibir regras encontradas sem acionar W-API ou WhatsApp.
+- Configurado o cliente Ollama para usar CPU por padrao (`OLLAMA_NUM_GPU=0`), evitando erro CUDA no teste local da IA.
