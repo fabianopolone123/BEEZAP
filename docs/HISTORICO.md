@@ -73,3 +73,4 @@ Registro curto das alterações feitas no projeto.
 - Adicionado log seguro de diagnostico no webhook que registra apenas os nomes das chaves do payload (nunca valores nem token) para ajudar a mapear o formato real da W-API.
 - Tela W-API passou a exibir no maximo os 5 eventos mais recentes em "Ultimos eventos recebidos".
 - Corrigida a extracao do telefone do webhook da W-API: prioridade para o remetente real em `data.key.participant`/`remoteJid`, `data.from`, `data.sender`, `chatId`, `senderNumber` e afins, com fallback recursivo, ignorando grupos (`@g.us`) e mantendo intactas a extracao de mensagem e nome.
+- Ajustada a extracao do telefone ao formato real da W-API Lite (evento `webhookReceived`): passa a ler o remetente em `sender.id`, ignora o numero conectado (`connectedPhone`) e os identificadores internos `@lid`, mantendo mensagem e nome intactos.

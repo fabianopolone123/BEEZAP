@@ -1,8 +1,8 @@
 # Chaves provaveis para busca recursiva (fallback), em ordem de preferencia.
 EVENT_KEYS = ('event', 'type', 'eventtype', 'event_type', 'webhooktype')
 PHONE_KEYS = (
-    'participant', 'remotejid', 'phone', 'from', 'sender',
-    'senderphone', 'sendernumber', 'chatid', 'jid', 'number',
+    'participant', 'remotejid', 'senderphone', 'sendernumber',
+    'phone', 'from', 'sender', 'chatid', 'jid', 'number', 'id',
 )
 NAME_KEYS = ('sendername', 'pushname', 'contactname', 'notifyname', 'name')
 TEXT_KEYS = ('conversation', 'text', 'body', 'caption', 'content', 'message')
@@ -64,8 +64,9 @@ def normalize_phone(value):
     text = _as_text(value)
     if not text:
         return ''
-    # Grupo do WhatsApp nao e telefone de pessoa; ignorar nesta etapa.
-    if '@g.us' in text.lower():
+    # Grupo (@g.us) e identificador interno LID (@lid) nao sao telefone de pessoa.
+    low = text.lower()
+    if '@g.us' in low or '@lid' in low:
         return ''
     # Remove sufixos de JID do WhatsApp e identificador de dispositivo.
     text = text.split('@', 1)[0].split(':', 1)[0]
@@ -162,6 +163,14 @@ def parse_wapi_webhook_payload(payload):
     # o telefone para nao aceitar grupo (@g.us) nem valores invalidos.
     phone = ''
     for phone_path in (
+        # Remetente real (objeto "sender" da W-API Lite): sender.id e o telefone.
+        ('sender', 'id'),
+        ('sender', 'phone'),
+        ('sender', 'number'),
+        ('data', 'sender', 'id'),
+        ('data', 'sender', 'phone'),
+        ('data', 'sender', 'number'),
+        # Estruturas aninhadas comuns (Baileys/grupos): participant e o autor real.
         ('data', 'key', 'participant'),
         ('data', 'key', 'remoteJid'),
         ('data', 'participant'),
@@ -192,6 +201,8 @@ def parse_wapi_webhook_payload(payload):
         ('jid',),
         ('number',),
         ('chatId',),
+        ('chat', 'id'),
+        ('data', 'chat', 'id'),
         ('contact', 'phone'),
         ('contact', 'number'),
         ('contact', 'id'),
