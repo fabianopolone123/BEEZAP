@@ -867,11 +867,24 @@ def conversation_send_view(request, conversation_id):
     if not text:
         return JsonResponse({'ok': False, 'error': 'Digite uma mensagem para enviar.'}, status=400)
 
+    if not (conversation.contact.phone or '').strip():
+        return JsonResponse(
+            {'ok': False, 'error': 'Nao foi possivel enviar: contato sem telefone.'}, status=400
+        )
+
+    config = WapiConfiguration.get_solo()
+    if not config.resolved_instance_id().strip() or not config.resolved_token().strip():
+        return JsonResponse(
+            {'ok': False, 'error': 'Configure a W-API antes de enviar mensagens.'}, status=400
+        )
+
+    # Reutiliza o mesmo servico de envio da tela de teste da W-API.
     result = send_text_message(phone=conversation.contact.phone, message=text)
     if not result.success:
+        # Erro tecnico ja foi logado com seguranca no servico; aqui vai o texto amigavel.
         return JsonResponse({
             'ok': False,
-            'error': 'Nao foi possivel enviar a mensagem. Verifique a conexao do WhatsApp e tente novamente.',
+            'error': result.error or 'Nao foi possivel enviar a mensagem. Verifique a conexao do WhatsApp e tente novamente.',
         }, status=502)
 
     message = save_outgoing_text_message(

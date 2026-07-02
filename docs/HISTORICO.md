@@ -80,3 +80,6 @@ Registro curto das alterações feitas no projeto.
 - Envio de texto pela propria conversa usa a W-API ja configurada, salva a mensagem enviada (`out/sent`) e atualiza o resumo; nao envia mensagem vazia e desabilita o botao durante o envio; erro amigavel via toast.
 - Preparada a base de transferencia de atendimento: conversa pode receber setor e atendente responsavel por endpoint/select simples na tela; anexos nao foram implementados nesta etapa.
 - Adicionado comando `sync_wapi_events_to_conversations` para transformar eventos W-API ja recebidos em conversas/mensagens reais.
+- Corrigido o envio de texto pela tela Conversas reutilizando o mesmo servico e a mesma configuracao da tela de teste da W-API (Instance ID e Token salvos), sem logica paralela.
+- Envio centralizado passou a normalizar o telefone (apenas digitos, sem `+`, espacos, parenteses, `@s.whatsapp.net`/`@c.us`) e a registrar log seguro do motivo real de falha da W-API (status e corpo, nunca o token), facilitando o diagnostico.
+- Mensagens de erro do envio ficaram amigaveis e especificas: configuracao ausente, contato sem telefone ou falha de conexao; nunca expondo token, payload ou traceback. Mensagem so e salva como enviada quando a W-API confirma sucesso.
