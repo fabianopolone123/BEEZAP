@@ -443,7 +443,7 @@ def wapi_settings_view(request):
             'send_form': send_form,
             'config': config,
             'webhook_url': build_wapi_webhook_url(request),
-            'latest_webhook_events': WapiWebhookEvent.objects.all()[:10],
+            'latest_webhook_events': WapiWebhookEvent.objects.all()[:5],
             'nav_items': build_nav_items(request.user.role, 'Configuracoes'),
             'role_label': request.user.get_role_display(),
             'user_initial': (request.user.first_name[:1] or request.user.email[:1]).upper(),
@@ -460,7 +460,7 @@ def wapi_webhook_events_view(request):
     if forbidden_response:
         return forbidden_response
 
-    events = WapiWebhookEvent.objects.all()[:10]
+    events = WapiWebhookEvent.objects.all()[:5]
     return JsonResponse({
         'ok': True,
         'events': [serialize_wapi_event(event) for event in events],
@@ -934,6 +934,17 @@ def wapi_webhook_view(request):
     except (UnicodeDecodeError, json.JSONDecodeError):
         wapi_webhook_logger.warning('Webhook W-API com corpo invalido; salvando payload vazio.')
         payload = {}
+
+    # Log seguro para diagnostico da estrutura real: apenas nomes de chaves,
+    # nunca valores, token ou payload completo.
+    if isinstance(payload, dict):
+        wapi_webhook_logger.info('Webhook W-API keys: %s', list(payload.keys()))
+        data_node = payload.get('data')
+        if isinstance(data_node, dict):
+            wapi_webhook_logger.info('Webhook W-API data keys: %s', list(data_node.keys()))
+            message_node = data_node.get('message')
+            if isinstance(message_node, dict):
+                wapi_webhook_logger.info('Webhook W-API data.message keys: %s', list(message_node.keys()))
 
     try:
         event = create_wapi_webhook_event(payload)

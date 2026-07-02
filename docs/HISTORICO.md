@@ -68,3 +68,7 @@ Registro curto das alterações feitas no projeto.
 - Corrigida a exibicao de mensagens reais recebidas pela W-API: removidos os botoes de teste ("Testar recebimento" e "Iniciar teste de recebimento") que confundiam o usuario, e a tela passou a mostrar "Aguardando novas mensagens" com a lista "Ultimos eventos recebidos" atualizando sozinha a partir dos eventos reais salvos no banco.
 - Parser do webhook da W-API ampliado para entender formatos aninhados reais (por exemplo `messages[]`, `message.conversation`, `message.extendedTextMessage.text`, `key.remoteJid`, `pushName`, `contact`), com telefone normalizado sem sufixo de JID e sem quebrar em payloads desconhecidos.
 - Ajustada a orientacao da tela para usar a URL publica sob `/beezap/webhook/wapi/` no campo "Ao receber uma mensagem" da W-API, sem citar localhost, ngrok ou tunel.
+- Parser da W-API reforcado com busca recursiva defensiva (fallback) que procura mensagem, telefone e nome em qualquer profundidade do payload, alem dos caminhos fixos, resolvendo eventos que chegavam como `webhookReceived` com os campos vazios.
+- Telefone passou a ser normalizado apenas com digitos (DDI+DDD+numero), removendo sufixos como `@s.whatsapp.net`/`@c.us` e simbolos, e ignorando valores curtos invalidos.
+- Adicionado log seguro de diagnostico no webhook que registra apenas os nomes das chaves do payload (nunca valores nem token) para ajudar a mapear o formato real da W-API.
+- Tela W-API passou a exibir no maximo os 5 eventos mais recentes em "Ultimos eventos recebidos".
