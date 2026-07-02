@@ -1,6 +1,9 @@
 # Chaves provaveis para busca recursiva (fallback), em ordem de preferencia.
 EVENT_KEYS = ('event', 'type', 'eventtype', 'event_type', 'webhooktype')
-PHONE_KEYS = ('phone', 'from', 'sender', 'remotejid', 'jid', 'number')
+PHONE_KEYS = (
+    'participant', 'remotejid', 'phone', 'from', 'sender',
+    'senderphone', 'sendernumber', 'chatid', 'jid', 'number',
+)
 NAME_KEYS = ('sendername', 'pushname', 'contactname', 'notifyname', 'name')
 TEXT_KEYS = ('conversation', 'text', 'body', 'caption', 'content', 'message')
 
@@ -60,6 +63,9 @@ def normalize_phone(value):
     """
     text = _as_text(value)
     if not text:
+        return ''
+    # Grupo do WhatsApp nao e telefone de pessoa; ignorar nesta etapa.
+    if '@g.us' in text.lower():
         return ''
     # Remove sufixos de JID do WhatsApp e identificador de dispositivo.
     text = text.split('@', 1)[0].split(':', 1)[0]
@@ -151,35 +157,55 @@ def parse_wapi_webhook_payload(payload):
         ('data', 'instance', 'id'),
     )
 
-    phone = _safe_get(
-        payload,
+    # Prioridade: remetente real em estruturas aninhadas da W-API; depois campos
+    # de nivel raiz; por fim, busca recursiva. A cada passo validamos/normalizamos
+    # o telefone para nao aceitar grupo (@g.us) nem valores invalidos.
+    phone = ''
+    for phone_path in (
+        ('data', 'key', 'participant'),
+        ('data', 'key', 'remoteJid'),
+        ('data', 'participant'),
+        ('data', 'remoteJid'),
+        ('data', 'from'),
+        ('data', 'sender'),
+        ('data', 'senderPhone'),
+        ('data', 'senderNumber'),
+        ('data', 'chatId'),
+        ('data', 'phone'),
+        ('data', 'number'),
+        ('data', 'jid'),
+        ('data', 'contact', 'phone'),
+        ('data', 'contact', 'number'),
+        ('data', 'contact', 'id'),
+        ('data', 'message', 'from'),
+        ('data', 'message', 'sender'),
+        ('data', 'message', 'remoteJid'),
+        ('key', 'participant'),
+        ('key', 'remoteJid'),
         ('phone',),
         ('from',),
         ('sender',),
+        ('senderPhone',),
+        ('senderNumber',),
         ('remoteJid',),
+        ('participant',),
         ('jid',),
         ('number',),
+        ('chatId',),
         ('contact', 'phone'),
         ('contact', 'number'),
-        ('data', 'phone'),
-        ('data', 'from'),
-        ('data', 'sender'),
-        ('data', 'remoteJid'),
-        ('data', 'jid'),
-        ('data', 'number'),
-        ('data', 'contact', 'phone'),
-        ('data', 'contact', 'number'),
-        ('key', 'remoteJid'),
-        ('data', 'key', 'remoteJid'),
-        ('message', 'from'),
-        ('message', 'phone'),
-        ('data', 'message', 'from'),
-        ('data', 'message', 'phone'),
+        ('contact', 'id'),
+        ('messages', 0, 'key', 'participant'),
         ('messages', 0, 'key', 'remoteJid'),
+        ('data', 'messages', 0, 'key', 'participant'),
         ('data', 'messages', 0, 'key', 'remoteJid'),
-    )
-    if not _valid_phone(phone):
-        phone = _deep_find(payload, PHONE_KEYS, _valid_phone) or phone
+    ):
+        candidate = normalize_phone(_safe_get(payload, phone_path))
+        if candidate:
+            phone = candidate
+            break
+    if not phone:
+        phone = normalize_phone(_deep_find(payload, PHONE_KEYS, _valid_phone))
 
     contact_name = _safe_get(
         payload,
@@ -280,7 +306,7 @@ def parse_wapi_webhook_payload(payload):
     return {
         'event_type': _as_text(event_type, 'unknown') or 'unknown',
         'instance_id': _as_text(instance_id),
-        'phone': normalize_phone(phone),
+        'phone': phone,
         'contact_name': _as_text(contact_name),
         'message_id': _as_text(message_id),
         'message_type': _as_text(message_type, 'unknown') or 'unknown',

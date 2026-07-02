@@ -72,3 +72,4 @@ Registro curto das alterações feitas no projeto.
 - Telefone passou a ser normalizado apenas com digitos (DDI+DDD+numero), removendo sufixos como `@s.whatsapp.net`/`@c.us` e simbolos, e ignorando valores curtos invalidos.
 - Adicionado log seguro de diagnostico no webhook que registra apenas os nomes das chaves do payload (nunca valores nem token) para ajudar a mapear o formato real da W-API.
 - Tela W-API passou a exibir no maximo os 5 eventos mais recentes em "Ultimos eventos recebidos".
+- Corrigida a extracao do telefone do webhook da W-API: prioridade para o remetente real em `data.key.participant`/`remoteJid`, `data.from`, `data.sender`, `chatId`, `senderNumber` e afins, com fallback recursivo, ignorando grupos (`@g.us`) e mantendo intactas a extracao de mensagem e nome.
