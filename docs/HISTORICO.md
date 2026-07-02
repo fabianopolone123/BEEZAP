@@ -74,3 +74,9 @@ Registro curto das alterações feitas no projeto.
 - Tela W-API passou a exibir no maximo os 5 eventos mais recentes em "Ultimos eventos recebidos".
 - Corrigida a extracao do telefone do webhook da W-API: prioridade para o remetente real em `data.key.participant`/`remoteJid`, `data.from`, `data.sender`, `chatId`, `senderNumber` e afins, com fallback recursivo, ignorando grupos (`@g.us`) e mantendo intactas a extracao de mensagem e nome.
 - Ajustada a extracao do telefone ao formato real da W-API Lite (evento `webhookReceived`): passa a ler o remetente em `sender.id`, ignora o numero conectado (`connectedPhone`) e os identificadores internos `@lid`, mantendo mensagem e nome intactos.
+- Conversas passaram a usar dados reais do banco: criados os models `Contact`, `Conversation` e `Message`, e um service central em `wapi/services.py` para criar contato/conversa/mensagem.
+- Webhook da W-API agora cria/atualiza contato, conversa e mensagem recebida (apenas texto, ignorando mensagens enviadas pelo proprio numero), sem quebrar o recebimento se a integracao falhar.
+- Tela Conversas deixou de usar dados ficticios: lista conversas reais ordenadas pela ultima mensagem, com estado vazio amigavel; abrir uma conversa carrega mensagens reais via AJAX e zera as nao lidas.
+- Envio de texto pela propria conversa usa a W-API ja configurada, salva a mensagem enviada (`out/sent`) e atualiza o resumo; nao envia mensagem vazia e desabilita o botao durante o envio; erro amigavel via toast.
+- Preparada a base de transferencia de atendimento: conversa pode receber setor e atendente responsavel por endpoint/select simples na tela; anexos nao foram implementados nesta etapa.
+- Adicionado comando `sync_wapi_events_to_conversations` para transformar eventos W-API ja recebidos em conversas/mensagens reais.

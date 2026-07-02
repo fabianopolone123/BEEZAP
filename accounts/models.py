@@ -248,3 +248,96 @@ class PasswordResetCode(models.Model):
     def invalidate(self):
         self.used_at = timezone.now()
         self.save(update_fields=['used_at'])
+
+
+class Contact(models.Model):
+    name = models.CharField(max_length=150, blank=True, default='')
+    phone = models.CharField(max_length=30, unique=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'Contato'
+        verbose_name_plural = 'Contatos'
+        ordering = ('name', 'phone')
+
+    @property
+    def display_name(self):
+        return self.name or self.phone
+
+    @property
+    def initials(self):
+        base = (self.name or '').strip()
+        if not base:
+            return (self.phone or '?')[-2:]
+        parts = [p for p in base.split() if p]
+        if len(parts) == 1:
+            return parts[0][:2].upper()
+        return (parts[0][:1] + parts[-1][:1]).upper()
+
+    def __str__(self):
+        return self.display_name
+
+
+class Conversation(models.Model):
+    STATUS_CHOICES = [
+        ('open', 'Aberta'),
+        ('pending', 'Pendente'),
+        ('closed', 'Encerrada'),
+    ]
+
+    contact = models.ForeignKey(Contact, on_delete=models.CASCADE, related_name='conversations')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='open')
+    assigned_attendant = models.ForeignKey(
+        Attendant, null=True, blank=True, on_delete=models.SET_NULL, related_name='conversations'
+    )
+    sector = models.ForeignKey(
+        Sector, null=True, blank=True, on_delete=models.SET_NULL, related_name='conversations'
+    )
+    last_message_text = models.TextField(blank=True, default='')
+    last_message_at = models.DateTimeField(null=True, blank=True)
+    unread_count = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'Conversa'
+        verbose_name_plural = 'Conversas'
+        ordering = ('-last_message_at', '-created_at')
+
+    @property
+    def status_label(self):
+        return dict(self.STATUS_CHOICES).get(self.status, self.status)
+
+    def __str__(self):
+        return f'Conversa com {self.contact.display_name}'
+
+
+class Message(models.Model):
+    DIRECTION_CHOICES = [
+        ('in', 'Recebida'),
+        ('out', 'Enviada'),
+    ]
+    STATUS_CHOICES = [
+        ('received', 'Recebida'),
+        ('sent', 'Enviada'),
+        ('failed', 'Falhou'),
+    ]
+
+    conversation = models.ForeignKey(Conversation, on_delete=models.CASCADE, related_name='messages')
+    direction = models.CharField(max_length=10, choices=DIRECTION_CHOICES)
+    text = models.TextField()
+    phone = models.CharField(max_length=30, blank=True, default='')
+    sender_name = models.CharField(max_length=150, blank=True, default='')
+    external_message_id = models.CharField(max_length=150, blank=True, default='')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='received')
+    raw_payload = models.JSONField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = 'Mensagem'
+        verbose_name_plural = 'Mensagens'
+        ordering = ('created_at',)
+
+    def __str__(self):
+        return f'{self.get_direction_display()}: {self.text[:30]}'

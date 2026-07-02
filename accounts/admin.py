@@ -2,7 +2,14 @@ from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.contrib.auth.forms import UserChangeForm, UserCreationForm
 
-from .models import Attendant, User, WapiConfiguration
+from .models import (
+    Attendant,
+    Contact,
+    Conversation,
+    Message,
+    User,
+    WapiConfiguration,
+)
 
 
 class CustomUserCreationForm(UserCreationForm):
@@ -53,3 +60,23 @@ class WapiConfigurationAdmin(admin.ModelAdmin):
 class AttendantAdmin(admin.ModelAdmin):
     list_display = ('name', 'user', 'phone', 'created_at')
     search_fields = ('name', 'user__email', 'phone')
+
+
+@admin.register(Contact)
+class ContactAdmin(admin.ModelAdmin):
+    list_display = ('name', 'phone', 'created_at')
+    search_fields = ('name', 'phone')
+
+
+@admin.register(Conversation)
+class ConversationAdmin(admin.ModelAdmin):
+    list_display = ('contact', 'status', 'assigned_attendant', 'sector', 'unread_count', 'last_message_at')
+    list_filter = ('status',)
+    search_fields = ('contact__name', 'contact__phone')
+
+
+@admin.register(Message)
+class MessageAdmin(admin.ModelAdmin):
+    list_display = ('conversation', 'direction', 'status', 'phone', 'created_at')
+    list_filter = ('direction', 'status')
+    search_fields = ('text', 'phone', 'sender_name')

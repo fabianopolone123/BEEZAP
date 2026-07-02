@@ -53,53 +53,28 @@
     </header>
 
     <!-- Corpo: 3 colunas -->
-    <div class="conv-body">
+    <div class="conv-body"
+         data-conv-base="{% url 'conversations' %}"
+         data-csrf="{{ csrf_token }}">
 
-      <!-- =========================================
-           COLUNA ESQUERDA — Lista de conversas
-           ========================================= -->
+      <!-- COLUNA ESQUERDA — Lista de conversas -->
       <div class="conv-list-col">
-
-        <!-- Cabeçalho da lista -->
         <div class="conv-list-head">
           <div class="conv-search-bar">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2.2" aria-hidden="true">
               <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
             </svg>
-            <input type="search" class="conv-search-input" placeholder="Buscar conversas...">
-            <button type="button" class="conv-filter-btn" aria-label="Filtrar conversas">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-                <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/>
-              </svg>
-            </button>
-          </div>
-
-          <div class="conv-chips" role="group" aria-label="Filtros de conversa">
-            <button type="button" class="conv-chip active" data-filter="todas">
-              Todas <span class="chip-count">24</span>
-            </button>
-            <button type="button" class="conv-chip" data-filter="nao-lidas">
-              Não lidas <span class="chip-count">6</span>
-            </button>
-            <button type="button" class="conv-chip" data-filter="em-atendimento">
-              Em atendimento <span class="chip-count">8</span>
-            </button>
-            <button type="button" class="conv-chip" data-filter="aguardando">
-              Aguardando <span class="chip-count">3</span>
-            </button>
-            <button type="button" class="conv-chip" data-filter="finalizadas">
-              Finalizadas
-            </button>
+            <input type="search" class="conv-search-input" placeholder="Buscar conversas..." data-conv-search>
           </div>
         </div>
 
-        <!-- Itens de conversa -->
-        <ul class="conv-list" role="listbox" aria-label="Lista de conversas">
+        <ul class="conv-list" role="listbox" aria-label="Lista de conversas" data-conv-list>
           {% for conv in conversations %}
-          <li class="conv-item {% if conv.active %}conv-item-active{% endif %}"
+          <li class="conv-item"
               role="option"
-              aria-selected="{% if conv.active %}true{% else %}false{% endif %}"
+              aria-selected="false"
               data-conv-id="{{ conv.id }}"
+              data-conv-search-text="{{ conv.name|lower }} {{ conv.preview|lower }}"
               tabindex="0">
             <div class="conv-avatar" aria-hidden="true">{{ conv.initials }}</div>
             <div class="conv-item-body">
@@ -108,9 +83,9 @@
                 <span class="conv-item-time">{{ conv.time }}</span>
               </div>
               <div class="conv-item-bottom">
-                <span class="conv-item-preview">{{ conv.preview }}</span>
+                <span class="conv-item-preview">{{ conv.preview|default:"" }}</span>
                 {% if conv.unread %}
-                  <span class="conv-unread-badge" aria-label="{{ conv.unread }} mensagens não lidas">{{ conv.unread }}</span>
+                  <span class="conv-unread-badge" data-conv-unread aria-label="{{ conv.unread }} mensagens nao lidas">{{ conv.unread }}</span>
                 {% endif %}
               </div>
             </div>
@@ -118,139 +93,91 @@
           {% endfor %}
         </ul>
 
-        <button type="button" class="conv-load-more">↓ Carregar mais conversas</button>
+        <div class="conv-empty" data-conv-list-empty {% if conversations %}hidden{% endif %}>
+          <strong>Nenhuma conversa recebida ainda.</strong>
+          <span>Quando uma mensagem chegar pelo WhatsApp, ela aparecera aqui.</span>
+        </div>
       </div>
 
-      <!-- =========================================
-           COLUNA CENTRAL — Chat
-           ========================================= -->
+      <!-- COLUNA CENTRAL — Chat -->
       <div class="conv-chat-col">
 
-        <!-- Header do chat -->
-        <div class="conv-chat-header">
-          <div class="conv-chat-header-left">
-            <div class="conv-avatar conv-avatar-md" aria-hidden="true">{{ contact.initials }}</div>
-            <div>
-              <div class="conv-chat-name">{{ contact.name }}</div>
-              <div class="conv-chat-phone">{{ contact.phone }}</div>
+        <!-- Estado sem conversa selecionada -->
+        <div class="conv-chat-placeholder" data-conv-placeholder>
+          <span>Selecione uma conversa para ver as mensagens.</span>
+        </div>
+
+        <!-- Painel do chat (preenchido via JS) -->
+        <div class="conv-chat-panel" data-conv-panel hidden>
+          <div class="conv-chat-header">
+            <div class="conv-chat-header-left">
+              <div class="conv-avatar conv-avatar-md" aria-hidden="true" data-chat-initials></div>
+              <div>
+                <div class="conv-chat-name" data-chat-name></div>
+                <div class="conv-chat-phone" data-chat-phone></div>
+              </div>
+            </div>
+            <div class="conv-chat-header-right">
+              <span class="conv-status-badge" data-chat-status></span>
             </div>
           </div>
-          <div class="conv-chat-header-right">
-            <span class="conv-status-badge">&#9679; Em atendimento</span>
-            <button type="button" class="conv-icon-btn" aria-label="Favoritar conversa" title="Favoritar">&#9734;</button>
-            <button type="button" class="conv-icon-btn" aria-label="Mais opções" title="Mais opções">&#8942;</button>
-            <button type="button" class="conv-transfer-btn">&#8644; Transferir atendimento</button>
-          </div>
-        </div>
 
-        <!-- Linha de contexto -->
-        <div class="conv-chat-meta">
-          Atendente: <strong>{{ contact.responsible }}</strong>
-        </div>
+          <div class="conv-messages" id="conv-messages" role="log" aria-label="Mensagens da conversa" aria-live="polite" data-conv-messages></div>
 
-        <!-- Mensagens -->
-        <div class="conv-messages" id="conv-messages" role="log" aria-label="Mensagens da conversa" aria-live="polite">
-          {% for msg in chat_messages %}
-          <div class="conv-msg conv-msg-{{ msg.type }}">
-            <div class="conv-bubble">
-              {% if msg.text %}
-                {{ msg.text|linebreaksbr }}
-              {% endif %}
-              {% if msg.attachment %}
-                <div class="conv-attachment">
-                  <span class="conv-attachment-icon" aria-hidden="true">&#128196;</span>
-                  <div>
-                    <div class="conv-attachment-name">{{ msg.attachment.name }}</div>
-                    <div class="conv-attachment-size">{{ msg.attachment.size }}</div>
-                  </div>
-                </div>
-              {% endif %}
-              <span class="conv-msg-time">
-                {{ msg.time }}{% if msg.type == 'sent' %} &#10003;&#10003;{% endif %}
-              </span>
-            </div>
-          </div>
-          {% endfor %}
-
-          <!-- Indicador de digitação -->
-          <div class="conv-typing" aria-live="polite" aria-label="João está digitando">
-            <span class="conv-typing-name">João está digitando</span>
-            <span class="conv-typing-dots" aria-hidden="true">
-              <span></span><span></span><span></span>
-            </span>
-          </div>
-        </div>
-
-        <!-- Rodapé / campo de mensagem -->
-        <div class="conv-chat-footer" role="toolbar" aria-label="Compor mensagem">
-          <button type="button" class="conv-footer-btn" aria-label="Inserir emoji" title="Emoji">&#128522;</button>
-          <input type="text" class="conv-input" placeholder="Digite sua mensagem..." aria-label="Campo de mensagem">
-          <button type="button" class="conv-footer-btn" aria-label="Anexar arquivo" title="Anexar">&#128206;</button>
-          <button type="button" class="conv-footer-btn" aria-label="Templates de mensagem" title="Templates">&#128203;</button>
-          <button type="button" class="conv-footer-btn" aria-label="Gravar áudio" title="Áudio">&#127897;</button>
-          <button type="button" class="conv-send-btn" aria-label="Enviar mensagem" title="Enviar">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
-            </svg>
-          </button>
+          <form class="conv-chat-footer" data-conv-send-form autocomplete="off">
+            <input type="text" class="conv-input" placeholder="Digite sua mensagem..." aria-label="Campo de mensagem" data-conv-input>
+            <button type="submit" class="conv-send-btn" aria-label="Enviar mensagem" title="Enviar" data-conv-send>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
+              </svg>
+            </button>
+          </form>
         </div>
       </div>
 
-      <!-- =========================================
-           COLUNA DIREITA — Informações do contato
-           ========================================= -->
+      <!-- COLUNA DIREITA — Informacoes do contato -->
       <div class="conv-info-col">
-
         <div class="conv-info-head">
-          <span>Informações do contato</span>
-          <button type="button" class="conv-info-collapse" aria-label="Recolher painel">&#8963;</button>
+          <span>Informacoes do contato</span>
         </div>
 
-        <dl class="conv-info-list">
-          <dt>Nome</dt>
-          <dd>{{ contact.name }}</dd>
+        <div class="conv-info-empty" data-info-empty>
+          <span>Selecione uma conversa.</span>
+        </div>
 
-          <dt>Telefone</dt>
-          <dd>
-            {{ contact.phone }}
-            <a href="#" class="conv-wapp-link" aria-label="Abrir no WhatsApp">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="#21c25e" aria-hidden="true">
-                <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
-              </svg>
-            </a>
-          </dd>
+        <div data-info-panel hidden>
+          <dl class="conv-info-list">
+            <dt>Nome</dt>
+            <dd data-info-name>-</dd>
 
-          <dt>E-mail</dt>
-          <dd>{{ contact.email }}</dd>
+            <dt>Telefone</dt>
+            <dd data-info-phone>-</dd>
 
-          <dt>Empresa</dt>
-          <dd>{{ contact.company }}</dd>
+            <dt>Status</dt>
+            <dd data-info-status>-</dd>
 
-          <dt>Tags</dt>
-          <dd>
-            <div class="conv-tags">
-              {% for tag in contact.tags %}
-                <span class="conv-tag">{{ tag }}</span>
-              {% endfor %}
-            </div>
-          </dd>
+            <dt>Setor</dt>
+            <dd data-info-sector>Nao definido</dd>
 
-          <dt>Responsável</dt>
-          <dd>
-            <div class="conv-responsible">
-              <div class="conv-avatar conv-avatar-sm" aria-hidden="true">MS</div>
-              {{ contact.responsible }}
-            </div>
-          </dd>
+            <dt>Atendente responsavel</dt>
+            <dd data-info-attendant>Nao definido</dd>
 
-          <dt>Último contato</dt>
-          <dd>{{ contact.last_contact }}</dd>
+            <dt>Contato desde</dt>
+            <dd data-info-created>-</dd>
+          </dl>
 
-          <dt>Observações</dt>
-          <dd>{{ contact.notes }}</dd>
-        </dl>
-
-        <a href="#" class="conv-history-link">&#8635; Ver histórico completo</a>
+          <div class="conv-transfer">
+            <span class="conv-transfer-title">Transferir atendimento</span>
+            <label class="conv-transfer-field">
+              <span>Setor</span>
+              <select class="conv-transfer-select" data-transfer-sector></select>
+            </label>
+            <label class="conv-transfer-field">
+              <span>Atendente</span>
+              <select class="conv-transfer-select" data-transfer-attendant></select>
+            </label>
+          </div>
+        </div>
       </div>
 
     </div>
@@ -261,40 +188,253 @@
 (function () {
   'use strict';
 
-  /* Seleção de conversa */
-  var items = document.querySelectorAll('.conv-item');
-  items.forEach(function (item) {
-    function selectItem() {
-      items.forEach(function (i) {
+  var body = document.querySelector('.conv-body');
+  if (!body) return;
+
+  var base = body.dataset.convBase;
+  var csrf = body.dataset.csrf;
+
+  var listEl = document.querySelector('[data-conv-list]');
+  var placeholderEl = document.querySelector('[data-conv-placeholder]');
+  var panelEl = document.querySelector('[data-conv-panel]');
+  var messagesEl = document.querySelector('[data-conv-messages]');
+  var sendForm = document.querySelector('[data-conv-send-form]');
+  var inputEl = document.querySelector('[data-conv-input]');
+  var sendBtn = document.querySelector('[data-conv-send]');
+  var searchEl = document.querySelector('[data-conv-search]');
+
+  var infoEmpty = document.querySelector('[data-info-empty]');
+  var infoPanel = document.querySelector('[data-info-panel]');
+  var sectorSelect = document.querySelector('[data-transfer-sector]');
+  var attendantSelect = document.querySelector('[data-transfer-attendant]');
+
+  var currentId = null;
+  var pollTimer = null;
+
+  /* ---------- Toast simples (reaproveita o visual do base.html) ---------- */
+  function showToast(text, type) {
+    var container = document.querySelector('.toast-container');
+    if (!container) {
+      container = document.createElement('div');
+      container.className = 'toast-container';
+      document.body.appendChild(container);
+    }
+    var toast = document.createElement('div');
+    toast.className = 'toast-message toast-' + (type || 'info');
+    var marker = document.createElement('span');
+    marker.className = 'toast-marker';
+    var content = document.createElement('div');
+    content.className = 'toast-content';
+    content.textContent = text;
+    toast.appendChild(marker);
+    toast.appendChild(content);
+    container.appendChild(toast);
+    window.setTimeout(function () {
+      toast.classList.add('toast-hiding');
+      window.setTimeout(function () { toast.remove(); }, 220);
+    }, 4000);
+  }
+
+  function urlFor(id, suffix) {
+    return base + id + '/' + suffix + '/';
+  }
+
+  /* ---------- Render de mensagens ---------- */
+  function renderMessages(messages) {
+    messagesEl.replaceChildren();
+    var frag = document.createDocumentFragment();
+    messages.forEach(function (msg) {
+      var wrap = document.createElement('div');
+      wrap.className = 'conv-msg conv-msg-' + msg.type;
+      var bubble = document.createElement('div');
+      bubble.className = 'conv-bubble';
+      // Texto seguro (sem HTML), preservando quebras de linha.
+      msg.text.split('\n').forEach(function (line, idx) {
+        if (idx > 0) bubble.appendChild(document.createElement('br'));
+        bubble.appendChild(document.createTextNode(line));
+      });
+      var time = document.createElement('span');
+      time.className = 'conv-msg-time';
+      time.textContent = msg.time + (msg.type === 'sent' ? ' ✓' : '');
+      bubble.appendChild(time);
+      wrap.appendChild(bubble);
+      frag.appendChild(wrap);
+    });
+    messagesEl.appendChild(frag);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+  }
+
+  function fillSelect(select, items, selectedId, emptyLabel) {
+    select.replaceChildren();
+    var opt0 = document.createElement('option');
+    opt0.value = '';
+    opt0.textContent = emptyLabel;
+    select.appendChild(opt0);
+    items.forEach(function (item) {
+      var opt = document.createElement('option');
+      opt.value = item.id;
+      opt.textContent = item.name;
+      if (selectedId && String(selectedId) === String(item.id)) opt.selected = true;
+      select.appendChild(opt);
+    });
+  }
+
+  function fillInfo(contact, sectors, attendants) {
+    document.querySelector('[data-chat-initials]').textContent = contact.initials;
+    document.querySelector('[data-chat-name]').textContent = contact.name;
+    document.querySelector('[data-chat-phone]').textContent = contact.phone;
+    document.querySelector('[data-chat-status]').textContent = '● ' + contact.status_label;
+
+    document.querySelector('[data-info-name]').textContent = contact.name;
+    document.querySelector('[data-info-phone]').textContent = contact.phone;
+    document.querySelector('[data-info-status]').textContent = contact.status_label;
+    document.querySelector('[data-info-sector]').textContent = contact.sector;
+    document.querySelector('[data-info-attendant]').textContent = contact.attendant;
+    document.querySelector('[data-info-created]').textContent = contact.created_at;
+
+    if (sectors) fillSelect(sectorSelect, sectors, contact.sector_id, 'Nao definido');
+    if (attendants) fillSelect(attendantSelect, attendants, contact.attendant_id, 'Nao definido');
+
+    infoEmpty.hidden = true;
+    infoPanel.hidden = false;
+  }
+
+  /* ---------- Abrir conversa ---------- */
+  function openConversation(id) {
+    currentId = id;
+    placeholderEl.hidden = true;
+    panelEl.hidden = false;
+
+    fetch(urlFor(id, 'mensagens'), {headers: {'X-Requested-With': 'XMLHttpRequest'}})
+      .then(function (r) { if (!r.ok) throw new Error('fail'); return r.json(); })
+      .then(function (data) {
+        if (!data.ok) throw new Error('fail');
+        fillInfo(data.contact, data.sectors, data.attendants);
+        renderMessages(data.messages);
+        // Zera o badge de nao lidas do item aberto na lista.
+        var item = listEl.querySelector('.conv-item[data-conv-id="' + id + '"]');
+        if (item) {
+          var badge = item.querySelector('[data-conv-unread]');
+          if (badge) badge.remove();
+        }
+      })
+      .catch(function () {
+        showToast('Nao foi possivel abrir a conversa. Tente novamente.', 'error');
+      });
+  }
+
+  function refreshOpenMessages() {
+    if (!currentId) return;
+    fetch(urlFor(currentId, 'mensagens'), {headers: {'X-Requested-With': 'XMLHttpRequest'}})
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (data) { if (data && data.ok) renderMessages(data.messages); })
+      .catch(function () {});
+  }
+
+  /* ---------- Selecao na lista ---------- */
+  function bindItem(item) {
+    function select() {
+      listEl.querySelectorAll('.conv-item').forEach(function (i) {
         i.classList.remove('conv-item-active');
         i.setAttribute('aria-selected', 'false');
       });
       item.classList.add('conv-item-active');
       item.setAttribute('aria-selected', 'true');
+      openConversation(item.dataset.convId);
     }
-    item.addEventListener('click', selectItem);
+    item.addEventListener('click', select);
     item.addEventListener('keydown', function (e) {
-      if (e.key === 'Enter' || e.key === ' ') {
-        e.preventDefault();
-        selectItem();
-      }
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); select(); }
     });
-  });
-
-  /* Chips de filtro */
-  var chips = document.querySelectorAll('.conv-chip');
-  chips.forEach(function (chip) {
-    chip.addEventListener('click', function () {
-      chips.forEach(function (c) { c.classList.remove('active'); });
-      chip.classList.add('active');
-    });
-  });
-
-  /* Rolar mensagens para o final ao carregar */
-  var messagesEl = document.getElementById('conv-messages');
-  if (messagesEl) {
-    messagesEl.scrollTop = messagesEl.scrollHeight;
   }
+  listEl.querySelectorAll('.conv-item').forEach(bindItem);
+
+  /* ---------- Busca (filtro client-side) ---------- */
+  if (searchEl) {
+    searchEl.addEventListener('input', function () {
+      var term = searchEl.value.trim().toLowerCase();
+      listEl.querySelectorAll('.conv-item').forEach(function (item) {
+        var text = item.dataset.convSearchText || '';
+        item.hidden = term && text.indexOf(term) === -1;
+      });
+    });
+  }
+
+  /* ---------- Envio de mensagem ---------- */
+  sendForm.addEventListener('submit', function (e) {
+    e.preventDefault();
+    if (!currentId) return;
+    var text = inputEl.value.trim();
+    if (!text) return;
+
+    sendBtn.disabled = true;
+    var payload = new URLSearchParams();
+    payload.append('text', text);
+
+    fetch(urlFor(currentId, 'enviar'), {
+      method: 'POST',
+      headers: {
+        'X-CSRFToken': csrf,
+        'X-Requested-With': 'XMLHttpRequest',
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: payload.toString(),
+    })
+      .then(function (r) { return r.json().then(function (d) { return {ok: r.ok, data: d}; }); })
+      .then(function (res) {
+        if (!res.ok || !res.data.ok) {
+          showToast((res.data && res.data.error) || 'Nao foi possivel enviar a mensagem.', 'error');
+          return;
+        }
+        inputEl.value = '';
+        refreshOpenMessages();
+      })
+      .catch(function () {
+        showToast('Nao foi possivel enviar a mensagem. Verifique a conexao do WhatsApp e tente novamente.', 'error');
+      })
+      .finally(function () {
+        sendBtn.disabled = false;
+        inputEl.focus();
+      });
+  });
+
+  /* ---------- Transferencia (setor / atendente) ---------- */
+  function transfer(field, value) {
+    if (!currentId) return;
+    var payload = new URLSearchParams();
+    payload.append(field, value);
+    fetch(urlFor(currentId, 'transferir'), {
+      method: 'POST',
+      headers: {
+        'X-CSRFToken': csrf,
+        'X-Requested-With': 'XMLHttpRequest',
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: payload.toString(),
+    })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (data) {
+        if (data && data.ok) {
+          document.querySelector('[data-info-sector]').textContent = data.contact.sector;
+          document.querySelector('[data-info-attendant]').textContent = data.contact.attendant;
+          showToast('Atendimento atualizado.', 'success');
+        } else {
+          showToast('Nao foi possivel transferir o atendimento.', 'error');
+        }
+      })
+      .catch(function () {
+        showToast('Nao foi possivel transferir o atendimento.', 'error');
+      });
+  }
+  if (sectorSelect) {
+    sectorSelect.addEventListener('change', function () { transfer('sector_id', sectorSelect.value); });
+  }
+  if (attendantSelect) {
+    attendantSelect.addEventListener('change', function () { transfer('attendant_id', attendantSelect.value); });
+  }
+
+  /* Atualiza mensagens da conversa aberta periodicamente (recebe respostas novas). */
+  pollTimer = window.setInterval(refreshOpenMessages, 6000);
 }());
 </script>
 {% endblock %}

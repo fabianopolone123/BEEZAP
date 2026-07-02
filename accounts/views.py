@@ -34,6 +34,9 @@ from .forms import (
 from .models import (
     Attendant,
     AutomationRule,
+    Contact,
+    Conversation,
+    Message,
     PasswordResetCode,
     Sector,
     User,
@@ -43,6 +46,7 @@ from .models import (
 from ai_engine.services import generate_ai_reply, generate_ai_reply_with_rules
 from wapi.client import send_text_message
 from wapi.parser import parse_wapi_webhook_payload
+from wapi.services import save_incoming_text_message, save_outgoing_text_message
 
 
 PASSWORD_RECOVERY_CODE_ID_KEY = 'password_recovery_code_id'
@@ -181,10 +185,31 @@ def request_password_recovery_code(request, email):
 
 def create_wapi_webhook_event(payload):
     parsed_payload = parse_wapi_webhook_payload(payload)
-    return WapiWebhookEvent.objects.create(
+    event = WapiWebhookEvent.objects.create(
         raw_payload=payload if isinstance(payload, dict) else {},
         **parsed_payload,
     )
+
+    # Integra com Conversas reais: so cria mensagem para eventos de texto recebido
+    # (com telefone e mensagem) que nao foram enviados pelo proprio numero conectado.
+    # Falha aqui nunca deve derrubar o webhook (o evento ja foi salvo).
+    if (
+        parsed_payload.get('phone')
+        and parsed_payload.get('message_text')
+        and not parsed_payload.get('from_me')
+    ):
+        try:
+            save_incoming_text_message(
+                phone=parsed_payload['phone'],
+                text=parsed_payload['message_text'],
+                sender_name=parsed_payload.get('contact_name', ''),
+                external_message_id=parsed_payload.get('message_id', ''),
+                payload=payload,
+            )
+        except Exception:
+            wapi_webhook_logger.exception('Falha ao criar conversa a partir do webhook W-API.')
+
+    return event
 
 
 def is_valid_wapi_webhook_token(request):
@@ -737,60 +762,142 @@ def change_initial_password_view(request):
     return render(request, 'accounts/change_initial_password.html', {'form': form})
 
 
+def _format_conv_time(dt):
+    if not dt:
+        return ''
+    local = timezone.localtime(dt)
+    today = timezone.localdate()
+    if local.date() == today:
+        return local.strftime('%H:%M')
+    if local.date() == today - timedelta(days=1):
+        return 'Ontem'
+    return local.strftime('%d/%m/%Y')
+
+
+def _serialize_conversation_item(conversation):
+    contact = conversation.contact
+    return {
+        'id': conversation.id,
+        'name': contact.display_name,
+        'initials': contact.initials,
+        'preview': conversation.last_message_text or '',
+        'time': _format_conv_time(conversation.last_message_at),
+        'unread': conversation.unread_count or 0,
+        'status': conversation.status,
+        'status_label': conversation.status_label,
+    }
+
+
+def _serialize_message(message):
+    return {
+        'id': message.id,
+        'type': 'sent' if message.direction == 'out' else 'received',
+        'text': message.text,
+        'time': timezone.localtime(message.created_at).strftime('%H:%M'),
+        'status': message.status,
+    }
+
+
+def _serialize_contact_info(conversation):
+    contact = conversation.contact
+    attendant = conversation.assigned_attendant
+    return {
+        'name': contact.display_name,
+        'initials': contact.initials,
+        'phone': contact.phone,
+        'status_label': conversation.status_label,
+        'sector_id': conversation.sector_id,
+        'sector': conversation.sector.name if conversation.sector else 'Nao definido',
+        'attendant_id': attendant.id if attendant else None,
+        'attendant': attendant.name if attendant else 'Nao definido',
+        'created_at': timezone.localtime(contact.created_at).strftime('%d/%m/%Y %H:%M'),
+    }
+
+
 @login_required
 def conversations_view(request):
     role = request.user.role
-
-    conversations = [
-        {'id': 1, 'name': 'João Silva',     'initials': 'JS', 'preview': 'Quero saber mais sobre os planos...', 'time': '09:42', 'unread': 2, 'active': True},
-        {'id': 2, 'name': 'Maria Eduarda',  'initials': 'ME', 'preview': 'Ainda tem disponibilidade?',          'time': '09:40', 'unread': 1, 'active': False},
-        {'id': 3, 'name': 'Carlos Lima',    'initials': 'CL', 'preview': 'Preciso de ajuda com meu pedido.',    'time': '09:36', 'unread': 0, 'active': False},
-        {'id': 4, 'name': 'Juliana Costa',  'initials': 'JC', 'preview': 'Como funciona o pagamento?',          'time': '09:30', 'unread': 0, 'active': False},
-        {'id': 5, 'name': 'Pedro Almeida',  'initials': 'PA', 'preview': 'Quando vence meu boleto?',            'time': '09:22', 'unread': 0, 'active': False},
-        {'id': 6, 'name': 'Ana Paula',      'initials': 'AP', 'preview': 'Gostaria de agendar uma demonstração.', 'time': '09:15', 'unread': 0, 'active': False},
-        {'id': 7, 'name': 'Ricardo Oliveira', 'initials': 'RO', 'preview': 'Vocês emitem nota fiscal?',         'time': '09:10', 'unread': 0, 'active': False},
-        {'id': 8, 'name': 'Fernanda Rocha', 'initials': 'FR', 'preview': 'Tudo certo, obrigado!',               'time': 'Ontem', 'unread': 0, 'active': False},
-    ]
-
-    chat_messages = [
-        {'type': 'received', 'text': 'Olá! Quero saber mais sobre os planos disponíveis.', 'time': '09:42', 'attachment': None},
-        {'type': 'sent',     'text': 'Olá, João! Claro, posso te ajudar. 😊\nTemos 3 planos disponíveis.\nQuer que eu te envie mais detalhes?', 'time': '09:43', 'attachment': None},
-        {'type': 'received', 'text': 'Sim, por favor.', 'time': '09:43', 'attachment': None},
-        {'type': 'sent',     'text': None, 'time': '09:44', 'attachment': {'name': 'Planos_BEEZAP.pdf', 'size': 'PDF · 1,2 MB'}},
-        {'type': 'received', 'text': 'Ótimo! Qual é o plano mais indicado para equipes pequenas?', 'time': '09:44', 'attachment': None},
-        {'type': 'sent',     'text': 'Recomendamos o plano Profissional 👍\nAté 5 atendentes e integrações avançadas.', 'time': '09:44', 'attachment': None},
-        {'type': 'received', 'text': 'Perfeito! E o pagamento, como funciona?', 'time': '09:45', 'attachment': None},
-        {'type': 'sent',     'text': 'Aceitamos cartão, boleto e PIX.\nPosso gerar um boleto para você?', 'time': '09:46', 'attachment': None},
-        {'type': 'received', 'text': 'Pode sim, por favor.', 'time': '09:46', 'attachment': None},
-        {'type': 'sent',     'text': 'Pronto! Segue o boleto em anexo.', 'time': '09:47', 'attachment': None},
-        {'type': 'sent',     'text': None, 'time': '09:47', 'attachment': {'name': 'Boleto_123456.pdf', 'size': 'PDF · 210 KB'}},
-    ]
-
-    contact = {
-        'name':         'João Silva',
-        'initials':     'JS',
-        'phone':        '(11) 99999-8888',
-        'email':        'joao.silva@email.com',
-        'company':      'Silva Consultoria Ltda.',
-        'tags':         ['Cliente', 'Interessado'],
-        'responsible':  'Maria Santos',
-        'last_contact': 'Hoje às 09:42',
-        'notes':        'Interessado em plano para equipe pequena. Pediu boleto.',
-    }
-
+    conversations = (
+        Conversation.objects.select_related('contact', 'assigned_attendant', 'sector').all()
+    )
     return render(
         request,
         'accounts/conversations.html',
         {
-            'role':          role,
-            'nav_items':     build_nav_items(role, 'Conversas'),
-            'role_label':    request.user.get_role_display(),
-            'user_initial':  (request.user.first_name[:1] or request.user.email[:1]).upper(),
-            'conversations': conversations,
-            'chat_messages': chat_messages,
-            'contact':       contact,
+            'role': role,
+            'nav_items': build_nav_items(role, 'Conversas'),
+            'role_label': request.user.get_role_display(),
+            'user_initial': (request.user.first_name[:1] or request.user.email[:1]).upper(),
+            'conversations': [_serialize_conversation_item(c) for c in conversations],
         },
     )
+
+
+@login_required
+def conversation_messages_view(request, conversation_id):
+    conversation = get_object_or_404(
+        Conversation.objects.select_related('contact', 'assigned_attendant', 'sector'),
+        pk=conversation_id,
+    )
+    # Ao abrir a conversa, zera as nao lidas.
+    if conversation.unread_count:
+        conversation.unread_count = 0
+        conversation.save(update_fields=['unread_count', 'updated_at'])
+
+    messages_qs = conversation.messages.all()
+    sectors = Sector.objects.all()
+    attendants = Attendant.objects.select_related('user').filter(user__is_active=True)
+
+    return JsonResponse({
+        'ok': True,
+        'contact': _serialize_contact_info(conversation),
+        'messages': [_serialize_message(m) for m in messages_qs],
+        'sectors': [{'id': s.id, 'name': s.name} for s in sectors],
+        'attendants': [{'id': a.id, 'name': a.name} for a in attendants],
+    })
+
+
+@login_required
+@require_POST
+def conversation_send_view(request, conversation_id):
+    conversation = get_object_or_404(
+        Conversation.objects.select_related('contact'), pk=conversation_id
+    )
+    text = (request.POST.get('text') or '').strip()
+    if not text:
+        return JsonResponse({'ok': False, 'error': 'Digite uma mensagem para enviar.'}, status=400)
+
+    result = send_text_message(phone=conversation.contact.phone, message=text)
+    if not result.success:
+        return JsonResponse({
+            'ok': False,
+            'error': 'Nao foi possivel enviar a mensagem. Verifique a conexao do WhatsApp e tente novamente.',
+        }, status=502)
+
+    message = save_outgoing_text_message(
+        conversation, text, external_message_id=result.message_id or '', status='sent'
+    )
+    return JsonResponse({'ok': True, 'message': _serialize_message(message)})
+
+
+@login_required
+@require_POST
+def conversation_transfer_view(request, conversation_id):
+    conversation = get_object_or_404(Conversation, pk=conversation_id)
+
+    if 'attendant_id' in request.POST:
+        attendant_id = (request.POST.get('attendant_id') or '').strip()
+        conversation.assigned_attendant = (
+            Attendant.objects.filter(pk=attendant_id).first() if attendant_id else None
+        )
+    if 'sector_id' in request.POST:
+        sector_id = (request.POST.get('sector_id') or '').strip()
+        conversation.sector = (
+            Sector.objects.filter(pk=sector_id).first() if sector_id else None
+        )
+    conversation.save(update_fields=['assigned_attendant', 'sector', 'updated_at'])
+
+    return JsonResponse({'ok': True, 'contact': _serialize_contact_info(conversation)})
 
 
 @login_required
