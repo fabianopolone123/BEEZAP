@@ -162,11 +162,30 @@
           Para receber mensagens reais, esta URL precisa estar acessivel pela internet. Em ambiente local, use um tunel como ngrok ou Cloudflare Tunnel.
         </p>
 
-        <form method="post" class="webhook-test-form">
-          {% csrf_token %}
-          <input type="hidden" name="form_type" value="webhook-test">
-          <button type="submit" class="primary-button">Testar recebimento</button>
-        </form>
+        <div class="webhook-test-panel" data-receive-test-panel>
+          <div class="webhook-test-control">
+            <button
+              type="button"
+              class="primary-button"
+              data-receive-test-start
+              data-start-url="{% url 'wapi-receive-test-start' %}"
+              data-events-url="{% url 'wapi-receive-test-events' %}"
+              data-csrf="{{ csrf_token }}"
+            >
+              Iniciar teste de recebimento
+            </button>
+            <div class="webhook-test-status">
+              <strong data-receive-test-status>Teste parado.</strong>
+              <span data-receive-test-countdown></span>
+            </div>
+          </div>
+
+          <div class="webhook-live-list" data-receive-test-list>
+            <p class="webhook-live-empty" data-receive-test-empty>
+              Clique em iniciar e envie uma mensagem real pelo WhatsApp para testar o recebimento.
+            </p>
+          </div>
+        </div>
 
         <div class="webhook-events">
           <h3>Ultimos eventos recebidos</h3>
@@ -224,6 +243,174 @@
           copyButton.textContent = 'Copiar URL';
         }, 1800);
       });
+    });
+  }());
+
+  (function () {
+    const startButton = document.querySelector('[data-receive-test-start]');
+    const statusElement = document.querySelector('[data-receive-test-status]');
+    const countdownElement = document.querySelector('[data-receive-test-countdown]');
+    const listElement = document.querySelector('[data-receive-test-list]');
+    const emptyElement = document.querySelector('[data-receive-test-empty]');
+    if (!startButton || !statusElement || !countdownElement || !listElement || !emptyElement) return;
+
+    let testId = '';
+    let remainingSeconds = 0;
+    let countdownTimer = null;
+    let pollingTimer = null;
+    let receivedCount = 0;
+
+    function clearTimers() {
+      if (countdownTimer) {
+        window.clearInterval(countdownTimer);
+        countdownTimer = null;
+      }
+      if (pollingTimer) {
+        window.clearInterval(pollingTimer);
+        pollingTimer = null;
+      }
+    }
+
+    function formatSeconds(value) {
+      const safeValue = Math.max(0, value);
+      const minutes = Math.floor(safeValue / 60);
+      const seconds = safeValue % 60;
+      return String(minutes).padStart(2, '0') + ':' + String(seconds).padStart(2, '0');
+    }
+
+    function setIdle(message) {
+      clearTimers();
+      startButton.disabled = false;
+      startButton.textContent = 'Iniciar teste de recebimento';
+      statusElement.textContent = message || 'Teste parado.';
+      countdownElement.textContent = '';
+    }
+
+    function renderEmpty(message) {
+      listElement.replaceChildren(emptyElement);
+      emptyElement.textContent = message;
+      emptyElement.hidden = false;
+    }
+
+    function addText(parent, tagName, className, text) {
+      const element = document.createElement(tagName);
+      if (className) element.className = className;
+      element.textContent = text || '-';
+      parent.appendChild(element);
+      return element;
+    }
+
+    function renderEvents(events) {
+      receivedCount = events.length;
+      if (!events.length) {
+        renderEmpty('Aguardando mensagem real durante este teste.');
+        return;
+      }
+
+      const fragment = document.createDocumentFragment();
+      events.forEach(function (event) {
+        const row = document.createElement('article');
+        row.className = 'webhook-live-row';
+
+        const main = document.createElement('div');
+        addText(main, 'span', 'event-label', 'Mensagem');
+        addText(main, 'strong', '', event.message_text);
+        row.appendChild(main);
+
+        const phone = document.createElement('div');
+        addText(phone, 'span', 'event-label', 'Telefone');
+        addText(phone, 'span', '', event.phone);
+        row.appendChild(phone);
+
+        const name = document.createElement('div');
+        addText(name, 'span', 'event-label', 'Nome');
+        addText(name, 'span', '', event.contact_name);
+        row.appendChild(name);
+
+        const receivedAt = document.createElement('div');
+        addText(receivedAt, 'span', 'event-label', 'Recebida em');
+        addText(receivedAt, 'span', '', event.received_at);
+        row.appendChild(receivedAt);
+
+        fragment.appendChild(row);
+      });
+
+      listElement.replaceChildren(fragment);
+    }
+
+    function finishTest() {
+      setIdle('Teste finalizado.');
+      if (!receivedCount) {
+        renderEmpty('Nenhuma mensagem foi recebida durante o teste.');
+      }
+    }
+
+    function updateCountdown() {
+      countdownElement.textContent = formatSeconds(remainingSeconds);
+      if (remainingSeconds <= 0) {
+        finishTest();
+        return;
+      }
+      remainingSeconds -= 1;
+    }
+
+    function pollEvents() {
+      if (!testId) return;
+
+      fetch(startButton.dataset.eventsUrl + '?test_id=' + encodeURIComponent(testId), {
+        headers: {'X-Requested-With': 'XMLHttpRequest'},
+      })
+        .then(function (response) {
+          if (!response.ok) throw new Error('poll_failed');
+          return response.json();
+        })
+        .then(function (data) {
+          if (!data.ok) throw new Error('poll_invalid');
+          remainingSeconds = data.remaining_seconds;
+          renderEvents(data.events || []);
+          if (!data.active) {
+            finishTest();
+          }
+        })
+        .catch(function () {
+          setIdle('Nao foi possivel consultar o teste. Tente novamente.');
+        });
+    }
+
+    startButton.addEventListener('click', function () {
+      clearTimers();
+      testId = '';
+      receivedCount = 0;
+      startButton.disabled = true;
+      startButton.textContent = 'Aguardando mensagem...';
+      statusElement.textContent = 'Aguardando mensagem...';
+      countdownElement.textContent = '01:00';
+      renderEmpty('Aguardando mensagem real durante este teste.');
+
+      fetch(startButton.dataset.startUrl, {
+        method: 'POST',
+        headers: {
+          'X-CSRFToken': startButton.dataset.csrf,
+          'X-Requested-With': 'XMLHttpRequest',
+        },
+      })
+        .then(function (response) {
+          if (!response.ok) throw new Error('start_failed');
+          return response.json();
+        })
+        .then(function (data) {
+          if (!data.ok) throw new Error('start_invalid');
+          testId = data.test_id;
+          remainingSeconds = data.remaining_seconds;
+          updateCountdown();
+          countdownTimer = window.setInterval(updateCountdown, 1000);
+          pollEvents();
+          pollingTimer = window.setInterval(pollEvents, 2500);
+        })
+        .catch(function () {
+          setIdle('Nao foi possivel iniciar o teste. Tente novamente.');
+          renderEmpty('O teste nao foi iniciado.');
+        });
     });
   }());
 </script>

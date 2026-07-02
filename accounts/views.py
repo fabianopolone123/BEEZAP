@@ -14,6 +14,7 @@ from django.http import HttpResponseForbidden, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 
@@ -48,17 +49,9 @@ PASSWORD_RECOVERY_CODE_ID_KEY = 'password_recovery_code_id'
 PASSWORD_RECOVERY_EMAIL_KEY = 'password_recovery_email'
 PASSWORD_RECOVERY_VERIFIED_ID_KEY = 'password_recovery_verified_id'
 PASSWORD_RECOVERY_GENERIC_MESSAGE = 'Se os dados estiverem corretos, enviaremos um codigo para o WhatsApp cadastrado.'
-
-WAPI_TEST_WEBHOOK_PAYLOAD = {
-    'event': 'message.received',
-    'instanceId': 'test-instance',
-    'phone': '5511999999999',
-    'contactName': 'Cliente Teste',
-    'messageId': 'test-message-id',
-    'messageType': 'text',
-    'text': 'Ola, preciso de atendimento',
-    'fromMe': False,
-}
+WAPI_RECEIVE_TEST_DURATION_SECONDS = 60
+WAPI_RECEIVE_TEST_ID_KEY = 'wapi_receive_test_id'
+WAPI_RECEIVE_TEST_STARTED_AT_KEY = 'wapi_receive_test_started_at'
 
 
 ROLE_RANK = {
@@ -202,6 +195,44 @@ def is_valid_wapi_webhook_token(request):
 
 def build_wapi_webhook_url(request):
     return request.build_absolute_uri(reverse('wapi-webhook'))
+
+
+def require_admin_json(request):
+    if request.user.role != 'adm':
+        return JsonResponse({'ok': False, 'error': 'Acesso restrito.'}, status=403)
+    return None
+
+
+def get_wapi_receive_test_window(request):
+    test_id = request.session.get(WAPI_RECEIVE_TEST_ID_KEY)
+    started_at_raw = request.session.get(WAPI_RECEIVE_TEST_STARTED_AT_KEY)
+    started_at = parse_datetime(started_at_raw) if started_at_raw else None
+    if not test_id or not started_at:
+        return None
+
+    if timezone.is_naive(started_at):
+        started_at = timezone.make_aware(started_at, timezone.get_current_timezone())
+
+    expires_at = started_at + timedelta(seconds=WAPI_RECEIVE_TEST_DURATION_SECONDS)
+    remaining_seconds = max(0, int((expires_at - timezone.now()).total_seconds()))
+    return {
+        'test_id': test_id,
+        'started_at': started_at,
+        'expires_at': expires_at,
+        'remaining_seconds': remaining_seconds,
+        'active': remaining_seconds > 0,
+    }
+
+
+def serialize_wapi_test_event(event):
+    received_at = timezone.localtime(event.received_at)
+    return {
+        'id': event.id,
+        'phone': event.phone or '-',
+        'contact_name': event.contact_name or '-',
+        'message_text': event.short_text or '-',
+        'received_at': received_at.strftime('%d/%m/%Y %H:%M:%S'),
+    }
 
 
 def must_change_initial_password(user):
@@ -412,14 +443,6 @@ def wapi_settings_view(request):
                 )
             return redirect('wapi-settings')
 
-        if form_type == 'webhook-test':
-            try:
-                create_wapi_webhook_event(WAPI_TEST_WEBHOOK_PAYLOAD)
-                messages.success(request, 'Evento de teste registrado com sucesso.')
-            except Exception:
-                messages.error(request, 'Nao foi possivel registrar o teste de recebimento.')
-            return redirect('wapi-settings')
-
     return render(
         request,
         'accounts/wapi_settings.html',
@@ -436,6 +459,59 @@ def wapi_settings_view(request):
             'webhook_token_configured': config.has_webhook_token,
         },
     )
+
+
+@login_required
+@require_POST
+def wapi_receive_test_start_view(request):
+    forbidden_response = require_admin_json(request)
+    if forbidden_response:
+        return forbidden_response
+
+    now = timezone.now()
+    test_id = secrets.token_urlsafe(12)
+    request.session[WAPI_RECEIVE_TEST_ID_KEY] = test_id
+    request.session[WAPI_RECEIVE_TEST_STARTED_AT_KEY] = now.isoformat()
+
+    return JsonResponse({
+        'ok': True,
+        'test_id': test_id,
+        'remaining_seconds': WAPI_RECEIVE_TEST_DURATION_SECONDS,
+        'started_at': timezone.localtime(now).strftime('%d/%m/%Y %H:%M:%S'),
+        'expires_at': timezone.localtime(
+            now + timedelta(seconds=WAPI_RECEIVE_TEST_DURATION_SECONDS)
+        ).strftime('%d/%m/%Y %H:%M:%S'),
+    })
+
+
+@login_required
+def wapi_receive_test_events_view(request):
+    forbidden_response = require_admin_json(request)
+    if forbidden_response:
+        return forbidden_response
+
+    window = get_wapi_receive_test_window(request)
+    requested_test_id = request.GET.get('test_id', '').strip()
+    if not window or requested_test_id != window['test_id']:
+        return JsonResponse({
+            'ok': False,
+            'active': False,
+            'remaining_seconds': 0,
+            'events': [],
+            'message': 'Inicie um novo teste de recebimento.',
+        }, status=400)
+
+    events = WapiWebhookEvent.objects.filter(
+        received_at__gte=window['started_at'],
+    ).order_by('received_at')[:50]
+
+    return JsonResponse({
+        'ok': True,
+        'active': window['active'],
+        'finished': not window['active'],
+        'remaining_seconds': window['remaining_seconds'],
+        'events': [serialize_wapi_test_event(event) for event in events],
+    })
 
 
 @login_required
