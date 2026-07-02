@@ -767,6 +767,13 @@
   font-size: 0.92rem;
 }
 
+/* Elementos com [hidden] devem ficar realmente ocultos, mesmo quando a classe
+   define display (flex/grid). Sem isso, o placeholder/painel oculto continuaria
+   ocupando espaco (flex:1) e empurrando o layout do chat. */
+.conversations-page [hidden] {
+  display: none !important;
+}
+
 .conv-chat-placeholder {
   flex: 1;
   display: grid;
