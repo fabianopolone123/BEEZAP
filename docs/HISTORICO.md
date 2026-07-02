@@ -65,3 +65,6 @@ Registro curto das alterações feitas no projeto.
 - Webhook publico passou a responder tambem em `/beezap/webhook/wapi/` alem de `/webhook/wapi/`, e a tela W-API passou a exibir a URL sob o prefixo `/beezap/` para configurar na W-API.
 - Adicionados logs seguros no recebimento do webhook, sem gravar token nem payload bruto e com telefone mascarado.
 - Adicionado botao "Testar recebimento" na tela W-API que registra um evento de exemplo interno, sem chamar a W-API nem enviar mensagem pelo WhatsApp.
+- Corrigida a exibicao de mensagens reais recebidas pela W-API: removidos os botoes de teste ("Testar recebimento" e "Iniciar teste de recebimento") que confundiam o usuario, e a tela passou a mostrar "Aguardando novas mensagens" com a lista "Ultimos eventos recebidos" atualizando sozinha a partir dos eventos reais salvos no banco.
+- Parser do webhook da W-API ampliado para entender formatos aninhados reais (por exemplo `messages[]`, `message.conversation`, `message.extendedTextMessage.text`, `key.remoteJid`, `pushName`, `contact`), com telefone normalizado sem sufixo de JID e sem quebrar em payloads desconhecidos.
+- Ajustada a orientacao da tela para usar a URL publica sob `/beezap/webhook/wapi/` no campo "Ao receber uma mensagem" da W-API, sem citar localhost, ngrok ou tunel.

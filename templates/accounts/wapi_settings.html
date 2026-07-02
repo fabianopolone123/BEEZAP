@@ -148,7 +148,7 @@
         <div class="panel-head webhook-head">
           <div>
             <h2>Recebimento de mensagens</h2>
-            <span>Configure esta URL na W-API no campo "Ao receber uma mensagem".</span>
+            <span>Use esta URL no campo "Ao receber uma mensagem" da W-API.</span>
           </div>
         </div>
 
@@ -158,79 +158,46 @@
           <button type="button" class="secondary-button" data-copy-webhook>Copiar URL</button>
         </div>
 
-        <p class="webhook-note">
-          Para receber mensagens reais, esta URL precisa estar acessivel pela internet. Em ambiente local, use um tunel como ngrok ou Cloudflare Tunnel.
-        </p>
-
-        <div class="webhook-test-panel" data-receive-test-panel>
-          <div class="webhook-test-control">
-            <button
-              type="button"
-              class="primary-button"
-              data-receive-test-start
-              data-start-url="{% url 'wapi-receive-test-start' %}"
-              data-events-url="{% url 'wapi-receive-test-events' %}"
-              data-csrf="{{ csrf_token }}"
-            >
-              Iniciar teste de recebimento
-            </button>
-            <form method="post" class="webhook-test-simulate-form">
-              {% csrf_token %}
-              <input type="hidden" name="form_type" value="receive-test">
-              <button type="submit" class="secondary-button">Testar recebimento</button>
-            </form>
-            <div class="webhook-test-status">
-              <strong data-receive-test-status>Teste parado.</strong>
-              <span data-receive-test-countdown></span>
-            </div>
-          </div>
-          <p class="webhook-test-hint">
-            "Testar recebimento" registra um evento de exemplo no sistema, sem enviar nada pelo WhatsApp.
-          </p>
-
-          <div class="webhook-live-list" data-receive-test-list>
-            <p class="webhook-live-empty" data-receive-test-empty>
-              Clique em iniciar e envie uma mensagem real pelo WhatsApp para testar o recebimento.
-            </p>
-          </div>
+        <div class="webhook-waiting">
+          <span class="webhook-waiting-dot" aria-hidden="true"></span>
+          <span>Aguardando novas mensagens da W-API.</span>
         </div>
 
-        <div class="webhook-events">
+        <div
+          class="webhook-events"
+          data-webhook-events
+          data-events-url="{% url 'wapi-webhook-events' %}"
+        >
           <h3>Ultimos eventos recebidos</h3>
-          {% if latest_webhook_events %}
-            <div class="webhook-event-list">
-              {% for event in latest_webhook_events %}
-                <article class="webhook-event-row">
-                  <div>
-                    <span class="event-label">Data/hora</span>
-                    <strong>{{ event.received_at|date:"d/m/Y H:i" }}</strong>
-                  </div>
-                  <div>
-                    <span class="event-label">Tipo</span>
-                    <span>{{ event.event_type }}</span>
-                  </div>
-                  <div>
-                    <span class="event-label">Telefone</span>
-                    <span>{{ event.phone|default:"-" }}</span>
-                  </div>
-                  <div>
-                    <span class="event-label">Nome</span>
-                    <span>{{ event.contact_name|default:"-" }}</span>
-                  </div>
-                  <div class="event-message">
-                    <span class="event-label">Mensagem</span>
-                    <span>{{ event.short_text|default:"-" }}</span>
-                  </div>
-                  <div>
-                    <span class="event-label">Status</span>
-                    <span class="event-status">{{ event.status_label }}</span>
-                  </div>
-                </article>
-              {% endfor %}
-            </div>
-          {% else %}
-            <p class="webhook-empty">Nenhuma mensagem recebida ainda.</p>
-          {% endif %}
+          <div class="webhook-event-list" data-webhook-event-list>
+            {% for event in latest_webhook_events %}
+              <article class="webhook-event-row">
+                <div class="event-message">
+                  <span class="event-label">Mensagem</span>
+                  <strong>{{ event.short_text|default:"-" }}</strong>
+                </div>
+                <div>
+                  <span class="event-label">Telefone</span>
+                  <span>{{ event.phone|default:"-" }}</span>
+                </div>
+                <div>
+                  <span class="event-label">Nome</span>
+                  <span>{{ event.contact_name|default:"-" }}</span>
+                </div>
+                <div>
+                  <span class="event-label">Recebida em</span>
+                  <span>{{ event.received_at|date:"d/m/Y H:i" }}</span>
+                </div>
+                <div>
+                  <span class="event-label">Tipo</span>
+                  <span>{{ event.event_type|default:"-" }}</span>
+                </div>
+              </article>
+            {% endfor %}
+          </div>
+          <p class="webhook-empty" data-webhook-empty {% if latest_webhook_events %}hidden{% endif %}>
+            Nenhuma mensagem recebida ainda.
+          </p>
         </div>
       </article>
     </section>
@@ -255,171 +222,72 @@
   }());
 
   (function () {
-    const startButton = document.querySelector('[data-receive-test-start]');
-    const statusElement = document.querySelector('[data-receive-test-status]');
-    const countdownElement = document.querySelector('[data-receive-test-countdown]');
-    const listElement = document.querySelector('[data-receive-test-list]');
-    const emptyElement = document.querySelector('[data-receive-test-empty]');
-    if (!startButton || !statusElement || !countdownElement || !listElement || !emptyElement) return;
+    const panel = document.querySelector('[data-webhook-events]');
+    const listElement = document.querySelector('[data-webhook-event-list]');
+    const emptyElement = document.querySelector('[data-webhook-empty]');
+    if (!panel || !listElement || !emptyElement) return;
 
-    let testId = '';
-    let remainingSeconds = 0;
-    let countdownTimer = null;
-    let pollingTimer = null;
-    let receivedCount = 0;
+    const eventsUrl = panel.dataset.eventsUrl;
 
-    function clearTimers() {
-      if (countdownTimer) {
-        window.clearInterval(countdownTimer);
-        countdownTimer = null;
-      }
-      if (pollingTimer) {
-        window.clearInterval(pollingTimer);
-        pollingTimer = null;
-      }
-    }
-
-    function formatSeconds(value) {
-      const safeValue = Math.max(0, value);
-      const minutes = Math.floor(safeValue / 60);
-      const seconds = safeValue % 60;
-      return String(minutes).padStart(2, '0') + ':' + String(seconds).padStart(2, '0');
-    }
-
-    function setIdle(message) {
-      clearTimers();
-      startButton.disabled = false;
-      startButton.textContent = 'Iniciar teste de recebimento';
-      statusElement.textContent = message || 'Teste parado.';
-      countdownElement.textContent = '';
-    }
-
-    function renderEmpty(message) {
-      listElement.replaceChildren(emptyElement);
-      emptyElement.textContent = message;
-      emptyElement.hidden = false;
-    }
-
-    function addText(parent, tagName, className, text) {
+    function addCell(parent, tagName, text) {
       const element = document.createElement(tagName);
-      if (className) element.className = className;
       element.textContent = text || '-';
       parent.appendChild(element);
       return element;
     }
 
+    function buildField(labelText, valueTag, valueText, extraClass) {
+      const field = document.createElement('div');
+      if (extraClass) field.className = extraClass;
+      const label = document.createElement('span');
+      label.className = 'event-label';
+      label.textContent = labelText;
+      field.appendChild(label);
+      addCell(field, valueTag, valueText);
+      return field;
+    }
+
     function renderEvents(events) {
-      receivedCount = events.length;
       if (!events.length) {
-        renderEmpty('Aguardando mensagem real durante este teste.');
+        listElement.replaceChildren();
+        emptyElement.hidden = false;
         return;
       }
 
       const fragment = document.createDocumentFragment();
       events.forEach(function (event) {
         const row = document.createElement('article');
-        row.className = 'webhook-live-row';
-
-        const main = document.createElement('div');
-        addText(main, 'span', 'event-label', 'Mensagem');
-        addText(main, 'strong', '', event.message_text);
-        row.appendChild(main);
-
-        const phone = document.createElement('div');
-        addText(phone, 'span', 'event-label', 'Telefone');
-        addText(phone, 'span', '', event.phone);
-        row.appendChild(phone);
-
-        const name = document.createElement('div');
-        addText(name, 'span', 'event-label', 'Nome');
-        addText(name, 'span', '', event.contact_name);
-        row.appendChild(name);
-
-        const receivedAt = document.createElement('div');
-        addText(receivedAt, 'span', 'event-label', 'Recebida em');
-        addText(receivedAt, 'span', '', event.received_at);
-        row.appendChild(receivedAt);
-
+        row.className = 'webhook-event-row';
+        row.appendChild(buildField('Mensagem', 'strong', event.message_text, 'event-message'));
+        row.appendChild(buildField('Telefone', 'span', event.phone));
+        row.appendChild(buildField('Nome', 'span', event.contact_name));
+        row.appendChild(buildField('Recebida em', 'span', event.received_at));
+        row.appendChild(buildField('Tipo', 'span', event.event_type));
         fragment.appendChild(row);
       });
 
+      emptyElement.hidden = true;
       listElement.replaceChildren(fragment);
     }
 
-    function finishTest() {
-      setIdle('Teste finalizado.');
-      if (!receivedCount) {
-        renderEmpty('Nenhuma mensagem foi recebida durante o teste.');
-      }
-    }
-
-    function updateCountdown() {
-      countdownElement.textContent = formatSeconds(remainingSeconds);
-      if (remainingSeconds <= 0) {
-        finishTest();
-        return;
-      }
-      remainingSeconds -= 1;
-    }
-
-    function pollEvents() {
-      if (!testId) return;
-
-      fetch(startButton.dataset.eventsUrl + '?test_id=' + encodeURIComponent(testId), {
-        headers: {'X-Requested-With': 'XMLHttpRequest'},
-      })
+    function refreshEvents() {
+      fetch(eventsUrl, {headers: {'X-Requested-With': 'XMLHttpRequest'}})
         .then(function (response) {
-          if (!response.ok) throw new Error('poll_failed');
+          if (!response.ok) throw new Error('events_failed');
           return response.json();
         })
         .then(function (data) {
-          if (!data.ok) throw new Error('poll_invalid');
-          remainingSeconds = data.remaining_seconds;
-          renderEvents(data.events || []);
-          if (!data.active) {
-            finishTest();
+          if (data && data.ok) {
+            renderEvents(data.events || []);
           }
         })
         .catch(function () {
-          setIdle('Nao foi possivel consultar o teste. Tente novamente.');
+          // Falha silenciosa: a lista continua com o ultimo estado carregado.
         });
     }
 
-    startButton.addEventListener('click', function () {
-      clearTimers();
-      testId = '';
-      receivedCount = 0;
-      startButton.disabled = true;
-      startButton.textContent = 'Aguardando mensagem...';
-      statusElement.textContent = 'Aguardando mensagem...';
-      countdownElement.textContent = '01:00';
-      renderEmpty('Aguardando mensagem real durante este teste.');
-
-      fetch(startButton.dataset.startUrl, {
-        method: 'POST',
-        headers: {
-          'X-CSRFToken': startButton.dataset.csrf,
-          'X-Requested-With': 'XMLHttpRequest',
-        },
-      })
-        .then(function (response) {
-          if (!response.ok) throw new Error('start_failed');
-          return response.json();
-        })
-        .then(function (data) {
-          if (!data.ok) throw new Error('start_invalid');
-          testId = data.test_id;
-          remainingSeconds = data.remaining_seconds;
-          updateCountdown();
-          countdownTimer = window.setInterval(updateCountdown, 1000);
-          pollEvents();
-          pollingTimer = window.setInterval(pollEvents, 2500);
-        })
-        .catch(function () {
-          setIdle('Nao foi possivel iniciar o teste. Tente novamente.');
-          renderEmpty('O teste nao foi iniciado.');
-        });
-    });
+    refreshEvents();
+    window.setInterval(refreshEvents, 5000);
   }());
 </script>
 {% endblock %}
