@@ -61,3 +61,7 @@ Registro curto das alterações feitas no projeto.
 - Preparado webhook publico da W-API para registrar mensagens recebidas com parser defensivo, token separado e visualizacao dos ultimos eventos na tela de configuracao.
 - Preparado o projeto para deploy de homologacao em VPS Linux com settings por ambiente, exemplos de systemd/Nginx, requirements e documentacao de deploy.
 - Melhorado o teste de recebimento da W-API para usar janela real de 1 minuto com polling, sem criar evento falso.
+- Corrigido o recebimento de mensagens da W-API: webhook agora aceita a chamada externa quando nenhum token de webhook esta configurado (antes era recusado com 403 em producao), mantendo a validacao apenas quando o token existe.
+- Webhook publico passou a responder tambem em `/beezap/webhook/wapi/` alem de `/webhook/wapi/`, e a tela W-API passou a exibir a URL sob o prefixo `/beezap/` para configurar na W-API.
+- Adicionados logs seguros no recebimento do webhook, sem gravar token nem payload bruto e com telefone mascarado.
+- Adicionado botao "Testar recebimento" na tela W-API que registra um evento de exemplo interno, sem chamar a W-API nem enviar mensagem pelo WhatsApp.

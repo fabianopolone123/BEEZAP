@@ -38,6 +38,9 @@ urlpatterns = [
     path('configuracoes/wapi/', wapi_settings_view, name='wapi-settings'),
     path('configuracoes/wapi/teste-recebimento/iniciar/', wapi_receive_test_start_view, name='wapi-receive-test-start'),
     path('configuracoes/wapi/teste-recebimento/eventos/', wapi_receive_test_events_view, name='wapi-receive-test-events'),
+    # Endpoint publico do webhook da W-API. Registrado tambem sob /beezap/ para
+    # funcionar quando o app e servido atras do prefixo /beezap/ no Nginx.
     path('webhook/wapi/', wapi_webhook_view, name='wapi-webhook'),
+    path('beezap/webhook/wapi/', wapi_webhook_view, name='wapi-webhook-beezap'),
     path('logout/', logout_view, name='logout'),
 ]

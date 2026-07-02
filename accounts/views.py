@@ -1,4 +1,5 @@
 import json
+import logging
 import secrets
 from hmac import compare_digest
 from datetime import timedelta
@@ -52,6 +53,16 @@ PASSWORD_RECOVERY_GENERIC_MESSAGE = 'Se os dados estiverem corretos, enviaremos 
 WAPI_RECEIVE_TEST_DURATION_SECONDS = 60
 WAPI_RECEIVE_TEST_ID_KEY = 'wapi_receive_test_id'
 WAPI_RECEIVE_TEST_STARTED_AT_KEY = 'wapi_receive_test_started_at'
+
+wapi_webhook_logger = logging.getLogger('beezap.wapi.webhook')
+
+
+def mask_phone_for_log(phone):
+    """Mantem apenas o final do telefone nos logs para nao expor o numero completo."""
+    digits = ''.join(ch for ch in (phone or '') if ch.isdigit())
+    if not digits:
+        return '-'
+    return '***' + digits[-4:] if len(digits) > 4 else '***'
 
 
 ROLE_RANK = {
@@ -180,11 +191,27 @@ def create_wapi_webhook_event(payload):
     )
 
 
+def build_simulated_webhook_payload():
+    """Payload interno parecido com uma mensagem recebida, sem chamar a W-API."""
+    return {
+        'event': 'message.received',
+        'instanceId': 'teste-interno',
+        'phone': '5511999999999',
+        'senderName': 'Cliente Teste',
+        'message': 'Ola, teste de recebimento interno.',
+        'messageId': f'teste-{secrets.token_hex(6)}',
+        'fromMe': False,
+    }
+
+
 def is_valid_wapi_webhook_token(request):
     config = WapiConfiguration.get_solo()
     expected_token = config.resolved_webhook_token().strip()
     if not expected_token:
-        return settings.DEBUG
+        # Sem token configurado o recebimento fica aberto (protecao opcional).
+        # A W-API chama apenas a URL publica, sem enviar cabecalhos proprios,
+        # entao exigir token aqui bloquearia todas as mensagens reais.
+        return True
 
     received_token = (
         request.headers.get('X-BEEZAP-WEBHOOK-TOKEN', '').strip()
@@ -194,7 +221,8 @@ def is_valid_wapi_webhook_token(request):
 
 
 def build_wapi_webhook_url(request):
-    return request.build_absolute_uri(reverse('wapi-webhook'))
+    # Exibe a URL sob o prefixo /beezap/, que e como o app e publicado no VPS.
+    return request.build_absolute_uri(reverse('wapi-webhook-beezap'))
 
 
 def require_admin_json(request):
@@ -441,6 +469,16 @@ def wapi_settings_view(request):
                     request,
                     result.error or 'Nao foi possivel enviar a mensagem. Verifique o telefone, o Instance ID e o Token.',
                 )
+            return redirect('wapi-settings')
+
+        if form_type == 'receive-test':
+            try:
+                create_wapi_webhook_event(build_simulated_webhook_payload())
+            except Exception:
+                wapi_webhook_logger.exception('Falha ao registrar teste de recebimento interno.')
+                messages.error(request, 'Nao foi possivel registrar o teste de recebimento.')
+            else:
+                messages.success(request, 'Teste de recebimento registrado com sucesso.')
             return redirect('wapi-settings')
 
     return render(
@@ -969,20 +1007,34 @@ def sectors_save_organization_view(request):
 @csrf_exempt
 def wapi_webhook_view(request):
     if request.method != 'POST':
+        # GET/HEAD respondem JSON amigavel (405) para facilitar o diagnostico.
         return JsonResponse({'ok': False, 'error': 'Metodo nao permitido.'}, status=405)
 
     if not is_valid_wapi_webhook_token(request):
+        wapi_webhook_logger.warning('Webhook W-API recusado: token invalido.')
         return JsonResponse({'ok': False, 'error': 'Token de webhook invalido.'}, status=403)
 
     try:
         payload = json.loads(request.body.decode('utf-8') or '{}')
     except (UnicodeDecodeError, json.JSONDecodeError):
+        wapi_webhook_logger.warning('Webhook W-API com corpo invalido; salvando payload vazio.')
         payload = {}
 
     try:
-        create_wapi_webhook_event(payload)
+        event = create_wapi_webhook_event(payload)
     except Exception:
+        # Nunca expor traceback para quem chama o webhook.
+        wapi_webhook_logger.exception('Falha ao registrar evento de webhook W-API.')
         return JsonResponse({'ok': False, 'error': 'Nao foi possivel registrar o webhook.'}, status=500)
+
+    # Log seguro: sem token, sem payload bruto e com telefone mascarado.
+    wapi_webhook_logger.info(
+        'Webhook W-API registrado: id=%s tipo=%s telefone=%s from_me=%s',
+        event.id,
+        event.event_type,
+        mask_phone_for_log(event.phone),
+        event.from_me,
+    )
 
     return JsonResponse({'ok': True, 'message': 'Webhook recebido com sucesso.'})
 

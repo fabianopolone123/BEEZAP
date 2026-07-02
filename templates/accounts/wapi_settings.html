@@ -174,11 +174,19 @@
             >
               Iniciar teste de recebimento
             </button>
+            <form method="post" class="webhook-test-simulate-form">
+              {% csrf_token %}
+              <input type="hidden" name="form_type" value="receive-test">
+              <button type="submit" class="secondary-button">Testar recebimento</button>
+            </form>
             <div class="webhook-test-status">
               <strong data-receive-test-status>Teste parado.</strong>
               <span data-receive-test-countdown></span>
             </div>
           </div>
+          <p class="webhook-test-hint">
+            "Testar recebimento" registra um evento de exemplo no sistema, sem enviar nada pelo WhatsApp.
+          </p>
 
           <div class="webhook-live-list" data-receive-test-list>
             <p class="webhook-live-empty" data-receive-test-empty>
