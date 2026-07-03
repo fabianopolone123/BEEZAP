@@ -177,6 +177,87 @@
   color: #fff;
 }
 
+/* Abas de tipo: Todas / Diretas / Grupos */
+.conv-type-tabs {
+  display: flex;
+  gap: 4px;
+  background: #f4f7fb;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 10px;
+  padding: 3px;
+}
+
+.conv-type-tab {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  font-family: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #64748b;
+  cursor: pointer;
+  transition: background 0.18s, color 0.18s, box-shadow 0.18s;
+  white-space: nowrap;
+}
+
+.conv-type-tab:hover:not(.active) {
+  color: #0d8d43;
+}
+
+.conv-type-tab.active {
+  background: #fff;
+  color: #0d8d43;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.12);
+}
+
+.conv-type-count {
+  border-radius: 20px;
+  padding: 0 6px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  background: rgba(15, 23, 42, 0.08);
+  color: #15213d;
+}
+
+.conv-type-tab.active .conv-type-count {
+  background: #f0fdf4;
+  color: #0d8d43;
+}
+
+/* Selo "Grupo" (lista e cabecalho do chat) */
+.conv-group-badge {
+  display: inline-block;
+  vertical-align: middle;
+  margin-right: 6px;
+  padding: 1px 7px;
+  border-radius: 20px;
+  background: #eef2ff;
+  color: #4353c4;
+  border: 1px solid rgba(67, 83, 196, 0.2);
+  font-size: 0.64rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* Nome de quem enviou dentro de um grupo (acima da mensagem recebida) */
+.conv-msg-sender {
+  font-size: 0.76rem;
+  font-weight: 700;
+  color: #0d8d43;
+  margin-bottom: 3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
 /* Lista */
 .conv-list {
   flex: 1 1 auto;

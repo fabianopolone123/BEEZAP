@@ -5,7 +5,7 @@
 
 {% block extra_head %}
 <link rel="stylesheet" href="{% static 'css/dashboard.css' %}?v=5">
-<link rel="stylesheet" href="{% static 'css/conversations.css' %}?v=5">
+<link rel="stylesheet" href="{% static 'css/conversations.css' %}?v=6">
 {% endblock %}
 
 {% block content %}
@@ -60,6 +60,14 @@
       <!-- COLUNA ESQUERDA — Lista de conversas -->
       <div class="conv-list-col">
         <div class="conv-list-head">
+          <div class="conv-type-tabs" role="tablist" aria-label="Tipo de conversa">
+            {% for tab in type_tabs %}
+              <button type="button" class="conv-type-tab {% if tab.active %}active{% endif %}" data-type-filter="{{ tab.key }}" role="tab" aria-selected="{% if tab.active %}true{% else %}false{% endif %}">
+                {{ tab.label }} <span class="conv-type-count" data-type-count="{{ tab.key }}">{{ tab.count }}</span>
+              </button>
+            {% endfor %}
+          </div>
+
           <div class="conv-search-bar">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2.2" aria-hidden="true">
               <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
@@ -87,7 +95,9 @@
             <div class="conv-avatar" aria-hidden="true">{{ conv.initials }}</div>
             <div class="conv-item-body">
               <div class="conv-item-top">
-                <span class="conv-item-name">{{ conv.name }}</span>
+                <span class="conv-item-name">
+                  {% if conv.is_group %}<span class="conv-group-badge">Grupo</span>{% endif %}{{ conv.name }}
+                </span>
                 <span class="conv-item-time">{{ conv.time }}</span>
               </div>
               <div class="conv-item-bottom">
@@ -252,6 +262,7 @@
   var recCancelBtn = document.querySelector('[data-rec-cancel]');
   var searchEl = document.querySelector('[data-conv-search]');
   var chipEls = document.querySelectorAll('[data-filter]');
+  var typeTabEls = document.querySelectorAll('[data-type-filter]');
   var listEmptyEl = document.querySelector('[data-conv-list-empty]');
 
   var infoEmpty = document.querySelector('[data-info-empty]');
@@ -261,6 +272,7 @@
 
   var currentId = null;
   var currentStatus = 'todas';
+  var currentType = 'todas';
   var pollTimer = null;
   var searchTimer = null;
 
@@ -356,6 +368,14 @@
       var bubble = document.createElement('div');
       bubble.className = 'conv-bubble';
 
+      // Em grupo, mostra o nome de quem enviou acima da mensagem recebida.
+      if (msg.is_group && msg.type === 'received' && msg.sender_name) {
+        var sender = document.createElement('div');
+        sender.className = 'conv-msg-sender';
+        sender.textContent = msg.sender_name;
+        bubble.appendChild(sender);
+      }
+
       if (kind === 'text') {
         appendText(bubble, msg.text);
       } else if (kind === 'reaction') {
@@ -401,13 +421,24 @@
   }
 
   function fillInfo(contact, sectors, attendants) {
+    var isGroup = !!contact.is_group;
     document.querySelector('[data-chat-initials]').textContent = contact.initials;
-    document.querySelector('[data-chat-name]').textContent = contact.name;
-    document.querySelector('[data-chat-phone]').textContent = contact.phone;
+
+    var chatName = document.querySelector('[data-chat-name]');
+    chatName.replaceChildren();
+    if (isGroup) {
+      var headerBadge = document.createElement('span');
+      headerBadge.className = 'conv-group-badge';
+      headerBadge.textContent = 'Grupo';
+      chatName.appendChild(headerBadge);
+    }
+    chatName.appendChild(document.createTextNode(contact.name));
+
+    document.querySelector('[data-chat-phone]').textContent = isGroup ? 'Conversa em grupo' : contact.phone;
     document.querySelector('[data-chat-status]').textContent = '● ' + contact.status_label;
 
     document.querySelector('[data-info-name]').textContent = contact.name;
-    document.querySelector('[data-info-phone]').textContent = contact.phone;
+    document.querySelector('[data-info-phone]').textContent = isGroup ? '—' : contact.phone;
     document.querySelector('[data-info-status]').textContent = contact.status_label;
     document.querySelector('[data-info-sector]').textContent = contact.sector;
     document.querySelector('[data-info-attendant]').textContent = contact.attendant;
@@ -499,7 +530,13 @@
     top.className = 'conv-item-top';
     var name = document.createElement('span');
     name.className = 'conv-item-name';
-    name.textContent = conv.name;
+    if (conv.is_group) {
+      var badge = document.createElement('span');
+      badge.className = 'conv-group-badge';
+      badge.textContent = 'Grupo';
+      name.appendChild(badge);
+    }
+    name.appendChild(document.createTextNode(conv.name));
     var time = document.createElement('span');
     time.className = 'conv-item-time';
     time.textContent = conv.time;
@@ -542,26 +579,50 @@
     });
   }
 
+  function updateTypeCounts(counts) {
+    if (!counts) return;
+    Object.keys(counts).forEach(function (key) {
+      var el = document.querySelector('[data-type-count="' + key + '"]');
+      if (el) el.textContent = counts[key];
+    });
+  }
+
   function refreshList() {
     var term = searchEl ? searchEl.value.trim() : '';
     var url = base + 'lista/?status=' + encodeURIComponent(currentStatus) +
+              '&tipo=' + encodeURIComponent(currentType) +
               '&q=' + encodeURIComponent(term);
     fetch(url, {headers: {'X-Requested-With': 'XMLHttpRequest'}})
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (data) {
         if (!data || !data.ok) return;
         updateCounts(data.counts);
+        updateTypeCounts(data.type_counts);
         renderConversationList(data.conversations || []);
       })
       .catch(function () {});
   }
 
-  /* ---------- Chips de filtro ---------- */
+  /* ---------- Chips de filtro (status) ---------- */
   chipEls.forEach(function (chip) {
     chip.addEventListener('click', function () {
       chipEls.forEach(function (c) { c.classList.remove('active'); });
       chip.classList.add('active');
       currentStatus = chip.dataset.filter || 'todas';
+      refreshList();
+    });
+  });
+
+  /* ---------- Abas de tipo (Todas / Diretas / Grupos) ---------- */
+  typeTabEls.forEach(function (tab) {
+    tab.addEventListener('click', function () {
+      typeTabEls.forEach(function (t) {
+        t.classList.remove('active');
+        t.setAttribute('aria-selected', 'false');
+      });
+      tab.classList.add('active');
+      tab.setAttribute('aria-selected', 'true');
+      currentType = tab.dataset.typeFilter || 'todas';
       refreshList();
     });
   });

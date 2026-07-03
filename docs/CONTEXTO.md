@@ -33,7 +33,7 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
 > `wapi/` é um módulo Python comum (importa `accounts.models`); **não** está em
 > `INSTALLED_APPS`, por isso os models ficam em `accounts/models.py`.
 
-## 3. Modelos (`accounts/models.py`) — migração atual: `0011`
+## 3. Modelos (`accounts/models.py`) — migração atual: `0013`
 
 - **User** (AbstractUser, login por e-mail; `role`: `leitor`/`usuario`/`adm`).
 - **Attendant** (perfil de atendente, vínculo com User, troca de senha inicial).
@@ -45,13 +45,18 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
   Configurações → WhatsApp/W-API. `resolved_*()` cai para env se vazio.
 - **WapiWebhookEvent**: todo evento recebido do webhook (com `raw_payload`).
 - **Contact**: `name`, `phone` (único), `display_name`, `initials`.
-- **Conversation**: `contact`, `status` (`open`/`pending`/`closed`),
-  `assigned_attendant`, `sector`, `last_message_text`, `last_message_at`,
-  `unread_count`.
+- **Conversation**: `contact` (**opcional** — grupo não tem contato individual),
+  `chat_type` (`private`/`group`), `external_id` (JID do grupo `@g.us`, telefone
+  ou LID da direta), `name` (título/nome do grupo), `status`
+  (`open`/`pending`/`closed`), `assigned_attendant`, `sector`,
+  `last_message_text`, `last_message_at`, `unread_count`. Propriedades:
+  `is_group`, `display_title`, `display_initials`, `recipient` (destino de envio).
 - **Message**: `conversation`, `direction` (`in`/`out`), `message_type`
   (`text/image/audio/video/document/sticker/gif/reaction/location/contact/unknown`),
-  `text`, `external_message_id` (id real da W-API), `media_file`, `media_url`,
-  `media_mimetype`, `media_status` (`none/pending/ok/unavailable`), `raw_payload`.
+  `text`, `sender_name`, `sender_id`/`participant_id` (quem enviou; em grupo é o
+  participante), `is_group`, `from_me`, `external_message_id` (id real da W-API,
+  serve de `wapi_message_id`), `media_file`, `media_url`, `media_mimetype`,
+  `media_status` (`none/pending/ok/unavailable`), `raw_payload`.
 
 ## 4. Integração W-API
 
@@ -77,6 +82,14 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
   (`media_key`, `direct_path`, `media_mimetype`, `media_url`, `caption`, `reaction`).
 - `normalize_phone(value)` → só dígitos; remove `@s.whatsapp.net`/`@c.us`/`:device`;
   **rejeita `@g.us` (grupo) e `@lid`** (identificador interno).
+- `normalize_wapi_message_context(payload)` → **função central de GRUPO vs DIRETA**.
+  Decide pelo ID da conversa: termina em `@g.us` ⇒ **grupo** (chat_id = JID do grupo,
+  remetente separado em `sender_id`/`participant_id`); número puro / `@s.whatsapp.net`
+  / `@lid` ⇒ **direta**. Retorna `chat_id`, `chat_type`, `is_group`, `sender_id`,
+  `participant_id`, `sender_name`, `from_me`, `display_name`, `source`. O JID de
+  grupo tem **prioridade** sobre telefone/remetente em qualquer campo do payload.
+- `normalize_recipient(value)` → destino de **envio**: mantém `@g.us`/`@lid`
+  intactos (a W-API precisa do JID); telefone comum vira só dígitos.
 - **Formato real do payload (W-API Lite):** o número do remetente vem em
   `sender.id`; o nome em `sender.pushName`; o conteúdo em `msgContent`
   (`conversation` / `extendedTextMessage.text` / `imageMessage` / `audioMessage` /
@@ -84,7 +97,15 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
   `reactionMessage`). **`connectedPhone` é o NOSSO número — nunca usar como remetente.**
 
 ### Serviços (`wapi/services.py`)
-- `save_incoming_message(...)` cria contato/conversa e a mensagem por tipo;
+- `ingest_wapi_payload(payload)` é o **ponto único** de entrada de mensagem recebida
+  (usado pelo webhook e pelo comando `sync_wapi_events_to_conversations`): normaliza
+  o contexto, resolve a conversa e cria a mensagem; deduplica pelo id externo.
+- `resolve_conversation_for_context(ctx)` acha/cria a conversa certa: **grupo** →
+  keyed pelo JID (`external_id`, `chat_type='group'`, sem contato); **direta com
+  telefone** → contato + conversa aberta (comportamento antigo); **direta sem
+  telefone (`@lid`)** → keyed pelo próprio chat_id, sem contato. **Nunca cria
+  contato privado para quem escreve no grupo.**
+- `save_incoming_message(conversation, ctx, ...)` cria a mensagem por tipo;
   para mídia, chama `download-media` e **salva o arquivo localmente** em
   `MEDIA/whatsapp/` (o `fileLink` da W-API expira). Estados `pending/ok/unavailable`.
 - `save_outgoing_media_message(...)` salva arquivo enviado em
@@ -102,10 +123,13 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
 
 ## 5. Tela Conversas (`templates/accounts/conversations.html` + `conversations.css`)
 
+- **Abas de tipo**: Todas / Diretas / Grupos (param `tipo` no endpoint da lista),
+  com contagens. **Selo "Grupo"** na lista e no cabeçalho; em grupo, o **nome do
+  participante** aparece acima de cada mensagem recebida.
 - **Lista real** (server-rendered) + **filtros** com contagens reais: Todas,
   Não lidas (`unread_count>0`), Em atendimento (tem atendente e não fechada),
   Aguardando (sem atendente e não fechada), Finalizadas (`closed`). **Busca** por
-  nome/telefone/última mensagem, combinada com o filtro.
+  nome/telefone/última mensagem, combinada com o filtro e a aba de tipo.
 - **Chat via AJAX**: abrir zera não lidas; render por tipo; **composer fixo no
   rodapé** (corrigido com `min-height:0` na cadeia flex/grid e `[hidden]{display:none!important}`).
 - **Composer**: 📎 anexo (imagem/áudio/vídeo/documento), 🎤 microfone (grava com

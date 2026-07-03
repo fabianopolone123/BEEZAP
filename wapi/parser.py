@@ -433,3 +433,208 @@ def parse_wapi_media(payload):
 
     result['message_type'] = 'unknown'
     return result
+
+
+# ======================================================================
+# Contexto da conversa: GRUPO vs DIRETA/PRIVADA
+# ======================================================================
+
+def strip_jid(value):
+    """Remove sufixos de JID (@...) e de dispositivo (:...), preservando o id/numero.
+
+    "5511999999999@s.whatsapp.net" -> "5511999999999"
+    "183545595199545@lid"          -> "183545595199545"
+    """
+    text = _as_text(value)
+    return text.split('@', 1)[0].split(':', 1)[0] if text else ''
+
+
+def normalize_recipient(value):
+    """Destinatario para ENVIO pela W-API.
+
+    Mantem o JID de grupo (@g.us) ou o LID (@lid) como estao (a W-API precisa do
+    JID completo para responder no lugar certo); para telefone comum, retorna
+    apenas os digitos.
+    """
+    text = _as_text(value)
+    low = text.lower()
+    if low.endswith('@g.us') or low.endswith('@lid'):
+        return text
+    return normalize_phone(text)
+
+
+# Caminhos onde a W-API costuma trazer o ID real da conversa (chat/remoteJid).
+# O remoteJid aparece primeiro porque e ele que carrega o sufixo "@g.us" de grupo.
+_CHAT_ID_PATHS = (
+    ('data', 'key', 'remoteJid'),
+    ('message', 'key', 'remoteJid'),
+    ('data', 'message', 'key', 'remoteJid'),
+    ('key', 'remoteJid'),
+    ('data', 'remoteJid'),
+    ('remoteJid',),
+    ('chatId',),
+    ('data', 'chatId'),
+    ('chat', 'id'),
+    ('data', 'chat', 'id'),
+    ('groupId',),
+    ('data', 'groupId'),
+    ('messages', 0, 'key', 'remoteJid'),
+    ('data', 'messages', 0, 'key', 'remoteJid'),
+    ('phone',),
+    ('data', 'phone'),
+    ('sender', 'id'),
+    ('data', 'sender', 'id'),
+)
+
+# Caminhos do remetente/participante individual (quem escreveu dentro do grupo).
+_PARTICIPANT_PATHS = (
+    ('data', 'key', 'participant'),
+    ('message', 'key', 'participant'),
+    ('data', 'message', 'key', 'participant'),
+    ('key', 'participant'),
+    ('data', 'participant'),
+    ('participant',),
+    ('author',),
+    ('data', 'author'),
+    ('sender', 'id'),
+    ('data', 'sender', 'id'),
+    ('from',),
+    ('data', 'from'),
+    ('messages', 0, 'key', 'participant'),
+    ('data', 'messages', 0, 'key', 'participant'),
+)
+
+_FROM_ME_PATHS = (
+    ('fromMe',),
+    ('from_me',),
+    ('key', 'fromMe'),
+    ('data', 'fromMe'),
+    ('data', 'from_me'),
+    ('data', 'key', 'fromMe'),
+    ('message', 'fromMe'),
+    ('message', 'key', 'fromMe'),
+    ('data', 'message', 'key', 'fromMe'),
+    ('messages', 0, 'key', 'fromMe'),
+    ('data', 'messages', 0, 'key', 'fromMe'),
+)
+
+_SENDER_NAME_PATHS = (
+    ('pushName',),
+    ('senderName',),
+    ('contactName',),
+    ('participantName',),
+    ('notifyName',),
+    ('name',),
+    ('sender', 'pushName'),
+    ('sender', 'name'),
+    ('data', 'pushName'),
+    ('data', 'senderName'),
+    ('data', 'contactName'),
+    ('data', 'participantName'),
+    ('data', 'notifyName'),
+    ('data', 'name'),
+    ('contact', 'name'),
+    ('contact', 'pushName'),
+    ('data', 'contact', 'name'),
+    ('data', 'contact', 'pushName'),
+    ('messages', 0, 'pushName'),
+    ('data', 'messages', 0, 'pushName'),
+)
+
+# Nome do grupo, quando a W-API envia (nem sempre vem).
+_GROUP_NAME_PATHS = (
+    ('groupName',),
+    ('chatName',),
+    ('subject',),
+    ('data', 'groupName'),
+    ('data', 'chatName'),
+    ('data', 'subject'),
+    ('chat', 'name'),
+    ('data', 'chat', 'name'),
+    ('groupMetadata', 'subject'),
+    ('data', 'groupMetadata', 'subject'),
+)
+
+
+def _first_present(payload, paths):
+    for path in paths:
+        value = _as_text(_safe_get(payload, path))
+        if value:
+            return value, path
+    return '', None
+
+
+def _path_label(path):
+    return '.'.join(str(p) for p in path) if path else ''
+
+
+def normalize_wapi_message_context(payload):
+    """Descobre o contexto real da mensagem recebida: se e de GRUPO ou DIRETA,
+    qual e o ID da conversa (chat_id) e quem enviou (participant).
+
+    Regra decisiva: se o ID da conversa termina em "@g.us", a mensagem e de GRUPO
+    e o remetente individual (participant) NUNCA vira o chat_id. Caso contrario
+    (numero puro, "@s.whatsapp.net" ou "@lid"), a conversa e DIRETA/PRIVADA.
+
+    Retorna: chat_id, chat_type, is_group, sender_id, participant_id, sender_name,
+    from_me, display_name e source (campo de onde o chat_id foi extraido, para log).
+    """
+    if not isinstance(payload, dict):
+        payload = {}
+
+    # 1) chat_id real. Um JID de grupo (@g.us) tem prioridade sobre qualquer
+    # telefone/remetente, esteja em que posicao estiver nos candidatos.
+    chat_id = ''
+    source = None
+    first_chat_id = ''
+    first_source = None
+    for path in _CHAT_ID_PATHS:
+        value = _as_text(_safe_get(payload, path))
+        if not value:
+            continue
+        if not first_chat_id:
+            first_chat_id, first_source = value, path
+        if value.lower().endswith('@g.us'):
+            chat_id, source = value, path
+            break
+    if not chat_id:
+        chat_id, source = first_chat_id, first_source
+
+    is_group = chat_id.lower().endswith('@g.us')
+    chat_type = 'group' if is_group else 'private'
+
+    # 2) Participante/remetente individual. Em conversa direta o remetente e o
+    # proprio chat_id; em grupo e sempre o participant.
+    participant_raw, _ = _first_present(payload, _PARTICIPANT_PATHS)
+    if not participant_raw and not is_group:
+        participant_raw = chat_id
+    participant_id = normalize_phone(participant_raw) or _only_digits(strip_jid(participant_raw))
+
+    # 3) from_me (mensagem enviada pela propria conta conectada).
+    from_me_value = None
+    for path in _FROM_ME_PATHS:
+        found = _safe_get(payload, path)
+        if found is not None:
+            from_me_value = found
+            break
+    from_me = _as_bool(from_me_value)
+
+    # 4) Nome do remetente e nome do grupo.
+    sender_name, _ = _first_present(payload, _SENDER_NAME_PATHS)
+    if not _valid_name(sender_name):
+        sender_name = ''
+    group_name = ''
+    if is_group:
+        group_name, _ = _first_present(payload, _GROUP_NAME_PATHS)
+
+    return {
+        'chat_id': chat_id,
+        'chat_type': chat_type,
+        'is_group': is_group,
+        'sender_id': participant_id,
+        'participant_id': participant_id,
+        'sender_name': sender_name,
+        'from_me': from_me,
+        'display_name': group_name if is_group else sender_name,
+        'source': _path_label(source),
+    }

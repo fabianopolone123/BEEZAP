@@ -6,7 +6,7 @@ from urllib import error, parse, request
 from django.conf import settings
 
 from accounts.models import WapiConfiguration
-from wapi.parser import normalize_phone
+from wapi.parser import normalize_recipient
 
 
 WAPI_MESSAGE_PREFIX = '/v1/message/'
@@ -129,8 +129,11 @@ def _wapi_post(action, payload, timeout=30):
 
 
 def _send(action, phone, extra):
-    """Monta o body {phone, ...} e devolve WapiSendResult padronizado."""
-    normalized_phone = normalize_phone(phone)
+    """Monta o body {phone, ...} e devolve WapiSendResult padronizado.
+
+    O campo `phone` aceita telefone (so digitos) OU o JID de grupo (@g.us) / LID
+    (@lid) para responder no lugar certo — nunca o participante individual."""
+    normalized_phone = normalize_recipient(phone)
     if not normalized_phone:
         return WapiSendResult(success=False, error='Telefone invalido para envio.')
     payload = {'phone': normalized_phone}

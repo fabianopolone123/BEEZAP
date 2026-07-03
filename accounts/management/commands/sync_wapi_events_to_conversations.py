@@ -3,13 +3,14 @@
 Uso:
     python manage.py sync_wapi_events_to_conversations
 
-So processa eventos de texto recebido (com telefone e mensagem, nao enviados
-pelo proprio numero). Evita duplicar mensagens que ja tenham o mesmo id externo.
+Reprocessa o payload bruto de cada evento pela mesma ingestao do webhook, que
+detecta grupo vs direta e resolve a conversa certa. A deduplicacao pelo id
+externo (dentro da conversa) evita repetir mensagens ja registradas.
 """
 from django.core.management.base import BaseCommand
 
-from accounts.models import Message, WapiWebhookEvent
-from wapi.services import save_incoming_text_message
+from accounts.models import WapiWebhookEvent
+from wapi.services import ingest_wapi_payload
 
 
 class Command(BaseCommand):
@@ -18,24 +19,14 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         created = 0
         skipped = 0
-        events = WapiWebhookEvent.objects.filter(from_me=False).order_by('received_at')
+        events = WapiWebhookEvent.objects.order_by('received_at')
 
         for event in events:
-            if not event.phone or not event.message_text:
-                skipped += 1
-                continue
-            # Evita duplicar quando o evento tem id externo ja registrado.
-            if event.message_id and Message.objects.filter(external_message_id=event.message_id).exists():
-                skipped += 1
-                continue
-
-            message = save_incoming_text_message(
-                phone=event.phone,
-                text=event.message_text,
-                sender_name=event.contact_name,
-                external_message_id=event.message_id,
-                payload=event.raw_payload,
-            )
+            payload = event.raw_payload if isinstance(event.raw_payload, dict) else {}
+            try:
+                message = ingest_wapi_payload(payload)
+            except Exception:
+                message = None
             if message:
                 created += 1
             else:

@@ -52,11 +52,10 @@ from wapi.client import (
     send_text_message,
     send_video_message,
 )
-from wapi.parser import parse_wapi_webhook_payload, parse_wapi_media
+from wapi.parser import parse_wapi_webhook_payload
 from wapi.services import (
     convert_audio_to_ogg,
-    save_incoming_message,
-    save_incoming_text_message,
+    ingest_wapi_payload,
     save_outgoing_media_message,
     save_outgoing_text_message,
 )
@@ -203,50 +202,13 @@ def create_wapi_webhook_event(payload):
         **parsed_payload,
     )
 
-    # Integra com Conversas reais: cria a mensagem recebida (texto ou midia) que
-    # nao foi enviada pelo proprio numero conectado. Falha aqui nunca deve
-    # derrubar o webhook (o evento ja foi salvo em WapiWebhookEvent).
-    if parsed_payload.get('phone') and not parsed_payload.get('from_me'):
-        try:
-            media_info = parse_wapi_media(payload)
-            message_type = media_info['message_type']
-            if message_type == 'text':
-                if parsed_payload.get('message_text'):
-                    save_incoming_message(
-                        phone=parsed_payload['phone'],
-                        message_type='text',
-                        text=parsed_payload['message_text'],
-                        sender_name=parsed_payload.get('contact_name', ''),
-                        external_message_id=parsed_payload.get('message_id', ''),
-                        payload=payload,
-                    )
-            elif message_type == 'reaction':
-                save_incoming_message(
-                    phone=parsed_payload['phone'],
-                    message_type='reaction',
-                    text=media_info.get('reaction', ''),
-                    sender_name=parsed_payload.get('contact_name', ''),
-                    external_message_id=parsed_payload.get('message_id', ''),
-                    payload=payload,
-                )
-            else:
-                # imagem/audio/video/documento/sticker/gif/location/contact/unknown
-                save_incoming_message(
-                    phone=parsed_payload['phone'],
-                    message_type=message_type,
-                    text=media_info.get('caption') or parsed_payload.get('message_text', ''),
-                    sender_name=parsed_payload.get('contact_name', ''),
-                    external_message_id=parsed_payload.get('message_id', ''),
-                    payload=payload,
-                    media={
-                        'media_url': media_info.get('media_url'),
-                        'media_mimetype': media_info.get('media_mimetype'),
-                        'media_key': media_info.get('media_key'),
-                        'direct_path': media_info.get('direct_path'),
-                    },
-                )
-        except Exception:
-            wapi_webhook_logger.exception('Falha ao criar conversa a partir do webhook W-API.')
+    # Integra com Conversas reais: detecta grupo vs direta, resolve a conversa
+    # certa e cria a mensagem (texto/reacao/midia). Falha aqui nunca deve derrubar
+    # o webhook — o evento bruto ja foi salvo acima em WapiWebhookEvent.
+    try:
+        ingest_wapi_payload(payload)
+    except Exception:
+        wapi_webhook_logger.exception('Falha ao criar conversa a partir do webhook W-API.')
 
     return event
 
@@ -815,16 +777,17 @@ def _format_conv_time(dt):
 
 
 def _serialize_conversation_item(conversation):
-    contact = conversation.contact
     return {
         'id': conversation.id,
-        'name': contact.display_name,
-        'initials': contact.initials,
+        'name': conversation.display_title,
+        'initials': conversation.display_initials,
         'preview': conversation.last_message_text or '',
         'time': _format_conv_time(conversation.last_message_at),
         'unread': conversation.unread_count or 0,
         'status': conversation.status,
         'status_label': conversation.status_label,
+        'chat_type': conversation.chat_type,
+        'is_group': conversation.is_group,
     }
 
 
@@ -839,22 +802,31 @@ def _serialize_message(message):
         'media_url': message.resolved_media_url,
         'media_mimetype': message.media_mimetype,
         'media_status': message.media_status,
+        # Em grupo, o front mostra o nome de quem enviou acima da mensagem.
+        'is_group': message.is_group,
+        'from_me': message.from_me,
+        'sender_name': message.sender_name,
+        'sender_id': message.sender_id,
     }
 
 
 def _serialize_contact_info(conversation):
     contact = conversation.contact
     attendant = conversation.assigned_attendant
+    is_group = conversation.is_group
+    created_source = contact.created_at if contact else conversation.created_at
     return {
-        'name': contact.display_name,
-        'initials': contact.initials,
-        'phone': contact.phone,
+        'name': conversation.display_title,
+        'initials': conversation.display_initials,
+        'phone': contact.phone if contact else '',
+        'is_group': is_group,
+        'chat_type': conversation.chat_type,
         'status_label': conversation.status_label,
         'sector_id': conversation.sector_id,
         'sector': conversation.sector.name if conversation.sector else 'Nao definido',
         'attendant_id': attendant.id if attendant else None,
         'attendant': attendant.name if attendant else 'Nao definido',
-        'created_at': timezone.localtime(contact.created_at).strftime('%d/%m/%Y %H:%M'),
+        'created_at': timezone.localtime(created_source).strftime('%d/%m/%Y %H:%M'),
     }
 
 
@@ -886,14 +858,35 @@ def _search_conversations(queryset, term):
     return queryset.filter(
         Q(contact__name__icontains=term)
         | Q(contact__phone__icontains=term)
+        | Q(name__icontains=term)
         | Q(last_message_text__icontains=term)
     )
 
 
+CONVERSATION_TYPE_FILTERS = (
+    ('todas', 'Todas'),
+    ('diretas', 'Diretas'),
+    ('grupos', 'Grupos'),
+)
+
+
+def _filter_conversations_by_type(queryset, tipo):
+    if tipo == 'diretas':
+        return queryset.filter(chat_type='private')
+    if tipo == 'grupos':
+        return queryset.filter(chat_type='group')
+    return queryset  # 'todas'
+
+
 def _conversation_counts():
-    # Totais reais por tipo; usa o mesmo filtro da listagem para nunca divergir.
+    # Totais reais por status; usa o mesmo filtro da listagem para nunca divergir.
     base = Conversation.objects.all()
     return {slug: _filter_conversations_by_status(base, slug).count() for slug, _ in CONVERSATION_FILTERS}
+
+
+def _conversation_type_counts():
+    base = Conversation.objects.all()
+    return {slug: _filter_conversations_by_type(base, slug).count() for slug, _ in CONVERSATION_TYPE_FILTERS}
 
 
 @login_required
@@ -907,6 +900,11 @@ def conversations_view(request):
         {'key': slug, 'label': label, 'count': counts.get(slug, 0), 'active': slug == 'todas'}
         for slug, label in CONVERSATION_FILTERS
     ]
+    type_counts = _conversation_type_counts()
+    type_tabs = [
+        {'key': slug, 'label': label, 'count': type_counts.get(slug, 0), 'active': slug == 'todas'}
+        for slug, label in CONVERSATION_TYPE_FILTERS
+    ]
     return render(
         request,
         'accounts/conversations.html',
@@ -917,6 +915,7 @@ def conversations_view(request):
             'user_initial': (request.user.first_name[:1] or request.user.email[:1]).upper(),
             'conversations': [_serialize_conversation_item(c) for c in conversations],
             'filter_chips': filter_chips,
+            'type_tabs': type_tabs,
         },
     )
 
@@ -924,13 +923,16 @@ def conversations_view(request):
 @login_required
 def conversation_list_view(request):
     status = (request.GET.get('status') or 'todas').strip()
+    tipo = (request.GET.get('tipo') or 'todas').strip()
     term = (request.GET.get('q') or '').strip()
     queryset = Conversation.objects.select_related('contact', 'assigned_attendant', 'sector')
+    queryset = _filter_conversations_by_type(queryset, tipo)
     queryset = _filter_conversations_by_status(queryset, status)
     queryset = _search_conversations(queryset, term)
     return JsonResponse({
         'ok': True,
         'counts': _conversation_counts(),
+        'type_counts': _conversation_type_counts(),
         'conversations': [_serialize_conversation_item(c) for c in queryset],
     })
 
@@ -969,9 +971,9 @@ def conversation_send_view(request, conversation_id):
     if not text:
         return JsonResponse({'ok': False, 'error': 'Digite uma mensagem para enviar.'}, status=400)
 
-    if not (conversation.contact.phone or '').strip():
+    if not (conversation.recipient or '').strip():
         return JsonResponse(
-            {'ok': False, 'error': 'Nao foi possivel enviar: contato sem telefone.'}, status=400
+            {'ok': False, 'error': 'Nao foi possivel enviar: conversa sem destino.'}, status=400
         )
 
     config = WapiConfiguration.get_solo()
@@ -981,7 +983,8 @@ def conversation_send_view(request, conversation_id):
         )
 
     # Reutiliza o mesmo servico de envio da tela de teste da W-API.
-    result = send_text_message(phone=conversation.contact.phone, message=text)
+    # Em grupo, recipient e o JID (@g.us) — nunca o participante individual.
+    result = send_text_message(phone=conversation.recipient, message=text)
     if not result.success:
         # Erro tecnico ja foi logado com seguranca no servico; aqui vai o texto amigavel.
         return JsonResponse({
@@ -1033,8 +1036,8 @@ def conversation_send_media_view(request, conversation_id):
 
     if media_type not in WAPI_MEDIA_SEND_TYPES:
         return JsonResponse({'ok': False, 'error': 'Tipo de arquivo nao suportado.'}, status=400)
-    if not (conversation.contact.phone or '').strip():
-        return JsonResponse({'ok': False, 'error': 'Nao foi possivel enviar: contato sem telefone.'}, status=400)
+    if not (conversation.recipient or '').strip():
+        return JsonResponse({'ok': False, 'error': 'Nao foi possivel enviar: conversa sem destino.'}, status=400)
     if not uploaded or not uploaded.size:
         return JsonResponse({'ok': False, 'error': 'Selecione um arquivo valido.'}, status=400)
 
@@ -1075,7 +1078,8 @@ def conversation_send_media_view(request, conversation_id):
 
     # URL publica que a W-API consegue baixar (respeita o prefixo /beezap/ via MEDIA_URL).
     public_url = request.build_absolute_uri(message.media_file.url)
-    phone = conversation.contact.phone
+    # Em grupo, destino e o JID (@g.us) — nunca o participante individual.
+    phone = conversation.recipient
 
     if media_type == 'image':
         result = send_image_message(phone, public_url, caption=caption or None)

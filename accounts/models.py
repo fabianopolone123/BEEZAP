@@ -285,8 +285,21 @@ class Conversation(models.Model):
         ('pending', 'Pendente'),
         ('closed', 'Encerrada'),
     ]
+    CHAT_TYPE_CHOICES = [
+        ('private', 'Direta'),
+        ('group', 'Grupo'),
+    ]
 
-    contact = models.ForeignKey(Contact, on_delete=models.CASCADE, related_name='conversations')
+    # Conversa direta tem contato (telefone); conversa de grupo nao tem contato
+    # individual, por isso o vinculo e opcional.
+    contact = models.ForeignKey(
+        Contact, null=True, blank=True, on_delete=models.CASCADE, related_name='conversations'
+    )
+    # ID real da conversa na W-API: telefone/LID (direta) ou JID do grupo (@g.us).
+    external_id = models.CharField(max_length=150, blank=True, default='', db_index=True)
+    chat_type = models.CharField(max_length=10, choices=CHAT_TYPE_CHOICES, default='private')
+    # Titulo da conversa (usado principalmente para o nome do grupo).
+    name = models.CharField(max_length=200, blank=True, default='')
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='open')
     assigned_attendant = models.ForeignKey(
         Attendant, null=True, blank=True, on_delete=models.SET_NULL, related_name='conversations'
@@ -309,8 +322,47 @@ class Conversation(models.Model):
     def status_label(self):
         return dict(self.STATUS_CHOICES).get(self.status, self.status)
 
+    @property
+    def is_group(self):
+        return self.chat_type == 'group'
+
+    @property
+    def display_title(self):
+        """Nome exibido na lista/cabecalho (grupo, contato ou fallback)."""
+        if self.is_group:
+            if self.name:
+                return self.name
+            return f'Grupo {self.external_id}' if self.external_id else 'Grupo'
+        if self.contact_id:
+            return self.contact.display_name
+        return self.name or self.external_id or 'Conversa'
+
+    @property
+    def display_initials(self):
+        if self.is_group:
+            base = (self.name or '').strip()
+            if base:
+                parts = [p for p in base.split() if p]
+                if len(parts) == 1:
+                    return parts[0][:2].upper()
+                return (parts[0][:1] + parts[-1][:1]).upper()
+            return 'GR'
+        if self.contact_id:
+            return self.contact.initials
+        base = (self.name or self.external_id or '?').strip()
+        return base[:2].upper()
+
+    @property
+    def recipient(self):
+        """Destino de envio: o JID do grupo, o LID/numero da conversa direta."""
+        if self.external_id:
+            return self.external_id
+        if self.contact_id:
+            return self.contact.phone
+        return ''
+
     def __str__(self):
-        return f'Conversa com {self.contact.display_name}'
+        return f'Conversa: {self.display_title}'
 
 
 class Message(models.Model):
@@ -350,6 +402,13 @@ class Message(models.Model):
     text = models.TextField(blank=True, default='')
     phone = models.CharField(max_length=30, blank=True, default='')
     sender_name = models.CharField(max_length=150, blank=True, default='')
+    # Quem enviou: em grupo e o participante; em conversa direta e o proprio chat.
+    sender_id = models.CharField(max_length=80, blank=True, default='')
+    participant_id = models.CharField(max_length=80, blank=True, default='')
+    # Contexto de grupo/direta e origem (mensagem enviada pela conta conectada).
+    is_group = models.BooleanField(default=False)
+    from_me = models.BooleanField(default=False)
+    # ID real da mensagem na W-API (serve tambem como wapi_message_id).
     external_message_id = models.CharField(max_length=150, blank=True, default='')
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='received')
     # Campos de midia (imagem/audio/video/documento/sticker/gif).
