@@ -904,6 +904,80 @@
   background: #f0fdf4;
 }
 
+/* Botao de microfone / gravacao de audio */
+.conv-mic-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #64748b;
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  flex-shrink: 0;
+  transition: background 0.18s, color 0.18s;
+}
+
+.conv-mic-btn:hover {
+  background: rgba(0, 0, 0, 0.06);
+  color: #0d8d43;
+}
+
+.conv-mic-btn.recording {
+  color: #e11d48;
+  background: rgba(225, 29, 72, 0.12);
+}
+
+.conv-rec-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #e11d48;
+  font-size: 0.85rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+
+.conv-rec-indicator[hidden] {
+  display: none;
+}
+
+.conv-rec-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #e11d48;
+  animation: conv-rec-pulse 1s infinite;
+}
+
+@keyframes conv-rec-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.25; }
+}
+
+.conv-rec-cancel {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #64748b;
+  font-size: 1rem;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  transition: background 0.18s;
+}
+
+.conv-rec-cancel:hover {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.conv-rec-cancel[hidden] {
+  display: none;
+}
+
 /* ======================================================
    Midia no chat (imagem, audio, video, documento, sticker, reacao)
    ====================================================== */

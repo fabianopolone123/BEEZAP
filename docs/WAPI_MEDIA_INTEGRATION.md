@@ -117,10 +117,26 @@ enviada pelo composer (ver pendências).
 A mensagem enviada é renderizada imediatamente no chat (reaproveitando o mesmo
 render de mídia recebida) e a última mensagem da conversa vira o rótulo do tipo.
 
+## 8. Gravação de áudio pelo navegador
+
+O composer tem um botão de **microfone**. Ao clicar, o navegador pede permissão e
+inicia a gravação (API `MediaRecorder`); um indicador vermelho com cronômetro
+aparece. Clicar de novo **para e envia** o áudio; o ✕ **cancela**. O áudio é
+enviado pelo mesmo endpoint `conversas/<id>/enviar-midia/` (`media_type=audio`),
+salvo em `MEDIA/whatsapp/outgoing/` e enviado via `send_audio_message`.
+
+Formato: grava em `audio/ogg;codecs=opus` quando o navegador suporta (ex.:
+Firefox) ou `audio/webm;codecs=opus` (ex.: Chrome). A W-API LITE aceita MP3/OGG;
+se a sua instância recusar `webm`, prefira Firefox (ogg) ou faça a conversão para
+mp3/ogg (ffmpeg) numa etapa futura. Requer HTTPS (o VPS já usa) — `getUserMedia`
+não funciona em conexão sem segurança.
+
 ## Pendente para próxima etapa
 
 - **Legenda (caption)** ao enviar imagem/vídeo/documento pelo composer.
 - **Recursos PRO** (enviar reação/sticker/GIF nativo, botões, listas, enquetes):
   manter bloqueados com aviso enquanto a instância for LITE.
-- **Gravação de áudio pelo navegador**, **upload múltiplo** e **arrastar-e-soltar**.
+- **Conversão do áudio gravado para mp3/ogg** (ffmpeg) para máxima compatibilidade
+  quando o navegador só grava `webm`.
+- **Upload múltiplo** e **arrastar-e-soltar**.
 - Miniatura/preview clicável em tela cheia para imagens.
