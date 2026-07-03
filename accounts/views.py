@@ -814,12 +814,55 @@ def _serialize_contact_info(conversation):
     }
 
 
+CONVERSATION_FILTERS = (
+    ('todas', 'Todas'),
+    ('nao-lidas', 'Nao lidas'),
+    ('em-atendimento', 'Em atendimento'),
+    ('aguardando', 'Aguardando'),
+    ('finalizadas', 'Finalizadas'),
+)
+
+
+def _filter_conversations_by_status(queryset, status):
+    if status == 'nao-lidas':
+        return queryset.filter(unread_count__gt=0)
+    if status == 'em-atendimento':
+        return queryset.filter(assigned_attendant__isnull=False).exclude(status='closed')
+    if status == 'aguardando':
+        return queryset.filter(assigned_attendant__isnull=True).exclude(status='closed')
+    if status == 'finalizadas':
+        return queryset.filter(status='closed')
+    return queryset  # 'todas'
+
+
+def _search_conversations(queryset, term):
+    term = (term or '').strip()
+    if not term:
+        return queryset
+    return queryset.filter(
+        Q(contact__name__icontains=term)
+        | Q(contact__phone__icontains=term)
+        | Q(last_message_text__icontains=term)
+    )
+
+
+def _conversation_counts():
+    # Totais reais por tipo; usa o mesmo filtro da listagem para nunca divergir.
+    base = Conversation.objects.all()
+    return {slug: _filter_conversations_by_status(base, slug).count() for slug, _ in CONVERSATION_FILTERS}
+
+
 @login_required
 def conversations_view(request):
     role = request.user.role
     conversations = (
         Conversation.objects.select_related('contact', 'assigned_attendant', 'sector').all()
     )
+    counts = _conversation_counts()
+    filter_chips = [
+        {'key': slug, 'label': label, 'count': counts.get(slug, 0), 'active': slug == 'todas'}
+        for slug, label in CONVERSATION_FILTERS
+    ]
     return render(
         request,
         'accounts/conversations.html',
@@ -829,8 +872,23 @@ def conversations_view(request):
             'role_label': request.user.get_role_display(),
             'user_initial': (request.user.first_name[:1] or request.user.email[:1]).upper(),
             'conversations': [_serialize_conversation_item(c) for c in conversations],
+            'filter_chips': filter_chips,
         },
     )
+
+
+@login_required
+def conversation_list_view(request):
+    status = (request.GET.get('status') or 'todas').strip()
+    term = (request.GET.get('q') or '').strip()
+    queryset = Conversation.objects.select_related('contact', 'assigned_attendant', 'sector')
+    queryset = _filter_conversations_by_status(queryset, status)
+    queryset = _search_conversations(queryset, term)
+    return JsonResponse({
+        'ok': True,
+        'counts': _conversation_counts(),
+        'conversations': [_serialize_conversation_item(c) for c in queryset],
+    })
 
 
 @login_required

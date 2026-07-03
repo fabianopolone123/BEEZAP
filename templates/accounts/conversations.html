@@ -66,6 +66,14 @@
             </svg>
             <input type="search" class="conv-search-input" placeholder="Buscar conversas..." data-conv-search>
           </div>
+
+          <div class="conv-chips" role="group" aria-label="Filtros de conversa">
+            {% for chip in filter_chips %}
+              <button type="button" class="conv-chip {% if chip.active %}active{% endif %}" data-filter="{{ chip.key }}">
+                {{ chip.label }} <span class="chip-count" data-count="{{ chip.key }}">{{ chip.count }}</span>
+              </button>
+            {% endfor %}
+          </div>
         </div>
 
         <ul class="conv-list" role="listbox" aria-label="Lista de conversas" data-conv-list>
@@ -202,6 +210,8 @@
   var inputEl = document.querySelector('[data-conv-input]');
   var sendBtn = document.querySelector('[data-conv-send]');
   var searchEl = document.querySelector('[data-conv-search]');
+  var chipEls = document.querySelectorAll('[data-filter]');
+  var listEmptyEl = document.querySelector('[data-conv-list-empty]');
 
   var infoEmpty = document.querySelector('[data-info-empty]');
   var infoPanel = document.querySelector('[data-info-panel]');
@@ -209,7 +219,9 @@
   var attendantSelect = document.querySelector('[data-transfer-attendant]');
 
   var currentId = null;
+  var currentStatus = 'todas';
   var pollTimer = null;
+  var searchTimer = null;
 
   /* ---------- Toast simples (reaproveita o visual do base.html) ---------- */
   function showToast(text, type) {
@@ -311,12 +323,14 @@
         if (!data.ok) throw new Error('fail');
         fillInfo(data.contact, data.sectors, data.attendants);
         renderMessages(data.messages);
-        // Zera o badge de nao lidas do item aberto na lista.
+        // Zera o badge de nao lidas do item aberto na lista (feedback imediato).
         var item = listEl.querySelector('.conv-item[data-conv-id="' + id + '"]');
         if (item) {
           var badge = item.querySelector('[data-conv-unread]');
           if (badge) badge.remove();
         }
+        // Atualiza contadores/lista, pois abrir a conversa zera as nao lidas.
+        refreshList();
       })
       .catch(function () {
         showToast('Nao foi possivel abrir a conversa. Tente novamente.', 'error');
@@ -349,14 +363,105 @@
   }
   listEl.querySelectorAll('.conv-item').forEach(bindItem);
 
-  /* ---------- Busca (filtro client-side) ---------- */
+  /* ---------- Render da lista (dados reais do banco) ---------- */
+  function buildConversationItem(conv) {
+    var li = document.createElement('li');
+    li.className = 'conv-item';
+    li.setAttribute('role', 'option');
+    li.setAttribute('tabindex', '0');
+    li.dataset.convId = conv.id;
+    if (String(conv.id) === String(currentId)) {
+      li.classList.add('conv-item-active');
+      li.setAttribute('aria-selected', 'true');
+    } else {
+      li.setAttribute('aria-selected', 'false');
+    }
+
+    var avatar = document.createElement('div');
+    avatar.className = 'conv-avatar';
+    avatar.setAttribute('aria-hidden', 'true');
+    avatar.textContent = conv.initials;
+    li.appendChild(avatar);
+
+    var bodyDiv = document.createElement('div');
+    bodyDiv.className = 'conv-item-body';
+
+    var top = document.createElement('div');
+    top.className = 'conv-item-top';
+    var name = document.createElement('span');
+    name.className = 'conv-item-name';
+    name.textContent = conv.name;
+    var time = document.createElement('span');
+    time.className = 'conv-item-time';
+    time.textContent = conv.time;
+    top.appendChild(name);
+    top.appendChild(time);
+
+    var bottom = document.createElement('div');
+    bottom.className = 'conv-item-bottom';
+    var preview = document.createElement('span');
+    preview.className = 'conv-item-preview';
+    preview.textContent = conv.preview || '';
+    bottom.appendChild(preview);
+    if (conv.unread > 0) {
+      var badge = document.createElement('span');
+      badge.className = 'conv-unread-badge';
+      badge.setAttribute('data-conv-unread', '');
+      badge.textContent = conv.unread;
+      bottom.appendChild(badge);
+    }
+    bodyDiv.appendChild(top);
+    bodyDiv.appendChild(bottom);
+    li.appendChild(bodyDiv);
+
+    bindItem(li);
+    return li;
+  }
+
+  function renderConversationList(items) {
+    var frag = document.createDocumentFragment();
+    items.forEach(function (conv) { frag.appendChild(buildConversationItem(conv)); });
+    listEl.replaceChildren(frag);
+    if (listEmptyEl) listEmptyEl.hidden = items.length > 0;
+  }
+
+  function updateCounts(counts) {
+    if (!counts) return;
+    Object.keys(counts).forEach(function (key) {
+      var el = document.querySelector('[data-count="' + key + '"]');
+      if (el) el.textContent = counts[key];
+    });
+  }
+
+  function refreshList() {
+    var term = searchEl ? searchEl.value.trim() : '';
+    var url = base + 'lista/?status=' + encodeURIComponent(currentStatus) +
+              '&q=' + encodeURIComponent(term);
+    fetch(url, {headers: {'X-Requested-With': 'XMLHttpRequest'}})
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (data) {
+        if (!data || !data.ok) return;
+        updateCounts(data.counts);
+        renderConversationList(data.conversations || []);
+      })
+      .catch(function () {});
+  }
+
+  /* ---------- Chips de filtro ---------- */
+  chipEls.forEach(function (chip) {
+    chip.addEventListener('click', function () {
+      chipEls.forEach(function (c) { c.classList.remove('active'); });
+      chip.classList.add('active');
+      currentStatus = chip.dataset.filter || 'todas';
+      refreshList();
+    });
+  });
+
+  /* ---------- Busca (server-side, combinada com o filtro) ---------- */
   if (searchEl) {
     searchEl.addEventListener('input', function () {
-      var term = searchEl.value.trim().toLowerCase();
-      listEl.querySelectorAll('.conv-item').forEach(function (item) {
-        var text = item.dataset.convSearchText || '';
-        item.hidden = term && text.indexOf(term) === -1;
-      });
+      window.clearTimeout(searchTimer);
+      searchTimer = window.setTimeout(refreshList, 250);
     });
   }
 
@@ -435,6 +540,8 @@
 
   /* Atualiza mensagens da conversa aberta periodicamente (recebe respostas novas). */
   pollTimer = window.setInterval(refreshOpenMessages, 6000);
+  /* Mantem a lista e os contadores atualizados (novas mensagens, leitura, status). */
+  window.setInterval(refreshList, 12000);
 }());
 </script>
 {% endblock %}
