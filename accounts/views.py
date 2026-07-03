@@ -267,8 +267,9 @@ def is_valid_wapi_webhook_token(request):
 
 
 def build_wapi_webhook_url(request):
-    # Exibe a URL sob o prefixo /beezap/, que e como o app e publicado no VPS.
-    return request.build_absolute_uri(reverse('wapi-webhook-beezap'))
+    # Com FORCE_SCRIPT_NAME=/beezap, reverse ja gera /beezap/webhook/wapi/.
+    # Sem prefixo (local), gera /webhook/wapi/.
+    return request.build_absolute_uri(reverse('wapi-webhook'))
 
 
 def require_admin_json(request):

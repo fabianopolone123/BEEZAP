@@ -83,6 +83,12 @@ ALLOWED_HOSTS = env_list('ALLOWED_HOSTS', ['localhost', '127.0.0.1', '[::1]'])
 CSRF_TRUSTED_ORIGINS = env_list('CSRF_TRUSTED_ORIGINS', [])
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
+# Prefixo de caminho quando o app e servido sob um sub-caminho (ex.: /beezap/).
+# Com isso, reverse()/{% url %}/redirects geram URLs ja com o prefixo. O Nginx
+# do VPS remove o /beezap/ antes de repassar (proxy_pass .../), entao a resolucao
+# usa o caminho sem prefixo. Local (sem a variavel) fica vazio e nada muda.
+FORCE_SCRIPT_NAME = os.getenv('FORCE_SCRIPT_NAME') or None
+
 
 # Application definition
 
@@ -183,9 +189,10 @@ STATIC_ROOT = BASE_DIR / 'staticfiles'
 MEDIA_URL = os.getenv('MEDIA_URL', '/media/')
 MEDIA_ROOT = BASE_DIR / 'media'
 
-LOGIN_URL = '/'
-LOGIN_REDIRECT_URL = '/dashboard/'
-LOGOUT_REDIRECT_URL = '/'
+# Nomes de rota (nao caminhos fixos) para que herdem o prefixo de FORCE_SCRIPT_NAME.
+LOGIN_URL = 'login'
+LOGIN_REDIRECT_URL = 'dashboard'
+LOGOUT_REDIRECT_URL = 'login'
 AUTH_USER_MODEL = 'accounts.User'
 AUTHENTICATION_BACKENDS = [
     'accounts.backends.EmailBackend',

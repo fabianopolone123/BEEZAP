@@ -214,8 +214,8 @@
   if (!body) return;
 
   // Deriva a base das rotas AJAX do caminho REAL da pagina no navegador, para
-  // funcionar sob prefixo (ex.: /beezap/conversas/) mesmo quando o Django gera
-  // {% url %} sem o prefixo. Fallback para o valor renderizado no servidor.
+  // funcionar sob prefixo (ex.: /beezap/conversas/) mesmo quando a URL gerada
+  // pelo servidor vier sem o prefixo. Fallback para o valor do data-conv-base.
   var base = (function () {
     var path = window.location.pathname;
     var marker = '/conversas/';
