@@ -90,13 +90,37 @@ composer fixo no rodapé e os filtros não foram afetados.
 `MEDIA_URL` vem de variável de ambiente (`/beezap/media/` em produção), servido
 pelo Nginx em `location /beezap/media/ { alias /var/www/beezap/media/; }`.
 
+## 7. Envio de mídia LITE pela conversa (composer)
+
+Na tela Conversas, o composer tem um botão de **anexo** (clipe) que abre um menu:
+Imagem, Áudio, Vídeo, Documento.
+
+Fluxo:
+1. O atendente escolhe o tipo e seleciona o arquivo.
+2. O frontend faz `POST` (multipart) para
+   `conversas/<id>/enviar-midia/` com `file` e `media_type`.
+3. O backend ([accounts/views.py](../accounts/views.py) `conversation_send_media_view`):
+   - valida conversa/telefone/tipo/mimetype e **tamanho** (`WAPI_MEDIA_MAX_MB`, padrão 16 MB);
+   - salva o arquivo em `MEDIA/whatsapp/outgoing/` com **nome único** (uuid — nunca
+     usa o nome do usuário, evita traversal/sobrescrita);
+   - monta a **URL pública** com `request.build_absolute_uri(media_file.url)`
+     (respeita o prefixo `/beezap/media/` via `MEDIA_URL`);
+   - chama o método correto do client: `send_image_message`, `send_audio_message`,
+     `send_video_message` ou `send_document_message`;
+   - salva a mensagem `out` com `media_file`, `media_mimetype`, `external_message_id`
+     e `media_status` = `ok` (sucesso) ou `unavailable` (falha, sem quebrar a tela).
+
+**Tipos e mimetypes aceitos:** `image/*`, `audio/*`, `video/*` e documentos
+(pdf, doc/docx, xls/xlsx, ppt/pptx, txt, csv). Legenda (caption) ainda não é
+enviada pelo composer (ver pendências).
+
+A mensagem enviada é renderizada imediatamente no chat (reaproveitando o mesmo
+render de mídia recebida) e a última mensagem da conversa vira o rótulo do tipo.
+
 ## Pendente para próxima etapa
 
-- **UI de anexo no composer** para enviar imagem/áudio/vídeo/documento (LITE): os
-  métodos do client (`send_image_message`, `send_audio_message`,
-  `send_video_message`, `send_document_message`) já estão prontos; falta o botão
-  de anexar + endpoint interno que salva o arquivo em `MEDIA`, gera URL pública e
-  chama a W-API.
+- **Legenda (caption)** ao enviar imagem/vídeo/documento pelo composer.
 - **Recursos PRO** (enviar reação/sticker/GIF nativo, botões, listas, enquetes):
   manter bloqueados com aviso enquanto a instância for LITE.
+- **Gravação de áudio pelo navegador**, **upload múltiplo** e **arrastar-e-soltar**.
 - Miniatura/preview clicável em tela cheia para imagens.

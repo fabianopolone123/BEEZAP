@@ -5,6 +5,8 @@ recebidas pelo webhook e de mensagens enviadas pelo sistema, incluindo midia
 (imagem/audio/video/documento/sticker/gif) com download seguro.
 """
 import logging
+import os
+import uuid
 from urllib import error, request
 
 from django.core.files.base import ContentFile
@@ -188,6 +190,26 @@ def save_incoming_text_message(phone, text, sender_name='', external_message_id=
 
 def save_outgoing_text_message(conversation, text, external_message_id='', status='sent'):
     return save_outgoing_message(conversation, 'text', text=text, external_message_id=external_message_id, status=status)
+
+
+def save_outgoing_media_message(conversation, message_type, uploaded_file, caption='', mimetype=''):
+    """Cria a mensagem enviada de midia e salva o arquivo em MEDIA/whatsapp/outgoing/
+    com nome unico. Status/media_status ficam 'pending' ate a W-API confirmar."""
+    ext = os.path.splitext(getattr(uploaded_file, 'name', '') or '')[1].lower()[:10]
+    message = Message(
+        conversation=conversation,
+        direction='out',
+        message_type=message_type,
+        text=caption or '',
+        phone=conversation.contact.phone,
+        status='sent',
+        media_mimetype=mimetype or '',
+        media_status='pending',
+    )
+    # Nome unico (nunca reaproveita o nome do usuario -> evita traversal/sobrescrita).
+    message.media_file.save(f'outgoing/{uuid.uuid4().hex}{ext}', uploaded_file, save=True)
+    update_conversation_summary(conversation, _summary_text(message_type, caption), 'out')
+    return message
 
 
 def save_outgoing_message(conversation, message_type='text', text='', external_message_id='',

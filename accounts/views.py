@@ -1,5 +1,6 @@
 import json
 import logging
+import mimetypes
 import secrets
 from hmac import compare_digest
 from datetime import timedelta
@@ -44,11 +45,18 @@ from .models import (
     WapiWebhookEvent,
 )
 from ai_engine.services import generate_ai_reply, generate_ai_reply_with_rules
-from wapi.client import send_text_message
+from wapi.client import (
+    send_audio_message,
+    send_document_message,
+    send_image_message,
+    send_text_message,
+    send_video_message,
+)
 from wapi.parser import parse_wapi_webhook_payload, parse_wapi_media
 from wapi.services import (
     save_incoming_message,
     save_incoming_text_message,
+    save_outgoing_media_message,
     save_outgoing_text_message,
 )
 
@@ -983,6 +991,99 @@ def conversation_send_view(request, conversation_id):
         conversation, text, external_message_id=result.message_id or '', status='sent'
     )
     return JsonResponse({'ok': True, 'message': _serialize_message(message)})
+
+
+WAPI_MEDIA_SEND_TYPES = ('image', 'audio', 'video', 'document')
+WAPI_DOC_MIMETYPES = {
+    'application/pdf',
+    'application/msword',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'application/vnd.ms-excel',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'application/vnd.ms-powerpoint',
+    'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    'text/plain',
+    'text/csv',
+}
+
+
+def _media_category_ok(media_type, mimetype):
+    if media_type == 'image':
+        return mimetype.startswith('image/')
+    if media_type == 'audio':
+        return mimetype.startswith('audio/')
+    if media_type == 'video':
+        return mimetype.startswith('video/')
+    if media_type == 'document':
+        return mimetype in WAPI_DOC_MIMETYPES
+    return False
+
+
+@login_required
+@require_POST
+def conversation_send_media_view(request, conversation_id):
+    conversation = get_object_or_404(
+        Conversation.objects.select_related('contact'), pk=conversation_id
+    )
+    media_type = (request.POST.get('media_type') or '').strip()
+    caption = (request.POST.get('caption') or '').strip()
+    uploaded = request.FILES.get('file')
+
+    if media_type not in WAPI_MEDIA_SEND_TYPES:
+        return JsonResponse({'ok': False, 'error': 'Tipo de arquivo nao suportado.'}, status=400)
+    if not (conversation.contact.phone or '').strip():
+        return JsonResponse({'ok': False, 'error': 'Nao foi possivel enviar: contato sem telefone.'}, status=400)
+    if not uploaded or not uploaded.size:
+        return JsonResponse({'ok': False, 'error': 'Selecione um arquivo valido.'}, status=400)
+
+    max_bytes = settings.WAPI_MEDIA_MAX_MB * 1024 * 1024
+    if uploaded.size > max_bytes:
+        return JsonResponse(
+            {'ok': False, 'error': f'Arquivo muito grande (limite {settings.WAPI_MEDIA_MAX_MB} MB).'},
+            status=400,
+        )
+
+    mimetype = (uploaded.content_type or '').split(';')[0].strip().lower()
+    if not mimetype:
+        mimetype = (mimetypes.guess_type(uploaded.name or '')[0] or '').lower()
+    if not _media_category_ok(media_type, mimetype):
+        return JsonResponse({'ok': False, 'error': 'Arquivo nao compativel com o tipo escolhido.'}, status=400)
+
+    config = WapiConfiguration.get_solo()
+    if not config.resolved_instance_id().strip() or not config.resolved_token().strip():
+        return JsonResponse({'ok': False, 'error': 'Configure a W-API antes de enviar mensagens.'}, status=400)
+
+    # Salva o arquivo localmente e cria a mensagem (pendente).
+    message = save_outgoing_media_message(
+        conversation, media_type, uploaded, caption=caption, mimetype=mimetype
+    )
+
+    # URL publica que a W-API consegue baixar (respeita o prefixo /beezap/ via MEDIA_URL).
+    public_url = request.build_absolute_uri(message.media_file.url)
+    phone = conversation.contact.phone
+
+    if media_type == 'image':
+        result = send_image_message(phone, public_url, caption=caption or None)
+    elif media_type == 'audio':
+        result = send_audio_message(phone, public_url)
+    elif media_type == 'video':
+        result = send_video_message(phone, public_url, caption=caption or None)
+    else:
+        result = send_document_message(phone, public_url, file_name=uploaded.name, caption=caption or None)
+
+    if result.success:
+        message.status = 'sent'
+        message.media_status = 'ok'
+        message.external_message_id = result.message_id or ''
+    else:
+        message.status = 'failed'
+        message.media_status = 'unavailable'
+    message.save(update_fields=['status', 'media_status', 'external_message_id'])
+
+    response = {'ok': result.success, 'message': _serialize_message(message)}
+    if not result.success:
+        response['error'] = result.error or 'Nao foi possivel enviar o arquivo. Tente novamente.'
+    return JsonResponse(response)
 
 
 @login_required

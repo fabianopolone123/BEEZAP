@@ -834,6 +834,77 @@
 }
 
 /* ======================================================
+   Anexos no composer (botao + menu)
+   ====================================================== */
+.conv-attach {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.conv-attach-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #64748b;
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  transition: background 0.18s, color 0.18s;
+}
+
+.conv-attach-btn:hover {
+  background: rgba(0, 0, 0, 0.06);
+  color: #0d8d43;
+}
+
+.conv-attach-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.conv-attach-menu {
+  position: absolute;
+  bottom: 46px;
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  min-width: 168px;
+  padding: 6px;
+  gap: 2px;
+  background: #fff;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.16);
+  z-index: 5;
+}
+
+.conv-attach-menu[hidden] {
+  display: none;
+}
+
+.conv-attach-menu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  border: none;
+  background: none;
+  border-radius: 8px;
+  font-family: inherit;
+  font-size: 0.88rem;
+  color: #15213d;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s;
+}
+
+.conv-attach-menu button:hover {
+  background: #f0fdf4;
+}
+
+/* ======================================================
    Midia no chat (imagem, audio, video, documento, sticker, reacao)
    ====================================================== */
 .conv-media-img {
