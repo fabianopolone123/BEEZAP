@@ -10,7 +10,7 @@ import shutil
 import subprocess
 import tempfile
 import uuid
-from urllib import error, request
+from urllib import request
 
 from django.core.files.base import ContentFile
 from django.utils import timezone
@@ -267,19 +267,49 @@ def _ext_for_mime(mimetype):
 
 
 def _download_to_media_file(message, file_link, mimetype):
-    """Baixa o arquivo do fileLink e salva localmente em MEDIA (nao expira)."""
-    try:
-        http_request = request.Request(file_link, headers={'User-Agent': 'BEEZAP'})
-        with request.urlopen(http_request, timeout=30) as response:
-            data = response.read()
-    except (error.URLError, error.HTTPError, ValueError):
-        return False
-    try:
-        message.media_file.save(f'wapi_{message.id}.{_ext_for_mime(mimetype)}', ContentFile(data), save=False)
-        return True
-    except Exception:
-        media_logger.exception('Falha ao salvar arquivo de midia local.')
-        return False
+    """Baixa o arquivo do fileLink e salva localmente em MEDIA (nao expira).
+
+    Tenta 2x (o fileLink e temporario e a rede pode oscilar), recusa respostas que
+    claramente nao sao midia (HTML/JSON de erro salvo como audio) e loga o motivo
+    real da falha — sem expor o link/token — para diagnostico no journal."""
+    for attempt in (1, 2):
+        try:
+            http_request = request.Request(
+                file_link, headers={'User-Agent': 'Mozilla/5.0 (compatible; BEEZAP)'}
+            )
+            with request.urlopen(http_request, timeout=60) as response:
+                data = response.read()
+                content_type = (response.headers.get('Content-Type') or '').lower()
+        except Exception as exc:  # URLError/HTTPError/SSL/ValueError/etc.
+            media_logger.warning(
+                'download-media: falha ao baixar fileLink (msg=%s tentativa=%s): %r',
+                message.id, attempt, exc,
+            )
+            continue
+
+        if not data:
+            media_logger.warning('download-media: fileLink vazio (msg=%s tentativa=%s).', message.id, attempt)
+            continue
+        # Corpo de erro (HTML/JSON) nao e midia — nao salvar como audio/imagem.
+        if 'text/html' in content_type or 'application/json' in content_type:
+            media_logger.warning(
+                'download-media: fileLink retornou %s (nao e midia; msg=%s bytes=%s).',
+                content_type or '-', message.id, len(data),
+            )
+            continue
+        try:
+            message.media_file.save(
+                f'wapi_{message.id}.{_ext_for_mime(mimetype)}', ContentFile(data), save=False
+            )
+            media_logger.info(
+                'download-media: salvo local (msg=%s bytes=%s ctype=%s).',
+                message.id, len(data), content_type or '-',
+            )
+            return True
+        except Exception:
+            media_logger.exception('Falha ao salvar arquivo de midia local (msg=%s).', message.id)
+            return False
+    return False
 
 
 def _try_download_media(message, media):
@@ -328,6 +358,50 @@ def _try_download_media(message, media):
         'download-media: tipo=%s mimetype=%s ext=%s resultado=%s',
         message.message_type, mimetype or '-', _ext_for_mime(mimetype), outcome,
     )
+
+
+def retry_media_download(message):
+    """Re-baixa a midia de uma mensagem recebida usando o payload salvo.
+
+    O endpoint download-media gera um fileLink NOVO a cada chamada, entao isso
+    recupera midia cujo link remoto ja expirou (arquivo local ausente). Retorna
+    True se a mensagem passou a ter arquivo salvo localmente."""
+    if message.message_type not in MEDIA_TYPES or not isinstance(message.raw_payload, dict):
+        return False
+    media = parse_wapi_media(message.raw_payload)
+    if not media.get('media_key') and not media.get('direct_path'):
+        return False
+    message.media_status = 'pending'
+    _try_download_media(message, {
+        'media_key': media.get('media_key'),
+        'direct_path': media.get('direct_path'),
+        'media_mimetype': media.get('media_mimetype') or message.media_mimetype,
+        'media_url': media.get('media_url'),
+    })
+    return bool(message.media_file)
+
+
+def retry_incoming_media_downloads():
+    """Tenta recuperar todas as midias recebidas que ficaram sem arquivo local
+    (ex.: audios que so tinham link remoto expirado). Retorna um resumo."""
+    from django.db.models import Q
+    pending = (
+        Message.objects
+        .filter(direction='in', message_type__in=MEDIA_TYPES)
+        .filter(Q(media_file='') | Q(media_file__isnull=True))
+        .exclude(raw_payload__isnull=True)
+        .order_by('-created_at')
+    )
+    recovered = 0
+    total = 0
+    for message in pending:
+        total += 1
+        try:
+            if retry_media_download(message):
+                recovered += 1
+        except Exception:
+            media_logger.exception('Falha ao re-baixar midia (msg=%s).', message.id)
+    return {'recovered': recovered, 'total': total}
 
 
 def save_incoming_message(conversation, ctx, message_type='text', text='',
