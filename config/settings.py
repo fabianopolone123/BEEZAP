@@ -214,6 +214,33 @@ OLLAMA_TEMPERATURE = float(os.getenv('OLLAMA_TEMPERATURE', '0.2'))
 OLLAMA_NUM_PREDICT = int(os.getenv('OLLAMA_NUM_PREDICT', '180'))
 OLLAMA_NUM_GPU = int(os.getenv('OLLAMA_NUM_GPU', '0'))
 
+# Logging
+# Sem esta config, os logs INFO da aplicacao (beezap.*) nao apareciam no journal
+# (o padrao do Django so emite WARNING+ para loggers nao-django). Aqui os logs
+# de webhook/envio/midia vao para o stdout/stderr capturado pelo systemd/journald,
+# em nivel INFO por padrao (ajustavel via BEEZAP_LOG_LEVEL). Cada log ja evita
+# expor token/payload/telefone completo.
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'beezap': {'format': '[%(asctime)s] %(levelname)s %(name)s: %(message)s'},
+    },
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'beezap',
+        },
+    },
+    'loggers': {
+        'beezap': {
+            'handlers': ['console'],
+            'level': os.getenv('BEEZAP_LOG_LEVEL', 'INFO'),
+            'propagate': False,
+        },
+    },
+}
+
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
