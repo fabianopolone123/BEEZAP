@@ -6,6 +6,9 @@ recebidas pelo webhook e de mensagens enviadas pelo sistema, incluindo midia
 """
 import logging
 import os
+import shutil
+import subprocess
+import tempfile
 import uuid
 from urllib import error, request
 
@@ -190,6 +193,37 @@ def save_incoming_text_message(phone, text, sender_name='', external_message_id=
 
 def save_outgoing_text_message(conversation, text, external_message_id='', status='sent'):
     return save_outgoing_message(conversation, 'text', text=text, external_message_id=external_message_id, status=status)
+
+
+def convert_audio_to_ogg(uploaded_file):
+    """Converte o audio enviado (ex.: webm/opus do Chrome) para ogg/opus, formato
+    aceito pela W-API. Requer ffmpeg instalado. Retorna um ContentFile chamado
+    'audio.ogg' ou None se nao for possivel converter."""
+    if not shutil.which('ffmpeg'):
+        media_logger.warning('ffmpeg nao encontrado; nao foi possivel converter o audio para ogg.')
+        return None
+    tmpdir = tempfile.mkdtemp(prefix='beezap_audio_')
+    try:
+        in_path = os.path.join(tmpdir, 'in')
+        out_path = os.path.join(tmpdir, 'out.ogg')
+        with open(in_path, 'wb') as dst:
+            for chunk in uploaded_file.chunks():
+                dst.write(chunk)
+        proc = subprocess.run(
+            ['ffmpeg', '-y', '-i', in_path, '-vn', '-c:a', 'libopus', '-b:a', '32000', out_path],
+            capture_output=True, timeout=90,
+        )
+        if proc.returncode != 0 or not os.path.exists(out_path):
+            media_logger.warning('ffmpeg falhou ao converter audio (rc=%s).', proc.returncode)
+            return None
+        with open(out_path, 'rb') as src:
+            data = src.read()
+        return ContentFile(data, name='audio.ogg')
+    except Exception:
+        media_logger.exception('Erro convertendo audio para ogg.')
+        return None
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
 
 
 def save_outgoing_media_message(conversation, message_type, uploaded_file, caption='', mimetype=''):

@@ -54,6 +54,7 @@ from wapi.client import (
 )
 from wapi.parser import parse_wapi_webhook_payload, parse_wapi_media
 from wapi.services import (
+    convert_audio_to_ogg,
     save_incoming_message,
     save_incoming_text_message,
     save_outgoing_media_message,
@@ -1053,6 +1054,19 @@ def conversation_send_media_view(request, conversation_id):
     config = WapiConfiguration.get_solo()
     if not config.resolved_instance_id().strip() or not config.resolved_token().strip():
         return JsonResponse({'ok': False, 'error': 'Configure a W-API antes de enviar mensagens.'}, status=400)
+
+    # A W-API so aceita audio em .mp3/.ogg. Audio gravado no navegador vem em
+    # .webm (Chrome); convertemos para .ogg (opus) com ffmpeg.
+    if media_type == 'audio' and mimetype not in ('audio/ogg', 'audio/mpeg', 'audio/mp3') \
+            and not (uploaded.name or '').lower().endswith(('.ogg', '.mp3')):
+        converted = convert_audio_to_ogg(uploaded)
+        if converted is None:
+            return JsonResponse(
+                {'ok': False, 'error': 'Nao foi possivel preparar o audio. Grave em .ogg/.mp3 ou instale o ffmpeg no servidor.'},
+                status=400,
+            )
+        uploaded = converted
+        mimetype = 'audio/ogg'
 
     # Salva o arquivo localmente e cria a mensagem (pendente).
     message = save_outgoing_media_message(
