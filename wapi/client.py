@@ -10,6 +10,7 @@ from wapi.parser import normalize_recipient
 
 
 WAPI_MESSAGE_PREFIX = '/v1/message/'
+WAPI_GROUP_PREFIX = '/v1/group/'
 
 # Mensagens amigaveis (nunca expor token, payload bruto ou traceback ao usuario).
 SEND_GENERIC_ERROR = (
@@ -76,6 +77,59 @@ def _extract_inserted_id(payload):
     return None
 
 
+def _build_wapi_url(prefix, action, instance_id):
+    """Monta a URL final com instanceId em query string, preservando o prefixo."""
+    url = settings.WAPI_BASE_URL.rstrip('/') + prefix + action
+    url_parts = parse.urlsplit(url)
+    query = parse.parse_qs(url_parts.query, keep_blank_values=True)
+    query['instanceId'] = [instance_id]
+    return parse.urlunsplit((
+        url_parts.scheme, url_parts.netloc, url_parts.path,
+        parse.urlencode(query, doseq=True), url_parts.fragment,
+    ))
+
+
+def _wapi_get(action, prefix=WAPI_MESSAGE_PREFIX, timeout=30):
+    """GET em https://api.w-api.app<prefix><action>?instanceId=...
+
+    Retorna (ok, status_code, body, friendly_error). O body pode ser lista OU
+    dict (ex.: get-all-groups devolve uma lista). Nunca expoe token nem traceback.
+    """
+    config = WapiConfiguration.get_solo()
+    instance_id = config.resolved_instance_id().strip()
+    token = config.resolved_token().strip()
+    if not instance_id or not token:
+        send_logger.warning('W-API GET abortado (%s): configuracao ausente.', action)
+        return (False, None, None, SEND_CONFIG_ERROR)
+
+    final_url = _build_wapi_url(prefix, action, instance_id)
+    http_request = request.Request(
+        final_url, method='GET',
+        headers={'Accept': 'application/json', 'Authorization': f'Bearer {token}'},
+    )
+    try:
+        with request.urlopen(http_request, timeout=timeout) as response:
+            response_body = response.read().decode('utf-8', 'ignore')
+            parsed_body = json.loads(response_body) if response_body else None
+            if 200 <= response.status < 300:
+                return (True, response.status, parsed_body, None)
+            send_logger.warning('W-API GET %s falhou: status=%s corpo=%s', action, response.status, response_body[:500])
+            return (False, response.status, None, SEND_GENERIC_ERROR)
+    except error.HTTPError as exc:
+        try:
+            error_body = exc.read().decode('utf-8', 'ignore')[:500]
+        except Exception:
+            error_body = ''
+        send_logger.warning('W-API GET %s falhou: HTTP %s corpo=%s', action, exc.code, error_body)
+        return (False, exc.code, None, SEND_GENERIC_ERROR)
+    except error.URLError as exc:
+        send_logger.warning('W-API GET %s sem conexao: %s', action, getattr(exc, 'reason', exc))
+        return (False, None, None, SEND_GENERIC_ERROR)
+    except json.JSONDecodeError:
+        send_logger.warning('W-API GET %s retornou resposta nao-JSON.', action)
+        return (False, None, None, SEND_GENERIC_ERROR)
+
+
 def _wapi_post(action, payload, timeout=30):
     """POST em https://api.w-api.app/v1/message/<action>?instanceId=...
 
@@ -89,14 +143,7 @@ def _wapi_post(action, payload, timeout=30):
         send_logger.warning('W-API abortado (%s): configuracao ausente.', action)
         return (False, None, {}, SEND_CONFIG_ERROR)
 
-    url = settings.WAPI_BASE_URL.rstrip('/') + WAPI_MESSAGE_PREFIX + action
-    url_parts = parse.urlsplit(url)
-    query = parse.parse_qs(url_parts.query, keep_blank_values=True)
-    query['instanceId'] = [instance_id]
-    final_url = parse.urlunsplit((
-        url_parts.scheme, url_parts.netloc, url_parts.path,
-        parse.urlencode(query, doseq=True), url_parts.fragment,
-    ))
+    final_url = _build_wapi_url(WAPI_MESSAGE_PREFIX, action, instance_id)
 
     body = json.dumps(payload).encode('utf-8')
     http_request = request.Request(
@@ -181,4 +228,14 @@ def download_media(media_key, direct_path, media_type, mimetype):
         'mimetype': mimetype or '',
     }
     ok, _status, body, _err = _wapi_post('download-media', payload)
+    return body if ok else None
+
+
+def get_all_groups():
+    """Lista os grupos/comunidades da conta conectada (LITE/PRO).
+
+    GET /v1/group/get-all-groups?instanceId=... — usado para descobrir o nome
+    real dos grupos (o webhook geralmente traz so o JID). Retorna o corpo (lista
+    ou dict, conforme a W-API) em caso de sucesso, ou None em caso de falha."""
+    ok, _status, body, _err = _wapi_get('get-all-groups', prefix=WAPI_GROUP_PREFIX)
     return body if ok else None

@@ -5,7 +5,7 @@
 
 {% block extra_head %}
 <link rel="stylesheet" href="{% static 'css/dashboard.css' %}?v=5">
-<link rel="stylesheet" href="{% static 'css/conversations.css' %}?v=6">
+<link rel="stylesheet" href="{% static 'css/conversations.css' %}?v=7">
 {% endblock %}
 
 {% block content %}
@@ -67,6 +67,13 @@
               </button>
             {% endfor %}
           </div>
+
+          <button type="button" class="conv-sync-groups" data-sync-groups title="Atualizar os nomes dos grupos pela W-API">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+            </svg>
+            <span>Sincronizar grupos</span>
+          </button>
 
           <div class="conv-search-bar">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2.2" aria-hidden="true">
@@ -263,6 +270,7 @@
   var searchEl = document.querySelector('[data-conv-search]');
   var chipEls = document.querySelectorAll('[data-filter]');
   var typeTabEls = document.querySelectorAll('[data-type-filter]');
+  var syncGroupsBtn = document.querySelector('[data-sync-groups]');
   var listEmptyEl = document.querySelector('[data-conv-list-empty]');
 
   var infoEmpty = document.querySelector('[data-info-empty]');
@@ -626,6 +634,31 @@
       refreshList();
     });
   });
+
+  /* ---------- Sincronizar nomes dos grupos com a W-API ---------- */
+  if (syncGroupsBtn) {
+    syncGroupsBtn.addEventListener('click', function () {
+      syncGroupsBtn.disabled = true;
+      fetch(base + 'sincronizar-grupos/', {
+        method: 'POST',
+        headers: {'X-CSRFToken': csrf, 'X-Requested-With': 'XMLHttpRequest'},
+      })
+        .then(function (r) { return r.json().then(function (d) { return {ok: r.ok, data: d}; }); })
+        .then(function (res) {
+          if (!res.data || !res.data.ok) {
+            showToast((res.data && res.data.error) || 'Nao foi possivel sincronizar os grupos.', 'error');
+            return;
+          }
+          var n = res.data.updated || 0;
+          showToast(n > 0 ? (n + ' grupo(s) atualizado(s).') : 'Grupos ja estao atualizados.', 'success');
+          refreshList();
+        })
+        .catch(function () {
+          showToast('Nao foi possivel sincronizar os grupos.', 'error');
+        })
+        .finally(function () { syncGroupsBtn.disabled = false; });
+    });
+  }
 
   /* ---------- Busca (server-side, combinada com o filtro) ---------- */
   if (searchEl) {

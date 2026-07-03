@@ -58,6 +58,7 @@ from wapi.services import (
     ingest_wapi_payload,
     save_outgoing_media_message,
     save_outgoing_text_message,
+    sync_group_names,
 )
 
 
@@ -1103,6 +1104,19 @@ def conversation_send_media_view(request, conversation_id):
     if not result.success:
         response['error'] = result.error or 'Nao foi possivel enviar o arquivo. Tente novamente.'
     return JsonResponse(response)
+
+
+@login_required
+@require_POST
+def conversation_sync_groups_view(request):
+    """Busca os grupos na W-API e atualiza os nomes das conversas de grupo."""
+    result = sync_group_names()
+    if not result.get('ok'):
+        return JsonResponse(
+            {'ok': False, 'error': 'Nao foi possivel sincronizar os grupos. Verifique a conexao do WhatsApp.'},
+            status=502,
+        )
+    return JsonResponse({'ok': True, 'updated': result['updated']})
 
 
 @login_required

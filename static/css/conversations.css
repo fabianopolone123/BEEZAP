@@ -230,6 +230,35 @@
   color: #0d8d43;
 }
 
+/* Botao "Sincronizar grupos" */
+.conv-sync-groups {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  align-self: flex-end;
+  padding: 4px 10px;
+  border: 1px solid rgba(15, 23, 42, 0.1);
+  border-radius: 8px;
+  background: #fff;
+  font-family: inherit;
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: #64748b;
+  cursor: pointer;
+  transition: background 0.18s, color 0.18s, border-color 0.18s;
+}
+
+.conv-sync-groups:hover:not(:disabled) {
+  background: #f0fdf4;
+  border-color: #21c25e;
+  color: #0d8d43;
+}
+
+.conv-sync-groups:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
 /* Selo "Grupo" (lista e cabecalho do chat) */
 .conv-group-badge {
   display: inline-block;

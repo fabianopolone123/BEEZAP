@@ -21,9 +21,106 @@ from wapi.parser import (
     normalize_wapi_message_context,
     parse_wapi_media,
     parse_wapi_webhook_payload,
+    strip_jid,
 )
 
 ingest_logger = logging.getLogger('beezap.wapi.webhook')
+
+
+def _group_key(group_id):
+    """Chave de comparacao de grupo por digitos (ignora sufixo @g.us e formato)."""
+    return ''.join(ch for ch in strip_jid(group_id) if ch.isdigit())
+
+
+def _iter_group_items(groups_response):
+    """Extrai a lista de grupos de formatos possiveis da W-API (lista ou dict)."""
+    if isinstance(groups_response, list):
+        return groups_response
+    if isinstance(groups_response, dict):
+        for key in ('groups', 'data', 'result', 'items', 'chats'):
+            value = groups_response.get(key)
+            if isinstance(value, list):
+                return value
+        data = groups_response.get('data')
+        if isinstance(data, dict):
+            for key in ('groups', 'items', 'result'):
+                value = data.get(key)
+                if isinstance(value, list):
+                    return value
+    return []
+
+
+def _group_item_id(item):
+    for key in ('id', 'groupId', 'remoteJid', 'jid', 'wid', 'chatId'):
+        value = item.get(key)
+        if isinstance(value, str) and value:
+            return value
+        if isinstance(value, dict):
+            for inner in ('_serialized', 'id', 'user'):
+                inner_value = value.get(inner)
+                if isinstance(inner_value, str) and inner_value:
+                    return inner_value
+    return ''
+
+
+def _group_item_name(item):
+    for key in ('name', 'subject', 'title', 'groupName', 'pushName'):
+        value = item.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ''
+
+
+def build_group_name_map(groups_response):
+    """Monta {chave_digitos: nome} a partir da resposta de get-all-groups."""
+    mapping = {}
+    for item in _iter_group_items(groups_response):
+        if not isinstance(item, dict):
+            continue
+        key = _group_key(_group_item_id(item))
+        name = _group_item_name(item)
+        if key and name:
+            mapping[key] = name
+    return mapping
+
+
+def get_all_groups_safe():
+    """Busca os grupos na W-API sem nunca derrubar o fluxo (retorna None em falha)."""
+    from wapi.client import get_all_groups
+    try:
+        return get_all_groups()
+    except Exception:
+        ingest_logger.exception('Falha ao buscar grupos na W-API.')
+        return None
+
+
+def resolve_group_name(group_id, groups_response=None):
+    """Descobre o nome real de um grupo pelo JID, consultando a W-API se preciso."""
+    if not group_id:
+        return ''
+    if groups_response is None:
+        groups_response = get_all_groups_safe()
+    if not groups_response:
+        return ''
+    return build_group_name_map(groups_response).get(_group_key(group_id), '')
+
+
+def sync_group_names():
+    """Atualiza Conversation.name de todas as conversas de grupo a partir da W-API.
+
+    Retorna um resumo {ok, updated, total_groups} para comando/endpoint."""
+    groups_response = get_all_groups_safe()
+    if not groups_response:
+        return {'ok': False, 'updated': 0, 'total_groups': 0}
+    mapping = build_group_name_map(groups_response)
+    updated = 0
+    for conversation in Conversation.objects.filter(chat_type='group'):
+        name = mapping.get(_group_key(conversation.external_id))
+        if name and name != conversation.name:
+            conversation.name = name
+            conversation.save(update_fields=['name', 'updated_at'])
+            updated += 1
+    return {'ok': True, 'updated': updated, 'total_groups': len(mapping)}
 
 media_logger = logging.getLogger('beezap.wapi.media')
 
@@ -103,10 +200,14 @@ def resolve_conversation_for_context(ctx):
                 conversation.name = ctx['display_name']
                 conversation.save(update_fields=['name', 'updated_at'])
             return conversation
+        # Conversa de grupo nova: o webhook LITE quase nunca traz o nome, so o JID.
+        # Buscamos o nome real na W-API uma unica vez (na criacao) para nao ficar
+        # mostrando "Grupo <jid>". Se falhar, o fallback cuida da exibicao.
+        name = ctx.get('display_name') or resolve_group_name(chat_id)
         return Conversation.objects.create(
             external_id=chat_id,
             chat_type='group',
-            name=ctx.get('display_name') or '',
+            name=name or '',
             contact=None,
         )
 
