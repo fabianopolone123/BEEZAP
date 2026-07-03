@@ -342,8 +342,28 @@
       bubble.appendChild(img);
     } else if (kind === 'audio') {
       var audio = document.createElement('audio');
-      audio.controls = true; audio.src = url; audio.className = 'conv-media-audio';
+      audio.controls = true;
+      audio.preload = 'metadata';
+      audio.className = 'conv-media-audio';
+      // Informar o type ajuda o navegador a tocar mesmo quando o servidor entrega
+      // o arquivo com content-type generico (causa comum do play desabilitado).
+      if (mime) {
+        var srcEl = document.createElement('source');
+        srcEl.src = url;
+        srcEl.type = mime.split(';')[0].trim();
+        audio.appendChild(srcEl);
+      } else {
+        audio.src = url;
+      }
+      // Fallback: se nao der para tocar no navegador, permite baixar o audio.
+      var audioDl = document.createElement('a');
+      audioDl.className = 'conv-media-doc conv-media-audio-fallback';
+      audioDl.href = url; audioDl.target = '_blank'; audioDl.rel = 'noopener';
+      audioDl.textContent = '🎧 Baixar audio';
+      audioDl.hidden = true;
+      audio.addEventListener('error', function () { audioDl.hidden = false; });
       bubble.appendChild(audio);
+      bubble.appendChild(audioDl);
     } else if (kind === 'video' || kind === 'gif') {
       var video = document.createElement('video');
       video.src = url; video.className = 'conv-media-video'; video.controls = true;

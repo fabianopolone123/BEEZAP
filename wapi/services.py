@@ -149,7 +149,10 @@ _DOWNLOAD_TYPE = {
 _MIME_EXT = {
     'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif',
     'audio/mpeg': 'mp3', 'audio/mp3': 'mp3', 'audio/ogg': 'ogg', 'audio/opus': 'ogg',
-    'video/mp4': 'mp4', 'application/pdf': 'pdf',
+    'audio/mp4': 'm4a', 'audio/aac': 'aac', 'audio/amr': 'amr',
+    'audio/wav': 'wav', 'audio/x-wav': 'wav', 'audio/webm': 'webm',
+    'video/mp4': 'mp4', 'video/3gpp': '3gp', 'video/webm': 'webm', 'video/quicktime': 'mov',
+    'application/pdf': 'pdf',
 }
 
 
@@ -310,13 +313,21 @@ def _try_download_media(message, media):
 
     if file_link and _download_to_media_file(message, file_link, mimetype):
         message.media_status = 'ok'
+        outcome = 'local'
     elif file_link:
-        # Nao conseguiu salvar local; guarda o link (pode expirar).
+        # Nao conseguiu salvar local; guarda o link (pode expirar -> play falha).
         message.media_url = file_link
         message.media_status = 'ok'
+        outcome = 'remoto(link pode expirar)'
     else:
         message.media_status = 'unavailable'
+        outcome = 'indisponivel(sem fileLink)'
     message.save(update_fields=['media_file', 'media_url', 'media_mimetype', 'media_status'])
+    # Diagnostico seguro (sem link/token): ajuda a entender falhas de play de midia.
+    media_logger.info(
+        'download-media: tipo=%s mimetype=%s ext=%s resultado=%s',
+        message.message_type, mimetype or '-', _ext_for_mime(mimetype), outcome,
+    )
 
 
 def save_incoming_message(conversation, ctx, message_type='text', text='',
