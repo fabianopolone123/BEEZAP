@@ -1,3 +1,6 @@
+# ==========================================================================
+# OPCAO A — BEEZAP em dominio proprio (ex.: beezap.seudominio.com)
+# ==========================================================================
 server {
     listen 80;
     server_name beezap.seudominio.com;
@@ -22,4 +25,46 @@ server {
         proxy_connect_timeout 60;
         proxy_redirect off;
     }
+}
+
+# ==========================================================================
+# OPCAO B (RECOMENDADA no VPS atual) — BEEZAP sob o prefixo /beezap/
+# Ex.: https://fabianopolone.com.br/beezap/
+#
+# Inserir estes blocos dentro do server { } do dominio ja existente
+# (no VPS atual: /etc/nginx/sites-available/site_idiomas) e definir no .env:
+#     STATIC_URL=/beezap/static/
+#
+# Vantagem: o CSS/JS do BEEZAP e servido direto da pasta-fonte `static/`,
+# entao um simples `git pull` ja publica as alteracoes — sem `collectstatic`
+# nem `cp -r static/* staticfiles/`.
+# ==========================================================================
+
+# 1) Estaticos do Django admin: coletados uma vez pelo collectstatic.
+#    (Precisa ser ANTES do bloco /beezap/static/ — prefixo mais especifico.)
+location /beezap/static/admin/ {
+    alias /var/www/beezap/staticfiles/admin/;
+    access_log off;
+    expires 7d;
+}
+
+# 2) Estaticos do proprio BEEZAP (css/js/images) servidos da pasta-fonte.
+location /beezap/static/ {
+    alias /var/www/beezap/static/;
+    access_log off;
+}
+
+location /beezap/media/ {
+    alias /var/www/beezap/media/;
+}
+
+location /beezap/ {
+    proxy_pass http://127.0.0.1:8006/;   # porta do gunicorn do BEEZAP (ver deploy/beezap.service.example)
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_read_timeout 120;
+    proxy_connect_timeout 60;
+    proxy_redirect off;
 }

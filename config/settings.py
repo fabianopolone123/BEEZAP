@@ -168,8 +168,15 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
-STATIC_URL = 'static/'
+# STATIC_URL pode incluir o prefixo de deploy (ex.: /beezap/static/) via variavel
+# de ambiente, para NAO precisar editar este arquivo no servidor. Local usa /static/.
+STATIC_URL = os.getenv('STATIC_URL', '/static/')
+
+# IMPORTANTE: manter a pasta static/ do projeto aqui. Se este valor ficar vazio ([]),
+# o `collectstatic` NAO publica o CSS/JS do projeto e as alteracoes nao aparecem
+# em producao (bug ja ocorrido). Ver docs/DEPLOY.md.
 STATICFILES_DIRS = [BASE_DIR / 'static']
+
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 
 MEDIA_URL = 'media/'
