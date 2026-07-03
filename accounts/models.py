@@ -323,14 +323,40 @@ class Message(models.Model):
         ('sent', 'Enviada'),
         ('failed', 'Falhou'),
     ]
+    TYPE_CHOICES = [
+        ('text', 'Texto'),
+        ('image', 'Imagem'),
+        ('audio', 'Audio'),
+        ('video', 'Video'),
+        ('document', 'Documento'),
+        ('sticker', 'Figurinha'),
+        ('gif', 'GIF'),
+        ('reaction', 'Reacao'),
+        ('location', 'Localizacao'),
+        ('contact', 'Contato'),
+        ('unknown', 'Nao suportado'),
+    ]
+    # Estado do download da midia recebida.
+    MEDIA_STATUS_CHOICES = [
+        ('none', 'Sem midia'),
+        ('pending', 'Baixando'),
+        ('ok', 'Disponivel'),
+        ('unavailable', 'Indisponivel'),
+    ]
 
     conversation = models.ForeignKey(Conversation, on_delete=models.CASCADE, related_name='messages')
     direction = models.CharField(max_length=10, choices=DIRECTION_CHOICES)
-    text = models.TextField()
+    message_type = models.CharField(max_length=20, choices=TYPE_CHOICES, default='text')
+    text = models.TextField(blank=True, default='')
     phone = models.CharField(max_length=30, blank=True, default='')
     sender_name = models.CharField(max_length=150, blank=True, default='')
     external_message_id = models.CharField(max_length=150, blank=True, default='')
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='received')
+    # Campos de midia (imagem/audio/video/documento/sticker/gif).
+    media_file = models.FileField(upload_to='whatsapp/', blank=True, null=True)
+    media_url = models.URLField(max_length=500, blank=True, default='')
+    media_mimetype = models.CharField(max_length=120, blank=True, default='')
+    media_status = models.CharField(max_length=20, choices=MEDIA_STATUS_CHOICES, default='none')
     raw_payload = models.JSONField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -339,5 +365,19 @@ class Message(models.Model):
         verbose_name_plural = 'Mensagens'
         ordering = ('created_at',)
 
+    @property
+    def is_media(self):
+        return self.message_type in ('image', 'audio', 'video', 'document', 'sticker', 'gif')
+
+    @property
+    def resolved_media_url(self):
+        """Preferir o arquivo salvo localmente; senao o link remoto (pode expirar)."""
+        if self.media_file:
+            try:
+                return self.media_file.url
+            except ValueError:
+                return ''
+        return self.media_url or ''
+
     def __str__(self):
-        return f'{self.get_direction_display()}: {self.text[:30]}'
+        return f'{self.get_direction_display()} ({self.message_type}): {self.text[:30]}'

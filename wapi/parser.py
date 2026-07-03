@@ -324,3 +324,112 @@ def parse_wapi_webhook_payload(payload):
         'message_text': _as_text(message_text),
         'from_me': _as_bool(from_me),
     }
+
+
+def _message_content(payload):
+    """Retorna o dict de conteudo da mensagem (msgContent/message), onde ficam as
+    chaves de tipo (imageMessage, audioMessage, conversation, etc.)."""
+    for path in (
+        ('msgContent',),
+        ('message',),
+        ('data', 'message'),
+        ('data', 'msgContent'),
+        ('messages', 0, 'message'),
+        ('data', 'messages', 0, 'message'),
+    ):
+        node = payload
+        ok = True
+        for key in path:
+            if isinstance(key, int):
+                if isinstance(node, (list, tuple)) and -len(node) <= key < len(node):
+                    node = node[key]
+                else:
+                    ok = False
+                    break
+            elif isinstance(node, dict):
+                node = node.get(key)
+            else:
+                ok = False
+                break
+        if ok and isinstance(node, dict):
+            return node
+    return {}
+
+
+# Chave de conteudo -> tipo normalizado do BEEZAP.
+_MEDIA_CONTENT_TYPES = (
+    ('imageMessage', 'image'),
+    ('audioMessage', 'audio'),
+    ('videoMessage', 'video'),
+    ('stickerMessage', 'sticker'),
+    ('documentMessage', 'document'),
+)
+
+
+def parse_wapi_media(payload):
+    """Detecta o tipo normalizado da mensagem e os metadados de midia.
+
+    Retorna: message_type, caption, media_mimetype, media_key, direct_path,
+    media_url, reaction. Defensivo: nunca quebra e cai em 'text'/'unknown'.
+    """
+    if not isinstance(payload, dict):
+        payload = {}
+
+    result = {
+        'message_type': 'text',
+        'caption': '',
+        'media_mimetype': '',
+        'media_key': '',
+        'direct_path': '',
+        'media_url': '',
+        'reaction': '',
+    }
+
+    content = _message_content(payload)
+
+    # Texto (conversation / extendedTextMessage) ou payload simples sem conteudo.
+    if not content or 'conversation' in content or 'extendedTextMessage' in content:
+        result['message_type'] = 'text'
+        return result
+
+    # Reacao.
+    if isinstance(content.get('reactionMessage'), dict):
+        result['message_type'] = 'reaction'
+        result['reaction'] = _as_text(content['reactionMessage'].get('text'))
+        return result
+
+    # Midia (imagem/audio/video/sticker/documento; video com gifPlayback -> gif).
+    for key, mtype in _MEDIA_CONTENT_TYPES:
+        node = content.get(key)
+        if isinstance(node, dict):
+            if mtype == 'video' and _as_bool(node.get('gifPlayback')):
+                mtype = 'gif'
+            result['message_type'] = mtype
+            result['media_mimetype'] = _as_text(node.get('mimetype'))
+            result['media_key'] = _as_text(node.get('mediaKey'))
+            result['direct_path'] = _as_text(node.get('directPath'))
+            result['media_url'] = _as_text(node.get('url'))
+            result['caption'] = _as_text(node.get('caption') or node.get('fileName'))
+            return result
+
+    if 'locationMessage' in content:
+        result['message_type'] = 'location'
+        return result
+    if 'contactMessage' in content or 'contactsArrayMessage' in content:
+        result['message_type'] = 'contact'
+        return result
+
+    # Fallback por tipo textual explicito, se a W-API mandar.
+    explicit = _safe_get(
+        payload,
+        ('type',), ('messageType',), ('typeMessage',),
+        ('data', 'type'), ('data', 'messageType'), ('data', 'typeMessage'),
+    )
+    explicit = explicit.lower() if isinstance(explicit, str) else ''
+    for keyword in ('image', 'audio', 'video', 'sticker', 'document', 'gif', 'reaction'):
+        if keyword in explicit:
+            result['message_type'] = keyword
+            return result
+
+    result['message_type'] = 'unknown'
+    return result

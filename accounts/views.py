@@ -45,8 +45,12 @@ from .models import (
 )
 from ai_engine.services import generate_ai_reply, generate_ai_reply_with_rules
 from wapi.client import send_text_message
-from wapi.parser import parse_wapi_webhook_payload
-from wapi.services import save_incoming_text_message, save_outgoing_text_message
+from wapi.parser import parse_wapi_webhook_payload, parse_wapi_media
+from wapi.services import (
+    save_incoming_message,
+    save_incoming_text_message,
+    save_outgoing_text_message,
+)
 
 
 PASSWORD_RECOVERY_CODE_ID_KEY = 'password_recovery_code_id'
@@ -190,22 +194,48 @@ def create_wapi_webhook_event(payload):
         **parsed_payload,
     )
 
-    # Integra com Conversas reais: so cria mensagem para eventos de texto recebido
-    # (com telefone e mensagem) que nao foram enviados pelo proprio numero conectado.
-    # Falha aqui nunca deve derrubar o webhook (o evento ja foi salvo).
-    if (
-        parsed_payload.get('phone')
-        and parsed_payload.get('message_text')
-        and not parsed_payload.get('from_me')
-    ):
+    # Integra com Conversas reais: cria a mensagem recebida (texto ou midia) que
+    # nao foi enviada pelo proprio numero conectado. Falha aqui nunca deve
+    # derrubar o webhook (o evento ja foi salvo em WapiWebhookEvent).
+    if parsed_payload.get('phone') and not parsed_payload.get('from_me'):
         try:
-            save_incoming_text_message(
-                phone=parsed_payload['phone'],
-                text=parsed_payload['message_text'],
-                sender_name=parsed_payload.get('contact_name', ''),
-                external_message_id=parsed_payload.get('message_id', ''),
-                payload=payload,
-            )
+            media_info = parse_wapi_media(payload)
+            message_type = media_info['message_type']
+            if message_type == 'text':
+                if parsed_payload.get('message_text'):
+                    save_incoming_message(
+                        phone=parsed_payload['phone'],
+                        message_type='text',
+                        text=parsed_payload['message_text'],
+                        sender_name=parsed_payload.get('contact_name', ''),
+                        external_message_id=parsed_payload.get('message_id', ''),
+                        payload=payload,
+                    )
+            elif message_type == 'reaction':
+                save_incoming_message(
+                    phone=parsed_payload['phone'],
+                    message_type='reaction',
+                    text=media_info.get('reaction', ''),
+                    sender_name=parsed_payload.get('contact_name', ''),
+                    external_message_id=parsed_payload.get('message_id', ''),
+                    payload=payload,
+                )
+            else:
+                # imagem/audio/video/documento/sticker/gif/location/contact/unknown
+                save_incoming_message(
+                    phone=parsed_payload['phone'],
+                    message_type=message_type,
+                    text=media_info.get('caption') or parsed_payload.get('message_text', ''),
+                    sender_name=parsed_payload.get('contact_name', ''),
+                    external_message_id=parsed_payload.get('message_id', ''),
+                    payload=payload,
+                    media={
+                        'media_url': media_info.get('media_url'),
+                        'media_mimetype': media_info.get('media_mimetype'),
+                        'media_key': media_info.get('media_key'),
+                        'direct_path': media_info.get('direct_path'),
+                    },
+                )
         except Exception:
             wapi_webhook_logger.exception('Falha ao criar conversa a partir do webhook W-API.')
 
@@ -792,9 +822,13 @@ def _serialize_message(message):
     return {
         'id': message.id,
         'type': 'sent' if message.direction == 'out' else 'received',
+        'kind': message.message_type,
         'text': message.text,
         'time': timezone.localtime(message.created_at).strftime('%H:%M'),
         'status': message.status,
+        'media_url': message.resolved_media_url,
+        'media_mimetype': message.media_mimetype,
+        'media_status': message.media_status,
     }
 
 

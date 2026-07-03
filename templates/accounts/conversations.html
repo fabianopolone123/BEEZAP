@@ -4,8 +4,8 @@
 {% block title %}Conversas | BEEZap{% endblock %}
 
 {% block extra_head %}
-<link rel="stylesheet" href="{% static 'css/dashboard.css' %}?v=2">
-<link rel="stylesheet" href="{% static 'css/conversations.css' %}?v=2">
+<link rel="stylesheet" href="{% static 'css/dashboard.css' %}?v=3">
+<link rel="stylesheet" href="{% static 'css/conversations.css' %}?v=3">
 {% endblock %}
 
 {% block content %}
@@ -252,19 +252,86 @@
   }
 
   /* ---------- Render de mensagens ---------- */
+  function appendText(parent, text) {
+    // Texto seguro (sem HTML), preservando quebras de linha.
+    (text || '').split('\n').forEach(function (line, idx) {
+      if (idx > 0) parent.appendChild(document.createElement('br'));
+      parent.appendChild(document.createTextNode(line));
+    });
+  }
+
+  function appendMediaNote(bubble, msg) {
+    var note = document.createElement('div');
+    note.className = 'conv-media-note';
+    note.textContent = msg.media_status === 'pending' ? 'Carregando midia...' : 'Midia indisponivel';
+    bubble.appendChild(note);
+  }
+
+  function appendMedia(bubble, msg) {
+    var kind = msg.kind;
+    var url = msg.media_url;
+    var mime = msg.media_mimetype || '';
+    if (msg.media_status !== 'ok' || !url) {
+      appendMediaNote(bubble, msg);
+    } else if (kind === 'image' || kind === 'sticker' || (kind === 'gif' && mime.indexOf('image') === 0)) {
+      var img = document.createElement('img');
+      img.className = 'conv-media-img' + (kind === 'sticker' ? ' conv-media-sticker' : '');
+      img.src = url; img.alt = kind; img.loading = 'lazy';
+      bubble.appendChild(img);
+    } else if (kind === 'audio') {
+      var audio = document.createElement('audio');
+      audio.controls = true; audio.src = url; audio.className = 'conv-media-audio';
+      bubble.appendChild(audio);
+    } else if (kind === 'video' || kind === 'gif') {
+      var video = document.createElement('video');
+      video.src = url; video.className = 'conv-media-video'; video.controls = true;
+      if (kind === 'gif') { video.loop = true; video.muted = true; video.autoplay = true; video.controls = false; }
+      bubble.appendChild(video);
+    } else if (kind === 'document') {
+      var link = document.createElement('a');
+      link.className = 'conv-media-doc'; link.href = url;
+      link.target = '_blank'; link.rel = 'noopener';
+      link.textContent = '📄 ' + ((msg.text && msg.text.trim()) ? msg.text.trim() : 'Baixar documento');
+      bubble.appendChild(link);
+      return;
+    }
+    if (kind !== 'document' && msg.text && msg.text.trim()) {
+      var cap = document.createElement('div');
+      cap.className = 'conv-media-caption';
+      appendText(cap, msg.text);
+      bubble.appendChild(cap);
+    }
+  }
+
   function renderMessages(messages) {
     messagesEl.replaceChildren();
     var frag = document.createDocumentFragment();
     messages.forEach(function (msg) {
+      var kind = msg.kind || 'text';
       var wrap = document.createElement('div');
       wrap.className = 'conv-msg conv-msg-' + msg.type;
+      if (kind !== 'text') wrap.classList.add('conv-msg-kind-' + kind);
       var bubble = document.createElement('div');
       bubble.className = 'conv-bubble';
-      // Texto seguro (sem HTML), preservando quebras de linha.
-      msg.text.split('\n').forEach(function (line, idx) {
-        if (idx > 0) bubble.appendChild(document.createElement('br'));
-        bubble.appendChild(document.createTextNode(line));
-      });
+
+      if (kind === 'text') {
+        appendText(bubble, msg.text);
+      } else if (kind === 'reaction') {
+        var reaction = document.createElement('div');
+        reaction.className = 'conv-reaction';
+        reaction.textContent = 'Reagiu: ' + (msg.text || '👍');
+        bubble.appendChild(reaction);
+      } else if (kind === 'location' || kind === 'contact' || kind === 'unknown') {
+        var info = document.createElement('div');
+        info.className = 'conv-media-note';
+        info.textContent = kind === 'location' ? '📍 Localizacao recebida'
+          : (kind === 'contact' ? '👤 Contato recebido' : 'Tipo de mensagem nao suportado');
+        bubble.appendChild(info);
+        if (msg.text && msg.text.trim()) appendText(bubble, msg.text);
+      } else {
+        appendMedia(bubble, msg);
+      }
+
       var time = document.createElement('span');
       time.className = 'conv-msg-time';
       time.textContent = msg.time + (msg.type === 'sent' ? ' ✓' : '');

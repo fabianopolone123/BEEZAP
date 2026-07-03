@@ -179,7 +179,8 @@ STATICFILES_DIRS = [BASE_DIR / 'static']
 
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 
-MEDIA_URL = 'media/'
+# Como STATIC_URL: pode incluir o prefixo de deploy (ex.: /beezap/media/) via env.
+MEDIA_URL = os.getenv('MEDIA_URL', '/media/')
 MEDIA_ROOT = BASE_DIR / 'media'
 
 LOGIN_URL = '/'

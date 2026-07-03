@@ -834,6 +834,78 @@
 }
 
 /* ======================================================
+   Midia no chat (imagem, audio, video, documento, sticker, reacao)
+   ====================================================== */
+.conv-media-img {
+  display: block;
+  max-width: 240px;
+  max-height: 280px;
+  width: auto;
+  height: auto;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.conv-media-sticker {
+  max-width: 120px;
+  max-height: 120px;
+  border-radius: 6px;
+}
+
+/* Figurinha nao usa balao grande. */
+.conv-msg-kind-sticker .conv-bubble {
+  background: transparent !important;
+  box-shadow: none !important;
+  padding: 2px 0;
+}
+
+.conv-media-audio {
+  display: block;
+  max-width: 240px;
+}
+
+.conv-media-video {
+  display: block;
+  max-width: 260px;
+  max-height: 320px;
+  border-radius: 10px;
+}
+
+.conv-media-doc {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.05);
+  color: #15213d;
+  font-size: 0.86rem;
+  font-weight: 600;
+  text-decoration: none;
+  word-break: break-word;
+}
+
+.conv-media-doc:hover {
+  background: rgba(0, 0, 0, 0.08);
+}
+
+.conv-media-caption {
+  margin-top: 6px;
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+
+.conv-media-note {
+  font-size: 0.84rem;
+  color: #64748b;
+  font-style: italic;
+}
+
+.conv-reaction {
+  font-size: 0.9rem;
+}
+
+/* ======================================================
    RESPONSIVIDADE
    ====================================================== */
 
