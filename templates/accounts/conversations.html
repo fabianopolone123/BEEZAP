@@ -213,7 +213,16 @@
   var body = document.querySelector('.conv-body');
   if (!body) return;
 
-  var base = body.dataset.convBase;
+  // Deriva a base das rotas AJAX do caminho REAL da pagina no navegador, para
+  // funcionar sob prefixo (ex.: /beezap/conversas/) mesmo quando o Django gera
+  // {% url %} sem o prefixo. Fallback para o valor renderizado no servidor.
+  var base = (function () {
+    var path = window.location.pathname;
+    var marker = '/conversas/';
+    var idx = path.indexOf(marker);
+    if (idx !== -1) return path.slice(0, idx + marker.length);
+    return body.dataset.convBase || '/conversas/';
+  }());
   var csrf = body.dataset.csrf;
 
   var listEl = document.querySelector('[data-conv-list]');
