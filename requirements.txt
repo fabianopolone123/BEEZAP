@@ -1,3 +1,8 @@
 Django==5.2.12
 gunicorn>=23.0,<24.0
 psycopg[binary]>=3.2,<4.0
+
+# Dependencia de SISTEMA (nao e pacote pip): ffmpeg
+#   Necessaria para converter o audio gravado no navegador (.webm) para .ogg
+#   antes de enviar pela W-API. Instale no servidor com: sudo apt install -y ffmpeg
+#   Ver docs/DEPLOY.md e docs/WAPI_MEDIA_INTEGRATION.md.

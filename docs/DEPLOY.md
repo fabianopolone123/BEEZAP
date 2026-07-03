@@ -13,6 +13,32 @@ garantir que alterações de **CSS/JS apareçam** em produção após o deploy.
   - Fonte (no Git): `/var/www/beezap/static/` (ex.: `static/css/conversations.css`)
   - Coletada (servida pelo Nginx): `/var/www/beezap/staticfiles/`
 
+## Dependências do sistema
+
+Além do Python/pip (`requirements.txt`), o servidor precisa de:
+
+- **ffmpeg** — converte o áudio gravado no navegador (`.webm` do Chrome) para
+  `.ogg`, que é o formato aceito pela W-API. Sem ele, o **envio de áudio gravado
+  falha** (imagem/vídeo/documento/texto continuam funcionando).
+  ```bash
+  sudo apt update && sudo apt install -y ffmpeg
+  ```
+
+## Variáveis de ambiente obrigatórias (`.env`)
+
+Para o app funcionar sob o prefixo `/beezap/` e para a mídia funcionar:
+
+```
+FORCE_SCRIPT_NAME=/beezap      # Django gera todas as URLs com o prefixo
+STATIC_URL=/beezap/static/     # CSS/JS servidos pelo Nginx sob /beezap/static/
+MEDIA_URL=/beezap/media/       # arquivos de midia; a W-API baixa por esta URL publica
+```
+
+Sem `MEDIA_URL=/beezap/media/`, o envio de mídia (imagem/áudio/vídeo/documento)
+falha porque a URL pública gerada fica inacessível para a W-API. As credenciais
+da W-API (Instance ID e Token) ficam salvas no banco pela tela de Configurações
+— não precisam estar no `.env`.
+
 ## O problema que já aconteceu
 
 Alterações de CSS (ex.: `conversations.css`) **não apareciam** no sistema mesmo

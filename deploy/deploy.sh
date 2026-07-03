@@ -24,6 +24,12 @@ echo ">> arquivos estaticos (collectstatic)..."
 # a pasta-fonte static/ direto), o collectstatic segue util para o admin.
 venv/bin/python manage.py collectstatic --noinput
 
+echo ">> verificando dependencias de sistema..."
+if ! command -v ffmpeg >/dev/null 2>&1; then
+    echo "   AVISO: ffmpeg nao encontrado. O envio de audio gravado no navegador"
+    echo "          vai falhar. Instale com: sudo apt install -y ffmpeg"
+fi
+
 echo ">> reiniciando servico..."
 sudo systemctl restart beezap
 
