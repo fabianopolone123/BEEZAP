@@ -109,13 +109,17 @@ def is_group_jid(value):
 
 def is_ignorable_jid(value):
     """True para conversas que NAO sao atendimento e devem ser ignoradas:
-    canal/newsletter (@newsletter) e transmissao/status (@broadcast).
+    status ('status' ou @broadcast) e canal/newsletter (@newsletter).
 
-    Grupos (@g.us) e diretas seguem normais; so os sufixos de broadcast/canal
-    (mensagens de mao unica, sem atendimento) sao descartados.
+    Grupos (@g.us) e diretas seguem normais. O W-API Lite usa o chat.id literal
+    "status" para atualizacoes de Status ('stories'), alem do JID @broadcast.
     """
     text = _as_text(value).lower()
-    return text.endswith('@newsletter') or text.endswith('@broadcast')
+    return (
+        text == 'status'
+        or text.endswith('@newsletter')
+        or text.endswith('@broadcast')
+    )
 
 
 # Flags que a W-API/Baileys pode usar para marcar Status/transmissao.
@@ -140,18 +144,56 @@ def _deep_contains_status_broadcast(node, depth=0):
     return False
 
 
+def _deep_contains_key(node, key_lower, depth=0):
+    """True se existir, em qualquer nivel, uma chave de dict igual a key_lower."""
+    if depth > 7:
+        return False
+    if isinstance(node, dict):
+        for k, v in node.items():
+            if isinstance(k, str) and k.lower() == key_lower:
+                return True
+            if _deep_contains_key(v, key_lower, depth + 1):
+                return True
+        return False
+    if isinstance(node, (list, tuple)):
+        return any(_deep_contains_key(v, key_lower, depth + 1) for v in node)
+    return False
+
+
+# Caminhos onde pode vir o id da conversa (para detectar chat.id == "status").
+_STATUS_CHAT_PATHS = (
+    ('chat', 'id'), ('data', 'chat', 'id'),
+    ('chatId',), ('data', 'chatId'),
+    ('remoteJid',), ('data', 'remoteJid'),
+    ('key', 'remoteJid'), ('data', 'key', 'remoteJid'),
+)
+
+# Chaves que so aparecem em atualizacoes de Status ('stories').
+_STATUS_MARKER_KEYS = ('statussourcetype', 'posterstatusid')
+
+
 def is_status_or_broadcast(payload):
     """True quando o payload e uma atualizacao de STATUS/transmissao do WhatsApp.
 
-    Status ('stories') chegam com o JID 'status@broadcast' e o autor como
-    remetente — nao sao conversa/atendimento e devem ser ignorados. Detecta pelo
-    JID em qualquer lugar do payload ou por uma flag explicita de broadcast/status.
+    Status ('stories') nao sao conversa/atendimento e devem ser ignorados.
+    Deteccao (W-API Lite): chat.id == "status", ou JID @broadcast/status@broadcast,
+    ou uma flag de broadcast, ou os marcadores 'statusSourceType'/'posterStatusID'
+    que so existem em posts de Status.
     """
     if not isinstance(payload, dict):
         return False
+    # chat.id / remoteJid == "status" ou terminando em @broadcast.
+    for path in _STATUS_CHAT_PATHS:
+        v = _as_text(_safe_get(payload, path)).lower()
+        if v == 'status' or v.endswith('@broadcast'):
+            return True
+    # Flag explicita de broadcast/status.
     for path in _BROADCAST_FLAG_PATHS:
         if _as_bool(_safe_get(payload, path)):
             return True
+    # Marcadores exclusivos de Status (posts).
+    if any(_deep_contains_key(payload, k) for k in _STATUS_MARKER_KEYS):
+        return True
     return _deep_contains_status_broadcast(payload)
 
 

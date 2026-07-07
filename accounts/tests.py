@@ -189,6 +189,26 @@ class WapiIngestIgnoreTests(TestCase):
         self.assertEqual(Conversation.objects.count(), 0)
         self.assertEqual(Contact.objects.count(), 0)
 
+    def test_wapi_lite_status_is_ignored(self):
+        # Formato real capturado no VPS: chat.id="status", autor no sender.
+        from wapi.services import ingest_wapi_payload
+        from accounts.models import Conversation, Contact
+
+        payload = {
+            'event': 'webhookReceived',
+            'isGroup': False,
+            'messageId': 'ACSTATUS1',
+            'chat': {'id': 'status'},
+            'sender': {'id': '143241756299511', 'pushName': 'Alessandro'},
+            'msgContent': {'imageMessage': {'mimetype': 'image/jpeg',
+                                            'contextInfo': {'statusSourceType': 'IMAGE'}}},
+        }
+        result = ingest_wapi_payload(payload)
+
+        self.assertIsNone(result)
+        self.assertEqual(Conversation.objects.count(), 0)
+        self.assertEqual(Contact.objects.count(), 0)
+
     def test_status_with_author_as_sender_is_ignored(self):
         # Caso real: o autor (telefone) vem como remetente e o status@broadcast
         # aparece em outro campo do payload — nao pode virar conversa direta.
@@ -283,6 +303,22 @@ class WapiStatusDetectionTests(SimpleTestCase):
         self.assertFalse(is_status_or_broadcast({'sender': {'id': '5516999998888'},
                                                  'msgContent': {'conversation': 'oi'}}))
         self.assertFalse(is_status_or_broadcast({'data': {'key': {'remoteJid': '5516999998888@s.whatsapp.net'}}}))
+
+    def test_detects_wapi_lite_status_chat_id(self):
+        # Formato real do W-API Lite: chat.id == "status" + statusSourceType.
+        payload = {
+            'chat': {'id': 'status'},
+            'sender': {'id': '143241756299511', 'pushName': 'Alguem'},
+            'msgContent': {'imageMessage': {'mimetype': 'image/jpeg',
+                                            'contextInfo': {'statusSourceType': 'IMAGE'}}},
+        }
+        self.assertTrue(is_status_or_broadcast(payload))
+        self.assertTrue(is_ignorable_jid('status'))
+
+    def test_detects_status_marker_key(self):
+        self.assertTrue(is_status_or_broadcast(
+            {'chat': {'id': 'x'}, 'msgContent': {'imageMessage': {'posterStatusID': 'abc'}}}
+        ))
 
 
 class AttendantsViewTests(TestCase):

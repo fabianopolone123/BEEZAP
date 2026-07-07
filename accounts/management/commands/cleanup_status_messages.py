@@ -10,6 +10,7 @@ as mensagens reais do contato) e, se uma conversa ficar sem nenhuma mensagem,
 remove a conversa. Atualiza o resumo (ultima mensagem) das conversas afetadas.
 """
 from django.core.management.base import BaseCommand
+from django.db.models import Q
 
 from accounts.models import Conversation, Message
 from wapi.parser import is_status_or_broadcast
@@ -27,10 +28,12 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         do_delete = options['delete']
 
-        # Filtro amplo pelo texto do payload; confirma com o parser.
+        # Filtro amplo pelo texto do payload; confirma com o parser. Status do
+        # W-API Lite trazem "status" (chat.id) e "statusSourceType", nem sempre
+        # a palavra "broadcast".
         candidates = (
             Message.objects
-            .filter(raw_payload__icontains='broadcast')
+            .filter(Q(raw_payload__icontains='status') | Q(raw_payload__icontains='broadcast'))
             .exclude(raw_payload__isnull=True)
         )
         status_msgs = [m for m in candidates if is_status_or_broadcast(m.raw_payload)]
