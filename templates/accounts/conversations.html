@@ -385,52 +385,99 @@
     }
   }
 
+  // Assinatura do conteudo de uma mensagem: muda quando algo que afeta o render
+  // muda (ex.: uma midia sai de "pending" para "ok" depois de baixada).
+  function msgSignature(msg) {
+    return [msg.kind || 'text', msg.media_status || '', msg.media_url || '',
+            msg.text || '', msg.type, msg.status || '', msg.sender_name || ''].join('|');
+  }
+
+  // Monta o elemento de UMA mensagem (reutilizado no render completo e no
+  // incremental). Marca id/assinatura para permitir a atualizacao seletiva.
+  function buildMessageEl(msg) {
+    var kind = msg.kind || 'text';
+    var wrap = document.createElement('div');
+    wrap.className = 'conv-msg conv-msg-' + msg.type;
+    if (kind !== 'text') wrap.classList.add('conv-msg-kind-' + kind);
+    wrap.dataset.msgId = msg.id;
+    wrap.dataset.msgSig = msgSignature(msg);
+    var bubble = document.createElement('div');
+    bubble.className = 'conv-bubble';
+
+    // Em grupo, mostra o nome de quem enviou acima da mensagem recebida.
+    if (msg.is_group && msg.type === 'received' && msg.sender_name) {
+      var sender = document.createElement('div');
+      sender.className = 'conv-msg-sender';
+      sender.textContent = msg.sender_name;
+      bubble.appendChild(sender);
+    }
+
+    if (kind === 'text') {
+      appendText(bubble, msg.text);
+    } else if (kind === 'reaction') {
+      var reaction = document.createElement('div');
+      reaction.className = 'conv-reaction';
+      reaction.textContent = 'Reagiu: ' + (msg.text || '👍');
+      bubble.appendChild(reaction);
+    } else if (kind === 'location' || kind === 'contact' || kind === 'unknown') {
+      var info = document.createElement('div');
+      info.className = 'conv-media-note';
+      info.textContent = kind === 'location' ? '📍 Localizacao recebida'
+        : (kind === 'contact' ? '👤 Contato recebido' : 'Tipo de mensagem nao suportado');
+      bubble.appendChild(info);
+      if (msg.text && msg.text.trim()) appendText(bubble, msg.text);
+    } else {
+      appendMedia(bubble, msg);
+    }
+
+    var time = document.createElement('span');
+    time.className = 'conv-msg-time';
+    time.textContent = msg.time + (msg.type === 'sent' ? ' ✓' : '');
+    bubble.appendChild(time);
+    wrap.appendChild(bubble);
+    return wrap;
+  }
+
+  function isNearBottom() {
+    return messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 80;
+  }
+  function scrollToBottom() { messagesEl.scrollTop = messagesEl.scrollHeight; }
+
+  // Ha alguma midia (audio/video) tocando dentro deste elemento? Se sim, nao o
+  // recriamos no poll — recriar cortaria o play (queixa do usuario).
+  function elIsPlaying(el) {
+    var media = el.querySelectorAll('video, audio');
+    for (var i = 0; i < media.length; i++) {
+      if (!media[i].paused && !media[i].ended) return true;
+    }
+    return false;
+  }
+
+  // Render COMPLETO — usado ao abrir uma conversa (troca tudo de uma vez).
   function renderMessages(messages) {
-    messagesEl.replaceChildren();
     var frag = document.createDocumentFragment();
+    messages.forEach(function (msg) { frag.appendChild(buildMessageEl(msg)); });
+    messagesEl.replaceChildren(frag);
+    scrollToBottom();
+  }
+
+  // Atualizacao INCREMENTAL — usada pelo poll. So mexe no DOM quando chega
+  // mensagem nova ou quando o conteudo de uma mensagem existente muda; nunca
+  // recria uma midia que esteja tocando. Sem mudancas, nao toca no DOM (o video
+  // continua rodando normalmente).
+  function syncMessages(messages) {
+    var wasNearBottom = isNearBottom();
+    var appended = false;
     messages.forEach(function (msg) {
-      var kind = msg.kind || 'text';
-      var wrap = document.createElement('div');
-      wrap.className = 'conv-msg conv-msg-' + msg.type;
-      if (kind !== 'text') wrap.classList.add('conv-msg-kind-' + kind);
-      var bubble = document.createElement('div');
-      bubble.className = 'conv-bubble';
-
-      // Em grupo, mostra o nome de quem enviou acima da mensagem recebida.
-      if (msg.is_group && msg.type === 'received' && msg.sender_name) {
-        var sender = document.createElement('div');
-        sender.className = 'conv-msg-sender';
-        sender.textContent = msg.sender_name;
-        bubble.appendChild(sender);
+      var existing = messagesEl.querySelector('[data-msg-id="' + msg.id + '"]');
+      if (!existing) {
+        messagesEl.appendChild(buildMessageEl(msg));
+        appended = true;
+      } else if (existing.dataset.msgSig !== msgSignature(msg) && !elIsPlaying(existing)) {
+        existing.replaceWith(buildMessageEl(msg));
       }
-
-      if (kind === 'text') {
-        appendText(bubble, msg.text);
-      } else if (kind === 'reaction') {
-        var reaction = document.createElement('div');
-        reaction.className = 'conv-reaction';
-        reaction.textContent = 'Reagiu: ' + (msg.text || '👍');
-        bubble.appendChild(reaction);
-      } else if (kind === 'location' || kind === 'contact' || kind === 'unknown') {
-        var info = document.createElement('div');
-        info.className = 'conv-media-note';
-        info.textContent = kind === 'location' ? '📍 Localizacao recebida'
-          : (kind === 'contact' ? '👤 Contato recebido' : 'Tipo de mensagem nao suportado');
-        bubble.appendChild(info);
-        if (msg.text && msg.text.trim()) appendText(bubble, msg.text);
-      } else {
-        appendMedia(bubble, msg);
-      }
-
-      var time = document.createElement('span');
-      time.className = 'conv-msg-time';
-      time.textContent = msg.time + (msg.type === 'sent' ? ' ✓' : '');
-      bubble.appendChild(time);
-      wrap.appendChild(bubble);
-      frag.appendChild(wrap);
     });
-    messagesEl.appendChild(frag);
-    messagesEl.scrollTop = messagesEl.scrollHeight;
+    if (appended && wasNearBottom) scrollToBottom();
   }
 
   function fillSelect(select, items, selectedId, emptyLabel) {
@@ -509,7 +556,7 @@
     if (!currentId) return;
     fetch(urlFor(currentId, 'mensagens'), {headers: {'X-Requested-With': 'XMLHttpRequest'}})
       .then(function (r) { return r.ok ? r.json() : null; })
-      .then(function (data) { if (data && data.ok) renderMessages(data.messages); })
+      .then(function (data) { if (data && data.ok) syncMessages(data.messages); })
       .catch(function () {});
   }
 
@@ -615,7 +662,18 @@
     });
   }
 
-  function refreshList() {
+  var lastListSig = null;
+  function listSignature(items) {
+    return items.map(function (c) {
+      return c.id + ':' + (c.time || '') + ':' + (c.unread || 0) +
+             ':' + (c.preview || '') + ':' + (c.name || '');
+    }).join('|');
+  }
+
+  // force=true: re-renderiza mesmo se a assinatura nao mudou (troca de
+  // filtro/aba/busca). No poll (force ausente), so re-renderiza quando a lista
+  // realmente muda, evitando reconstruir o DOM a cada ciclo.
+  function refreshList(force) {
     var term = searchEl ? searchEl.value.trim() : '';
     var url = base + 'lista/?status=' + encodeURIComponent(currentStatus) +
               '&tipo=' + encodeURIComponent(currentType) +
@@ -626,7 +684,12 @@
         if (!data || !data.ok) return;
         updateCounts(data.counts);
         updateTypeCounts(data.type_counts);
-        renderConversationList(data.conversations || []);
+        var items = data.conversations || [];
+        var sig = listSignature(items);
+        if (force === true || sig !== lastListSig) {
+          renderConversationList(items);
+          lastListSig = sig;
+        }
       })
       .catch(function () {});
   }
@@ -637,7 +700,7 @@
       chipEls.forEach(function (c) { c.classList.remove('active'); });
       chip.classList.add('active');
       currentStatus = chip.dataset.filter || 'todas';
-      refreshList();
+      refreshList(true);
     });
   });
 
@@ -651,7 +714,7 @@
       tab.classList.add('active');
       tab.setAttribute('aria-selected', 'true');
       currentType = tab.dataset.typeFilter || 'todas';
-      refreshList();
+      refreshList(true);
     });
   });
 
@@ -671,7 +734,7 @@
           }
           var n = res.data.updated || 0;
           showToast(n > 0 ? (n + ' grupo(s) atualizado(s).') : 'Grupos ja estao atualizados.', 'success');
-          refreshList();
+          refreshList(true);
         })
         .catch(function () {
           showToast('Nao foi possivel sincronizar os grupos.', 'error');
@@ -684,7 +747,7 @@
   if (searchEl) {
     searchEl.addEventListener('input', function () {
       window.clearTimeout(searchTimer);
-      searchTimer = window.setTimeout(refreshList, 250);
+      searchTimer = window.setTimeout(function () { refreshList(true); }, 250);
     });
   }
 
