@@ -14,7 +14,8 @@ Leia também: `CODEX_PADROES.md`, `GIT.md`, `HISTORICO.md`, `DEPLOY.md`,
 - **Hospedagem**: VPS Linux, servido sob o prefixo de caminho **`/beezap/`**
   em `https://fabianopolone.com.br/beezap/`.
 - **Idioma/UX**: interface em português, simples e didática; notificações via
-  **toast**; CSS por página; sem cursor piscando em elementos não editáveis.
+  **toast** e **pop-up do desktop + som** nas Conversas; CSS por página; sem cursor
+  piscando em elementos não editáveis.
 
 ## 2. Estrutura do código
 
@@ -44,7 +45,12 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
   `webhook_token`. Credenciais reais ficam **aqui (no banco)**, editadas na tela
   Configurações → WhatsApp/W-API. `resolved_*()` cai para env se vazio.
 - **WapiWebhookEvent**: todo evento recebido do webhook (com `raw_payload`).
-- **Contact**: `name`, `phone` (único), `display_name`, `initials`.
+- **Contact**: `name`, `phone` (único, guardado **só em dígitos**), `display_name`,
+  `initials`. É a base da tela **Contatos** e da resolução de nomes: criado
+  **automaticamente** na 1ª mensagem de uma conversa **direta** (nome = pushName),
+  e também ao **nomear** um participante de grupo (clique no número) ou cadastrar
+  manualmente. O `phone` (dígitos) é a chave usada para trocar número→nome nas
+  mensagens de grupo (remetente e menções `@`).
 - **Conversation**: `contact` (**opcional** — grupo não tem contato individual),
   `chat_type` (`private`/`group`), `external_id` (JID do grupo `@g.us`, telefone
   ou LID da direta), `name` (título/nome do grupo), `status`
@@ -80,26 +86,43 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
   (event_type, phone, contact_name, message_id, message_text, from_me, ...).
 - `parse_wapi_media(payload)` → `message_type` normalizado + metadados de mídia
   (`media_key`, `direct_path`, `media_mimetype`, `media_url`, `caption`, `reaction`).
+- `parse_wapi_media` também expõe `filename` (nome real do documento, separado da
+  legenda) — usado para baixar com o nome/extensão corretos.
 - `normalize_phone(value)` → só dígitos; remove `@s.whatsapp.net`/`@c.us`/`:device`;
-  **rejeita `@g.us` (grupo) e `@lid`** (identificador interno).
+  **rejeita `@g.us`/`@lid`/`@newsletter`/`@broadcast`** e números com **> 15 dígitos**
+  (E.164 máx.; IDs internos "120363…" não são telefone).
+- `is_group_jid(value)` → **coletivo/não-pessoal**: `@g.us` (grupo), `@newsletter`
+  (canal), `@broadcast` (transmissão) ou número "pelado" longo demais para telefone.
+- `is_ignorable_jid(value)` → conversas que **não são atendimento** e são ignoradas:
+  o id literal `status`, `@newsletter` e `@broadcast`.
+- `is_status_or_broadcast(payload)` → detecta **Status/stories** do WhatsApp mesmo
+  quando o W-API Lite manda `chat.id == "status"` (sem `@broadcast`) ou pelos
+  marcadores `statusSourceType`/`posterStatusID`, ou `status@broadcast` em qualquer
+  campo. Status **não** vira conversa.
 - `normalize_wapi_message_context(payload)` → **função central de GRUPO vs DIRETA**.
-  Decide pelo ID da conversa: termina em `@g.us` ⇒ **grupo** (chat_id = JID do grupo,
-  remetente separado em `sender_id`/`participant_id`); número puro / `@s.whatsapp.net`
-  / `@lid` ⇒ **direta**. Retorna `chat_id`, `chat_type`, `is_group`, `sender_id`,
+  Usa `is_group_jid` para decidir: JID coletivo ⇒ **grupo** (chat_id = JID, remetente
+  separado em `sender_id`/`participant_id`); número puro / `@s.whatsapp.net` / `@lid`
+  ⇒ **direta**. Retorna `chat_id`, `chat_type`, `is_group`, `sender_id`,
   `participant_id`, `sender_name`, `from_me`, `display_name`, `source`. O JID de
-  grupo tem **prioridade** sobre telefone/remetente em qualquer campo do payload.
+  grupo tem **prioridade** sobre telefone/remetente em qualquer campo. `_valid_name`
+  exige ≥1 caractere alfanumérico (rejeita nomes só de pontuação, ex.: ".").
 - `normalize_recipient(value)` → destino de **envio**: mantém `@g.us`/`@lid`
   intactos (a W-API precisa do JID); telefone comum vira só dígitos.
 - **Formato real do payload (W-API Lite):** o número do remetente vem em
   `sender.id`; o nome em `sender.pushName`; o conteúdo em `msgContent`
   (`conversation` / `extendedTextMessage.text` / `imageMessage` / `audioMessage` /
   `videoMessage` (+`gifPlayback`→gif) / `stickerMessage` / `documentMessage` /
-  `reactionMessage`). **`connectedPhone` é o NOSSO número — nunca usar como remetente.**
+  `reactionMessage`). Menções vêm como `@<número/LID>` no texto. **`connectedPhone`
+  é o NOSSO número — nunca usar como remetente.** **Status:** `chat.id == "status"`
+  com o autor em `sender` e `statusSourceType` no `contextInfo`.
 
 ### Serviços (`wapi/services.py`)
 - `ingest_wapi_payload(payload)` é o **ponto único** de entrada de mensagem recebida
   (usado pelo webhook e pelo comando `sync_wapi_events_to_conversations`): normaliza
   o contexto, resolve a conversa e cria a mensagem; deduplica pelo id externo.
+  **Ignora (não cria nada):** canal/transmissão (`is_ignorable_jid`), Status
+  (`is_status_or_broadcast`) e mensagens de **sistema/tipo `unknown`**
+  (ex.: `senderKeyDistributionMessage`/`protocolMessage`, comuns em grupos).
 - `resolve_conversation_for_context(ctx)` acha/cria a conversa certa: **grupo** →
   keyed pelo JID (`external_id`, `chat_type='group'`, sem contato); **direta com
   telefone** → contato + conversa aberta (comportamento antigo); **direta sem
@@ -108,6 +131,12 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
 - `save_incoming_message(conversation, ctx, ...)` cria a mensagem por tipo;
   para mídia, chama `download-media` e **salva o arquivo localmente** em
   `MEDIA/whatsapp/` (o `fileLink` da W-API expira). Estados `pending/ok/unavailable`.
+  A extensão do arquivo salvo vem de `_ext_for_media` (nome original do documento →
+  mapa de mimetype → `mimetypes` do Python → `bin`), evitando baixar como `.bin`.
+- `document_filename(message)` → nome original do documento (do `raw_payload`),
+  usado no download e na serialização.
+- `retry_conversation_media_async(conversation_id)` → tenta rebaixar em **background**
+  (thread) as mídias que falharam na chegada; disparado pelo botão **Atualizar**.
 - `save_outgoing_media_message(...)` salva arquivo enviado em
   `MEDIA/whatsapp/outgoing/` (nome único uuid).
 - `convert_audio_to_ogg(uploaded)` converte áudio (webm/opus do Chrome) → **ogg**
@@ -132,14 +161,46 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
   nome/telefone/última mensagem, combinada com o filtro e a aba de tipo.
 - **Chat via AJAX**: abrir zera não lidas; render por tipo; **composer fixo no
   rodapé** (corrigido com `min-height:0` na cadeia flex/grid e `[hidden]{display:none!important}`).
+- **Poll incremental** (`syncMessages`): a atualização periódica só mexe no DOM
+  quando chega mensagem nova ou muda o conteúdo (ex.: mídia baixada); **nunca**
+  recria uma mídia que esteja tocando (não corta o play). Poll: mensagens 6s,
+  lista 12s (só re-renderiza se a assinatura mudar), notificações 6s.
+- **Mídia**: foto/vídeo aparecem como **miniatura leve** (vídeo com poster lazy via
+  `IntersectionObserver`); clicar abre em **tela grande (lightbox)** com play. Áudio
+  toca inline; GIF em loop silencioso. **Documento** baixa com nome/extensão reais
+  (atributo `download`).
+- **Menções em grupo**: `@<número>` no texto é resolvido para `@<nome>` (Contato
+  salvo ou pushName de quem já enviou no grupo).
+- **Nome do remetente (grupo)**: mostra o nome; se não houver, mostra o **número
+  clicável** → modal "Nomear contato" (cria/atualiza `Contact`). Em conversa
+  **direta**, o **nome no cabeçalho** é clicável para renomear o contato.
+- **Notificações (estilo WhatsApp Web)**: pop-up do desktop (Web Notifications) +
+  **aviso sonoro** (beep via Web Audio, sem arquivo) quando a janela **não** está em
+  foco (`document.hasFocus()`); toast interno quando em foco. Dois botões-ícone no
+  topo da lista: **Notificações** (mostra o estado da permissão — verde/âmbar/vermelho —
+  e força o pedido ao clicar) e **Som** (liga/desliga, salvo em `localStorage`).
+  Título da aba mostra o total de não lidas.
+- **Botão Atualizar** (ícone de refresh, ao lado de Som/Notificações; substituiu o
+  "Sincronizar grupos"): sincroniza os nomes dos grupos **e** retenta as mídias que
+  falharam na conversa aberta.
 - **Composer**: 📎 anexo (imagem/áudio/vídeo/documento), 🎤 microfone (grava com
   `MediaRecorder`, converte p/ ogg no backend), campo de texto, enviar.
 - **Transferência** (setor/atendente) por selects na coluna de info.
 - **URLs AJAX** montadas a partir de `window.location.pathname` (até `/conversas/`)
   para respeitar o prefixo `/beezap/` mesmo se o `{% url %}` vier sem prefixo.
-- Endpoints: `conversation-list` (`/conversas/lista/`), `conversation-messages`,
-  `conversation-send`, `conversation-send-media`, `conversation-transfer`,
-  `wapi-webhook-events`.
+- Endpoints: `conversation-list` (`/conversas/lista/`), `conversation-messages`
+  (aceita `?retry=1` para rebaixar mídias falhas), `conversation-send`,
+  `conversation-send-media`, `conversation-transfer`, `conversation-sync-groups`,
+  `conversation-name-contact` (`/conversas/nomear-contato/`), `wapi-webhook-events`.
+
+## 5.1. Tela Contatos (`templates/accounts/contacts.html` + `contacts.css`)
+
+- Rota `contatos/` (`contacts_view`, nome de rota `contacts`; item da barra lateral).
+- Lista os `Contact` (avatar com iniciais, nome, telefone), **busca** por nome/telefone
+  (GET `q`), contador e CRUD: adicionar/editar por **modal** e excluir (com confirmação).
+- Telefone é **normalizado para dígitos** ao salvar (mesma chave da resolução de nomes),
+  então o que se cadastra aqui aparece no lugar do número nas conversas de grupo.
+- Disponível para qualquer usuário logado. Reaproveita `dashboard.css`/`attendants.css`.
 
 ## 6. Deploy no VPS (LEIA — tem armadilhas específicas)
 
@@ -160,7 +221,8 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
 - **Estáticos**: como o Nginx serve `static/` (a fonte) direto, **um `git pull`
   já publica CSS/JS** — sem `collectstatic`/`cp`. O admin do Django vem de
   `staticfiles/admin/` (rodar `collectstatic` uma vez). Cache-busting: `?v=N` nos
-  links de CSS em `conversations.html` (hoje `v=5`).
+  links de CSS em `conversations.html` (hoje `conversations.css?v=14`) — **incrementar
+  ao editar o CSS**. O JS fica inline no template (publica com o `git pull`).
 - **Histórico do bug de estáticos**: o `settings.py` do servidor já foi editado à
   mão com `STATICFILES_DIRS=[]`, o que impedia o `collectstatic` de publicar o
   CSS. Corrigido de forma versionada (ver `DEPLOY.md`). Não esvaziar `STATICFILES_DIRS`.
@@ -216,16 +278,38 @@ venv/bin/python manage.py sync_wapi_events_to_conversations
 > Obs.: `manage.py shell` no terminal **não carrega o `.env`** (quem carrega é o
 > systemd para o gunicorn) — use `HTTP_HOST='localhost'` em testes de Client.
 
+### Comandos de management (todos em `accounts/management/commands/`)
+```bash
+sync_wapi_events_to_conversations   # transforma eventos W-API antigos em conversas
+sync_wapi_group_names               # atualiza os nomes dos grupos pela W-API
+retry_wapi_media                    # rebaixa TODAS as mídias recebidas sem arquivo local
+inspect_wapi_messages --name X --full   # DIAGNÓSTICO: payload cru + veredito do parser
+cleanup_status_messages [--delete]      # remove mensagens de Status que viraram conversa
+cleanup_unknown_messages [--delete]     # remove mensagens de tipo 'unknown' (sistema)
+cleanup_nonpersonal_conversations [--delete]  # remove conversas de canal/transmissão/"status"
+```
+> Os `cleanup_*` e o `inspect_*` são **dry-run por padrão** (só listam); `--delete`
+> aplica. Úteis para limpar lixo antigo (status/canal/sistema) após um deploy do fix.
+
 ## 10. Pendências / próximas etapas
 
 - Legenda (caption) ao enviar imagem/vídeo/documento pelo composer.
-- Verificar envio de **documento** (W-API já reclamou "A extensão do arquivo é
-  obrigatória." — reconferir após `MEDIA_URL` correto; se persistir, ajustar body).
 - Ações de **assumir atendimento** / **encerrar conversa** (para os filtros
   "Em atendimento"/"Finalizadas" ganharem vida completa).
 - Recursos **PRO** (reação/sticker/GIF nativo/botões/listas) quando a instância for PRO.
 - `DEBUG=False` em produção (segurança).
-- Upload múltiplo, arrastar-e-soltar, preview de imagem em tela cheia.
+- Upload múltiplo, arrastar-e-soltar.
+- (Opcional) Tornar as **menções `@` clicáveis** dentro do texto para nomear ali
+  mesmo; hoje o clique-para-nomear está no remetente e no cabeçalho da direta.
+- (Opcional) Retry de mídias falhas em **todas** as conversas (hoje o botão
+  Atualizar age só na conversa aberta; existe o comando `retry_wapi_media` global).
+
+### Já concluído nesta fase (não são mais pendências)
+- Download de **documento** corrigido (nome/extensão reais, qualquer tipo; não mais `.bin`).
+- **Lightbox** de foto/vídeo (abre grande) — cobre o "preview em tela cheia".
+- **Notificações** (pop-up + som + botões de estado) e **poll incremental** (não corta play).
+- **Grupo vs direta/canal/status** robustos; Status/canal/sistema ignorados.
+- **Menções** e **nomes de participantes** resolvidos; tela **Contatos** e nomear pelo chat.
 
 ## 11. Segurança
 

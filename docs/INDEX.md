@@ -2,8 +2,9 @@
 
 Arquivos oficiais:
 
-- `CONTEXTO.md`: **comece por aqui** — visão geral, arquitetura, W-API, deploy e
-  armadilhas do VPS. Documento de handoff para retomar o projeto do zero.
+- `CONTEXTO.md`: **comece por aqui** — visão geral, arquitetura, W-API, telas
+  (Conversas, Contatos), notificações, comandos de management, deploy e armadilhas
+  do VPS. Documento de handoff para retomar o projeto do zero.
 - `CODEX_PADROES.md`: regras de trabalho (padrões de UI/CSS/commit).
 - `GIT.md`: regras de Git, commit e push.
 - `HISTORICO.md`: registro do que já foi feito e decisões já tomadas.

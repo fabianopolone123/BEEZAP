@@ -6,7 +6,7 @@ Este arquivo define os padrões de trabalho para o projeto BEEZAP.
 
 1. Toda alteração feita no projeto deve ser acompanhada de um commit no Git.
 2. Após o commit, deve ser feito `push` para o repositório remoto.
-3. Toda mudança relevante deve ser registrada no `docs/HISTORICO.md` com uma descrição curta.
+3. Toda mudança relevante deve ser registrada no `docs/HISTORICO.md` com uma descrição curta **e** a documentação afetada deve ser atualizada no mesmo commit — principalmente o `docs/CONTEXTO.md` (arquitetura, telas, endpoints, comandos, pendências) e, quando fizer sentido, `WAPI_MEDIA_INTEGRATION.md`/`DEPLOY.md`. **A documentação deve refletir sempre o estado atual do projeto.**
 4. Antes de concluir uma etapa, validar o projeto com os comandos apropriados.
 5. Manter a estrutura do projeto organizada e evitar arquivos soltos na raiz.
 6. O sistema deve ser didático, simples de usar e pensado para pessoas com pouca experiência técnica.
@@ -57,9 +57,10 @@ Este arquivo define os padrões de trabalho para o projeto BEEZAP.
 ## Fluxo esperado
 
 1. Fazer a alteração.
-2. Registrar no `docs/HISTORICO.md`.
-3. Conferir o estado do projeto.
-4. Criar o commit.
+2. Registrar no `docs/HISTORICO.md` **e atualizar a documentação afetada** (ex.:
+   `docs/CONTEXTO.md`) para refletir o novo estado.
+3. Conferir o estado do projeto (`python manage.py check`, testes quando fizer sentido).
+4. Criar o commit (código + docs juntos).
 5. Fazer `push`.
 
 ## Observações
