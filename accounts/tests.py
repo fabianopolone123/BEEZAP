@@ -289,6 +289,33 @@ class WapiSenderNameTests(SimpleTestCase):
         self.assertEqual(ctx['sender_name'], 'Marcelo')
 
 
+class MentionResolutionTests(SimpleTestCase):
+    """@<numero> no texto do grupo deve virar @<nome> quando conhecemos a pessoa."""
+
+    def test_resolves_known_mention(self):
+        from accounts.views import _resolve_mentions
+        text = '@140437377568773 coloca as fotos !!'
+        out = _resolve_mentions(text, {'140437377568773': 'Juliane'})
+        self.assertEqual(out, '@Juliane coloca as fotos !!')
+
+    def test_keeps_unknown_mention(self):
+        from accounts.views import _resolve_mentions
+        text = '@140437377568773 oi'
+        self.assertEqual(_resolve_mentions(text, {'999': 'X'}), '@140437377568773 oi')
+
+    def test_no_mention_and_empty(self):
+        from accounts.views import _resolve_mentions
+        self.assertEqual(_resolve_mentions('sem mencao', {'1': 'a'}), 'sem mencao')
+        self.assertEqual(_resolve_mentions('', {'1': 'a'}), '')
+        self.assertEqual(_resolve_mentions('texto', None), 'texto')
+
+    def test_multiple_mentions(self):
+        from accounts.views import _resolve_mentions
+        out = _resolve_mentions('@111111111 e @222222222 vejam',
+                                {'111111111': 'Ana', '222222222': 'Bia'})
+        self.assertEqual(out, '@Ana e @Bia vejam')
+
+
 class WapiStatusDetectionTests(SimpleTestCase):
     def test_detects_status_broadcast_anywhere(self):
         self.assertTrue(is_status_or_broadcast({'data': {'key': {'remoteJid': 'status@broadcast'}}}))

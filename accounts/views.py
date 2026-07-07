@@ -1,6 +1,7 @@
 import json
 import logging
 import mimetypes
+import re
 import secrets
 from hmac import compare_digest
 from datetime import timedelta
@@ -794,12 +795,46 @@ def _serialize_conversation_item(conversation):
     }
 
 
-def _serialize_message(message):
+# Mencao no texto do WhatsApp: "@<numero/LID>" (o app resolve para o nome).
+_MENTION_RE = re.compile(r'@(\d{7,})')
+
+
+def _build_mention_map(conversation):
+    """Mapa {digitos: nome} dos participantes que ja enviaram no grupo, para
+    trocar "@<numero>" pelo nome de quem foi mencionado."""
+    mapping = {}
+    rows = (
+        conversation.messages
+        .exclude(sender_id='')
+        .exclude(sender_name='')
+        .values_list('sender_id', 'sender_name')
+    )
+    for sender_id, sender_name in rows:
+        digits = ''.join(ch for ch in (sender_id or '') if ch.isdigit())
+        name = (sender_name or '').strip()
+        if digits and name and digits not in mapping:
+            mapping[digits] = name
+    return mapping
+
+
+def _resolve_mentions(text, mention_map):
+    """Substitui "@<numero>" por "@<nome>" quando conhecemos o participante."""
+    if not text or '@' not in text or not mention_map:
+        return text or ''
+
+    def repl(match):
+        name = mention_map.get(match.group(1))
+        return '@' + name if name else match.group(0)
+
+    return _MENTION_RE.sub(repl, text)
+
+
+def _serialize_message(message, mention_map=None):
     return {
         'id': message.id,
         'type': 'sent' if message.direction == 'out' else 'received',
         'kind': message.message_type,
-        'text': message.text,
+        'text': _resolve_mentions(message.text, mention_map),
         'time': timezone.localtime(message.created_at).strftime('%H:%M'),
         'status': message.status,
         'media_url': message.resolved_media_url,
@@ -962,11 +997,12 @@ def conversation_messages_view(request, conversation_id):
     messages_qs = conversation.messages.all()
     sectors = Sector.objects.all()
     attendants = Attendant.objects.select_related('user').filter(user__is_active=True)
+    mention_map = _build_mention_map(conversation) if conversation.is_group else None
 
     return JsonResponse({
         'ok': True,
         'contact': _serialize_contact_info(conversation),
-        'messages': [_serialize_message(m) for m in messages_qs],
+        'messages': [_serialize_message(m, mention_map) for m in messages_qs],
         'sectors': [{'id': s.id, 'name': s.name} for s in sectors],
         'attendants': [{'id': a.id, 'name': a.name} for a in attendants],
     })
