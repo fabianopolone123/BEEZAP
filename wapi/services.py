@@ -5,6 +5,7 @@ recebidas pelo webhook e de mensagens enviadas pelo sistema, incluindo midia
 (imagem/audio/video/documento/sticker/gif) com download seguro.
 """
 import logging
+import mimetypes
 import os
 import shutil
 import subprocess
@@ -154,8 +155,26 @@ _MIME_EXT = {
     'audio/mp4': 'm4a', 'audio/aac': 'aac', 'audio/amr': 'amr',
     'audio/wav': 'wav', 'audio/x-wav': 'wav', 'audio/webm': 'webm',
     'video/mp4': 'mp4', 'video/3gpp': '3gp', 'video/webm': 'webm', 'video/quicktime': 'mov',
+    # Documentos (Office, PDF, texto e compactados). Sem estes, docx/xlsx/etc.
+    # caiam para ".bin" ao serem salvos/baixados.
     'application/pdf': 'pdf',
+    'application/msword': 'doc',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
+    'application/vnd.ms-excel': 'xls',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
+    'application/vnd.ms-powerpoint': 'ppt',
+    'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'pptx',
+    'application/vnd.oasis.opendocument.text': 'odt',
+    'application/vnd.oasis.opendocument.spreadsheet': 'ods',
+    'application/vnd.oasis.opendocument.presentation': 'odp',
+    'application/rtf': 'rtf', 'text/rtf': 'rtf',
+    'text/plain': 'txt', 'text/csv': 'csv',
+    'application/zip': 'zip', 'application/x-7z-compressed': '7z',
+    'application/vnd.rar': 'rar', 'application/x-rar-compressed': 'rar',
 }
+
+# Extensoes seguras para derivar do nome original do arquivo (documento).
+_FILENAME_EXT_MAX = 8
 
 
 def _summary_text(message_type, text):
@@ -268,6 +287,37 @@ def _ext_for_mime(mimetype):
     return _MIME_EXT.get((mimetype or '').split(';')[0].strip().lower(), 'bin')
 
 
+def _ext_from_filename(filename):
+    """Extensao a partir do nome original (ex.: 'contrato.docx' -> 'docx')."""
+    name = (filename or '').strip()
+    _, dot, ext = name.rpartition('.')
+    if dot and 1 <= len(ext) <= _FILENAME_EXT_MAX and ext.isalnum():
+        return ext.lower()
+    return ''
+
+
+def _ext_for_media(message, mimetype):
+    """Melhor extensao para salvar a midia: nome original do documento (se houver)
+    -> mapa explicito por mimetype -> base de mimetypes do sistema -> 'bin'.
+
+    Salvar com a extensao certa faz o arquivo baixar como .docx/.pdf/.xlsx (nao
+    mais .bin) e servir com o Content-Type correto (imagem/audio/video tocam)."""
+    # 1) Documento traz o nome original em message.text (fileName do WhatsApp).
+    if message is not None and message.message_type == 'document':
+        ext = _ext_from_filename(message.text)
+        if ext:
+            return ext
+    # 2) Mapa explicito por mimetype.
+    key = (mimetype or '').split(';')[0].strip().lower()
+    if key in _MIME_EXT:
+        return _MIME_EXT[key]
+    # 3) Base de mimetypes do Python (cobre tipos menos comuns).
+    guessed = mimetypes.guess_extension(key) if key else None
+    if guessed:
+        return guessed.lstrip('.').lower()
+    return 'bin'
+
+
 def _download_to_media_file(message, file_link, mimetype):
     """Baixa o arquivo do fileLink e salva localmente em MEDIA (nao expira).
 
@@ -301,7 +351,7 @@ def _download_to_media_file(message, file_link, mimetype):
             continue
         try:
             message.media_file.save(
-                f'wapi_{message.id}.{_ext_for_mime(mimetype)}', ContentFile(data), save=False
+                f'wapi_{message.id}.{_ext_for_media(message, mimetype)}', ContentFile(data), save=False
             )
             media_logger.info(
                 'download-media: salvo local (msg=%s bytes=%s ctype=%s).',
@@ -358,7 +408,7 @@ def _try_download_media(message, media):
     # Diagnostico seguro (sem link/token): ajuda a entender falhas de play de midia.
     media_logger.info(
         'download-media: tipo=%s mimetype=%s ext=%s resultado=%s',
-        message.message_type, mimetype or '-', _ext_for_mime(mimetype), outcome,
+        message.message_type, mimetype or '-', _ext_for_media(message, mimetype), outcome,
     )
 
 

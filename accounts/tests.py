@@ -82,6 +82,40 @@ class WapiJidClassificationTests(SimpleTestCase):
         self.assertFalse(is_ignorable_jid('5516999999999@s.whatsapp.net'))
 
 
+class WapiMediaExtensionTests(SimpleTestCase):
+    """A midia deve ser salva/baixada com a extensao correta (nao .bin)."""
+
+    def _msg(self, message_type, text='', mimetype=''):
+        from accounts.models import Message
+        return Message(message_type=message_type, text=text, media_mimetype=mimetype)
+
+    def test_document_uses_original_filename_extension(self):
+        from wapi.services import _ext_for_media
+        # Mesmo sem mimetype conhecido, o nome original manda.
+        self.assertEqual(_ext_for_media(self._msg('document', 'contrato.docx'), ''), 'docx')
+        self.assertEqual(_ext_for_media(self._msg('document', 'planilha.xlsx'), ''), 'xlsx')
+        self.assertEqual(_ext_for_media(self._msg('document', 'notas.PDF'), ''), 'pdf')
+
+    def test_document_falls_back_to_mimetype(self):
+        from wapi.services import _ext_for_media
+        docx = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+        self.assertEqual(_ext_for_media(self._msg('document', 'semext', docx), docx), 'docx')
+        self.assertEqual(
+            _ext_for_media(self._msg('document', '', 'application/pdf'), 'application/pdf'),
+            'pdf',
+        )
+
+    def test_media_types_use_mimetype(self):
+        from wapi.services import _ext_for_media
+        self.assertEqual(_ext_for_media(self._msg('image', '', 'image/jpeg'), 'image/jpeg'), 'jpg')
+        self.assertEqual(_ext_for_media(self._msg('audio', '', 'audio/ogg'), 'audio/ogg'), 'ogg')
+        self.assertEqual(_ext_for_media(self._msg('video', '', 'video/mp4'), 'video/mp4'), 'mp4')
+
+    def test_unknown_falls_back_to_bin(self):
+        from wapi.services import _ext_for_media
+        self.assertEqual(_ext_for_media(self._msg('document', 'semextensao'), ''), 'bin')
+
+
 class WapiIngestIgnoreTests(TestCase):
     """Mensagens de canal (@newsletter) e transmissao (@broadcast) devem ser
     ignoradas: nenhuma conversa/contato criado."""
