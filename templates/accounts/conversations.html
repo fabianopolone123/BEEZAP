@@ -5,7 +5,7 @@
 
 {% block extra_head %}
 <link rel="stylesheet" href="{% static 'css/dashboard.css' %}?v=5">
-<link rel="stylesheet" href="{% static 'css/conversations.css' %}?v=13">
+<link rel="stylesheet" href="{% static 'css/conversations.css' %}?v=14">
 {% endblock %}
 
 {% block content %}
@@ -291,6 +291,9 @@
   var currentId = null;
   var currentStatus = 'todas';
   var currentType = 'todas';
+  var currentIsGroup = false;
+  var currentContactPhone = '';
+  var currentContactName = '';
   var pollTimer = null;
   var searchTimer = null;
 
@@ -417,14 +420,14 @@
     return nameModal;
   }
 
-  function openNameModal(number) {
+  function openNameModal(number, currentName) {
     var m = ensureNameModal();
     nameModalNumber = number;
     nameModalNumberEl.textContent = number;
-    nameModalInput.value = '';
+    nameModalInput.value = currentName || '';
     m.hidden = false;
     document.body.classList.add('conv-lightbox-open');
-    window.setTimeout(function () { nameModalInput.focus(); }, 30);
+    window.setTimeout(function () { nameModalInput.focus(); nameModalInput.select(); }, 30);
   }
 
   function closeNameModal() {
@@ -456,12 +459,28 @@
         }
         closeNameModal();
         showToast('Contato salvo como "' + name + '".', 'success');
+        // Conversa direta: atualiza o nome no cabecalho na hora.
+        if (!currentIsGroup && nameModalNumber && nameModalNumber === currentContactPhone) {
+          var chatNameEl = document.querySelector('[data-chat-name]');
+          if (chatNameEl) chatNameEl.textContent = name;
+          currentContactName = name;
+        }
         refreshOpenMessages();  // reexibe as mensagens com o nome no lugar do numero
         refreshList(true);
       })
       .catch(function () {
         showToast('Nao foi possivel salvar o contato. Tente novamente.', 'error');
       });
+  }
+
+  // Clicar no nome do contato no cabecalho (conversa direta) abre o modal para
+  // renomear; o nome vale no contato e aparece na lista e nas mensagens.
+  var chatNameHeader = document.querySelector('[data-chat-name]');
+  if (chatNameHeader) {
+    chatNameHeader.addEventListener('click', function () {
+      if (currentIsGroup || !currentContactPhone) return;
+      openNameModal(currentContactPhone, currentContactName);
+    });
   }
 
   // Carrega a capa do video (primeiro quadro) so quando ela entra em tela,
@@ -731,6 +750,10 @@
 
   function fillInfo(contact, sectors, attendants) {
     var isGroup = !!contact.is_group;
+    // Guarda o contexto da conversa aberta (usado para editar o nome no cabecalho).
+    currentIsGroup = isGroup;
+    currentContactPhone = isGroup ? '' : (contact.phone || '');
+    currentContactName = contact.name || '';
     document.querySelector('[data-chat-initials]').textContent = contact.initials;
 
     var chatName = document.querySelector('[data-chat-name]');
@@ -742,6 +765,8 @@
       chatName.appendChild(headerBadge);
     }
     chatName.appendChild(document.createTextNode(contact.name));
+    // Em conversa direta, o nome vira clicavel para editar o contato.
+    chatName.classList.toggle('conv-chat-name-editable', !isGroup && !!contact.phone);
 
     document.querySelector('[data-chat-phone]').textContent = isGroup ? 'Conversa em grupo' : contact.phone;
     document.querySelector('[data-chat-status]').textContent = '● ' + contact.status_label;

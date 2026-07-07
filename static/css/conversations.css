@@ -600,6 +600,18 @@
   color: #15213d;
 }
 
+/* Conversa direta: nome do contato clicavel para renomear. */
+.conv-chat-name-editable {
+  cursor: pointer;
+  text-decoration: underline dotted transparent;
+  text-underline-offset: 3px;
+  transition: text-decoration-color 0.15s;
+}
+
+.conv-chat-name-editable:hover {
+  text-decoration-color: #94a3b8;
+}
+
 .conv-chat-phone {
   font-size: 0.78rem;
   color: #64748b;
