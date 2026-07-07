@@ -296,15 +296,32 @@ def _ext_from_filename(filename):
     return ''
 
 
+def document_filename(message):
+    """Nome ORIGINAL do documento (fileName do WhatsApp), lido do payload salvo.
+
+    Fica separado da legenda: quando o documento vem com caption, `message.text`
+    guarda a legenda, mas o download precisa do nome/extensao reais do arquivo.
+    Cai para `message.text` quando o payload nao traz fileName (compatibilidade).
+    """
+    if message is None or message.message_type != 'document':
+        return ''
+    if isinstance(message.raw_payload, dict):
+        name = (parse_wapi_media(message.raw_payload).get('filename') or '').strip()
+        if name:
+            return name
+    return (message.text or '').strip()
+
+
 def _ext_for_media(message, mimetype):
     """Melhor extensao para salvar a midia: nome original do documento (se houver)
     -> mapa explicito por mimetype -> base de mimetypes do sistema -> 'bin'.
 
     Salvar com a extensao certa faz o arquivo baixar como .docx/.pdf/.xlsx (nao
-    mais .bin) e servir com o Content-Type correto (imagem/audio/video tocam)."""
-    # 1) Documento traz o nome original em message.text (fileName do WhatsApp).
+    mais .bin) e servir com o Content-Type correto (imagem/audio/video tocam).
+    Qualquer extensao vinda do nome original e aceita (nao depende do mapa)."""
+    # 1) Documento: usa a extensao do nome ORIGINAL do arquivo (qualquer tipo).
     if message is not None and message.message_type == 'document':
-        ext = _ext_from_filename(message.text)
+        ext = _ext_from_filename(document_filename(message))
         if ext:
             return ext
     # 2) Mapa explicito por mimetype.

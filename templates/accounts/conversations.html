@@ -489,12 +489,16 @@
       var link = document.createElement('a');
       link.className = 'conv-media-doc'; link.href = url;
       link.target = '_blank'; link.rel = 'noopener';
-      var fname = (msg.text && msg.text.trim()) ? msg.text.trim() : '';
-      link.textContent = '📄 ' + (fname || 'Baixar documento');
+      // Nome real do arquivo (vem separado da legenda) para o download; o texto
+      // exibido pode ser a legenda ou, na falta dela, o proprio nome.
+      var realName = (msg.filename && msg.filename.trim()) ? msg.filename.trim() : '';
+      var label = (msg.text && msg.text.trim()) ? msg.text.trim() : (realName || 'Baixar documento');
+      link.textContent = '📄 ' + label;
       // Baixa com o nome/extensao originais (ex.: contrato.docx), em vez do nome
       // do arquivo salvo no servidor (que pode ser .bin). So funciona same-origin,
       // que e o caso do arquivo local em /media/.
-      if (fname) link.download = fname;
+      var dlName = realName || ((msg.text && msg.text.trim()) ? msg.text.trim() : '');
+      if (dlName) link.download = dlName;
       bubble.appendChild(link);
       return;
     }

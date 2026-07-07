@@ -412,8 +412,9 @@ _MEDIA_CONTENT_TYPES = (
 def parse_wapi_media(payload):
     """Detecta o tipo normalizado da mensagem e os metadados de midia.
 
-    Retorna: message_type, caption, media_mimetype, media_key, direct_path,
-    media_url, reaction. Defensivo: nunca quebra e cai em 'text'/'unknown'.
+    Retorna: message_type, caption, filename, media_mimetype, media_key,
+    direct_path, media_url, reaction. Defensivo: nunca quebra e cai em
+    'text'/'unknown'.
     """
     if not isinstance(payload, dict):
         payload = {}
@@ -421,6 +422,7 @@ def parse_wapi_media(payload):
     result = {
         'message_type': 'text',
         'caption': '',
+        'filename': '',
         'media_mimetype': '',
         'media_key': '',
         'direct_path': '',
@@ -452,6 +454,9 @@ def parse_wapi_media(payload):
             result['media_key'] = _as_text(node.get('mediaKey'))
             result['direct_path'] = _as_text(node.get('directPath'))
             result['media_url'] = _as_text(node.get('url'))
+            # Nome real do arquivo (documento) separado da legenda, para baixar
+            # com o nome/extensao originais mesmo quando ha caption.
+            result['filename'] = _as_text(node.get('fileName'))
             result['caption'] = _as_text(node.get('caption') or node.get('fileName'))
             return result
 

@@ -115,6 +115,26 @@ class WapiMediaExtensionTests(SimpleTestCase):
         from wapi.services import _ext_for_media
         self.assertEqual(_ext_for_media(self._msg('document', 'semextensao'), ''), 'bin')
 
+    def test_any_extension_from_filename_even_if_unknown_type(self):
+        # Extensao fora de qualquer lista (ex.: CAD .dwg) deve ser preservada.
+        from wapi.services import _ext_for_media
+        self.assertEqual(_ext_for_media(self._msg('document', 'planta.dwg'), ''), 'dwg')
+        self.assertEqual(_ext_for_media(self._msg('document', 'arte.psd'), ''), 'psd')
+
+    def test_document_with_caption_still_uses_real_filename(self):
+        # BRECHA: documento com legenda -> message.text guarda a legenda, mas o
+        # nome/extensao reais vem do fileName no payload.
+        from accounts.models import Message
+        from wapi.services import _ext_for_media, document_filename
+        payload = {'msgContent': {'documentMessage': {
+            'fileName': 'contrato assinado.docx',
+            'caption': 'segue o contrato',
+            'mimetype': 'application/octet-stream',
+        }}}
+        msg = Message(message_type='document', text='segue o contrato', raw_payload=payload)
+        self.assertEqual(document_filename(msg), 'contrato assinado.docx')
+        self.assertEqual(_ext_for_media(msg, 'application/octet-stream'), 'docx')
+
 
 class WapiIngestIgnoreTests(TestCase):
     """Mensagens de canal (@newsletter) e transmissao (@broadcast) devem ser

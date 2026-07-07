@@ -55,6 +55,7 @@ from wapi.client import (
 from wapi.parser import parse_wapi_webhook_payload
 from wapi.services import (
     convert_audio_to_ogg,
+    document_filename,
     ingest_wapi_payload,
     retry_conversation_media_async,
     save_outgoing_media_message,
@@ -804,6 +805,8 @@ def _serialize_message(message):
         'media_url': message.resolved_media_url,
         'media_mimetype': message.media_mimetype,
         'media_status': message.media_status,
+        # Nome real do arquivo (documento) para baixar com nome/extensao corretos.
+        'filename': document_filename(message) if message.message_type == 'document' else '',
         # Em grupo, o front mostra o nome de quem enviou acima da mensagem.
         'is_group': message.is_group,
         'from_me': message.from_me,
