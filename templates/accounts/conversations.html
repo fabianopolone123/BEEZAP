@@ -5,7 +5,7 @@
 
 {% block extra_head %}
 <link rel="stylesheet" href="{% static 'css/dashboard.css' %}?v=5">
-<link rel="stylesheet" href="{% static 'css/conversations.css' %}?v=10">
+<link rel="stylesheet" href="{% static 'css/conversations.css' %}?v=11">
 {% endblock %}
 
 {% block content %}
@@ -70,14 +70,12 @@
           </div>
 
           <div class="conv-head-actions">
-            <button type="button" class="conv-notif-toggle" data-notif-toggle title="Ativar notificacoes do navegador">
+            <button type="button" class="conv-icon-btn conv-notif-toggle" data-notif-toggle title="Notificacoes do navegador" aria-label="Notificacoes do navegador">
               <span data-notif-icon aria-hidden="true">🔔</span>
-              <span data-notif-label>Notificações</span>
             </button>
 
-            <button type="button" class="conv-sound-toggle" data-sound-toggle title="Ativar/desativar aviso sonoro de novas mensagens">
+            <button type="button" class="conv-icon-btn conv-sound-toggle" data-sound-toggle title="Aviso sonoro de novas mensagens" aria-label="Aviso sonoro de novas mensagens">
               <span data-sound-icon aria-hidden="true">🔊</span>
-              <span data-sound-label>Som</span>
             </button>
 
             <button type="button" class="conv-sync-groups" data-sync-groups title="Atualizar os nomes dos grupos pela W-API">
@@ -1269,7 +1267,7 @@
         showToast('Notificacoes ja estao ativadas.', 'success');
         showDesktopTestNotification();
       } else if (s === 'denied') {
-        showToast('Notificacoes bloqueadas. Clique no cadeado da barra de endereco e permita as notificacoes deste site.', 'error');
+        showToast('Notificacoes bloqueadas no navegador. Reative no cadeado ao lado do endereco (Configuracoes do site).', 'error');
       } else {
         requestNotifyPermission(); // 'default' -> pede a permissao (gesto do usuario)
       }
@@ -1352,6 +1350,9 @@
     if (soundToggle) {
       soundToggle.classList.toggle('off', !soundEnabled);
       soundToggle.setAttribute('aria-pressed', soundEnabled ? 'true' : 'false');
+      soundToggle.title = soundEnabled
+        ? 'Aviso sonoro ativado (clique para desativar)'
+        : 'Aviso sonoro desativado (clique para ativar)';
     }
   }
   if (soundToggle) {
