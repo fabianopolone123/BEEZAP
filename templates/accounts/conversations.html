@@ -5,7 +5,7 @@
 
 {% block extra_head %}
 <link rel="stylesheet" href="{% static 'css/dashboard.css' %}?v=5">
-<link rel="stylesheet" href="{% static 'css/conversations.css' %}?v=11">
+<link rel="stylesheet" href="{% static 'css/conversations.css' %}?v=12">
 {% endblock %}
 
 {% block content %}
@@ -78,11 +78,10 @@
               <span data-sound-icon aria-hidden="true">🔊</span>
             </button>
 
-            <button type="button" class="conv-sync-groups" data-sync-groups title="Atualizar os nomes dos grupos pela W-API">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <button type="button" class="conv-icon-btn conv-refresh-btn" data-refresh-all title="Atualizar: nomes de grupos e midias que nao carregaram" aria-label="Atualizar conversas">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
               </svg>
-              <span>Sincronizar grupos</span>
             </button>
           </div>
 
@@ -281,7 +280,7 @@
   var searchEl = document.querySelector('[data-conv-search]');
   var chipEls = document.querySelectorAll('[data-filter]');
   var typeTabEls = document.querySelectorAll('[data-type-filter]');
-  var syncGroupsBtn = document.querySelector('[data-sync-groups]');
+  var refreshBtn = document.querySelector('[data-refresh-all]');
   var listEmptyEl = document.querySelector('[data-conv-list-empty]');
 
   var infoEmpty = document.querySelector('[data-info-empty]');
@@ -670,10 +669,9 @@
     placeholderEl.hidden = true;
     panelEl.hidden = false;
 
-    // '?retry=1' pede ao servidor para tentar rebaixar (em background) as midias
-    // que falharam na chegada. So aqui, na abertura — o poll nao envia, para nao
-    // virar um loop automatico.
-    fetch(urlFor(id, 'mensagens') + '?retry=1', {headers: {'X-Requested-With': 'XMLHttpRequest'}})
+    // Apenas carrega as mensagens (sem retry): a retentativa de midias que
+    // falharam agora e feita sob demanda pelo botao "Atualizar".
+    fetch(urlFor(id, 'mensagens'), {headers: {'X-Requested-With': 'XMLHttpRequest'}})
       .then(function (r) { if (!r.ok) throw new Error('fail'); return r.json(); })
       .then(function (data) {
         if (!data.ok) throw new Error('fail');
@@ -859,28 +857,47 @@
     });
   });
 
-  /* ---------- Sincronizar nomes dos grupos com a W-API ---------- */
-  if (syncGroupsBtn) {
-    syncGroupsBtn.addEventListener('click', function () {
-      syncGroupsBtn.disabled = true;
-      fetch(base + 'sincronizar-grupos/', {
+  /* ---------- Botao "Atualizar": nomes de grupos + midias que falharam ---------- */
+  if (refreshBtn) {
+    refreshBtn.addEventListener('click', function () {
+      refreshBtn.disabled = true;
+      refreshBtn.classList.add('spinning');
+
+      // 1) Sincroniza os nomes reais dos grupos pela W-API.
+      var syncGroups = fetch(base + 'sincronizar-grupos/', {
         method: 'POST',
         headers: {'X-CSRFToken': csrf, 'X-Requested-With': 'XMLHttpRequest'},
       })
         .then(function (r) { return r.json().then(function (d) { return {ok: r.ok, data: d}; }); })
-        .then(function (res) {
-          if (!res.data || !res.data.ok) {
-            showToast((res.data && res.data.error) || 'Nao foi possivel sincronizar os grupos.', 'error');
-            return;
+        .catch(function () { return {ok: false}; });
+
+      // 2) Recarrega a conversa aberta pedindo (?retry=1) a retentativa em
+      // background das midias que nao carregaram.
+      var reloadOpen;
+      if (currentId) {
+        reloadOpen = fetch(urlFor(currentId, 'mensagens') + '?retry=1', {headers: {'X-Requested-With': 'XMLHttpRequest'}})
+          .then(function (r) { return r.ok ? r.json() : null; })
+          .then(function (data) { if (data && data.ok) renderMessages(data.messages); })
+          .catch(function () {});
+      } else {
+        reloadOpen = Promise.resolve();
+      }
+
+      Promise.all([syncGroups, reloadOpen])
+        .then(function (results) {
+          var g = results[0];
+          if (g && g.data && g.data.ok) {
+            var n = g.data.updated || 0;
+            showToast(n > 0 ? ('Atualizado — ' + n + ' grupo(s) renomeado(s).') : 'Conversas atualizadas.', 'success');
+          } else {
+            showToast('Conversas atualizadas.', 'success');
           }
-          var n = res.data.updated || 0;
-          showToast(n > 0 ? (n + ' grupo(s) atualizado(s).') : 'Grupos ja estao atualizados.', 'success');
           refreshList(true);
         })
-        .catch(function () {
-          showToast('Nao foi possivel sincronizar os grupos.', 'error');
-        })
-        .finally(function () { syncGroupsBtn.disabled = false; });
+        .finally(function () {
+          refreshBtn.disabled = false;
+          refreshBtn.classList.remove('spinning');
+        });
     });
   }
 

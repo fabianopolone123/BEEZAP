@@ -268,32 +268,18 @@
   opacity: 0.5;
 }
 
-.conv-sync-groups {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  align-self: flex-end;
-  padding: 4px 10px;
-  border: 1px solid rgba(15, 23, 42, 0.1);
-  border-radius: 8px;
-  background: #fff;
-  font-family: inherit;
-  font-size: 0.74rem;
-  font-weight: 600;
-  color: #64748b;
-  cursor: pointer;
-  transition: background 0.18s, color 0.18s, border-color 0.18s;
-}
-
-.conv-sync-groups:hover:not(:disabled) {
-  background: #f0fdf4;
-  border-color: #21c25e;
-  color: #0d8d43;
-}
-
-.conv-sync-groups:disabled {
+/* Botao "Atualizar" (nomes de grupos + retentar midias). Gira ao processar. */
+.conv-icon-btn:disabled {
   opacity: 0.55;
   cursor: default;
+}
+
+.conv-refresh-btn.spinning svg {
+  animation: conv-spin 0.8s linear infinite;
+}
+
+@keyframes conv-spin {
+  to { transform: rotate(360deg); }
 }
 
 /* Selo "Grupo" (lista e cabecalho do chat) */
