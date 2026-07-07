@@ -54,25 +54,57 @@ def _only_digits(value):
     return ''.join(ch for ch in str(value) if ch.isdigit())
 
 
+# Sufixos de JID que NAO representam telefone de uma pessoa: grupo (@g.us),
+# identificador interno (@lid), canal/newsletter (@newsletter) e transmissao
+# (@broadcast, inclusive "status@broadcast").
+_NON_PERSONAL_JID_SUFFIXES = ('@g.us', '@lid', '@newsletter', '@broadcast')
+
+# Telefone real (E.164) tem no maximo 15 digitos. IDs internos do WhatsApp de
+# grupo/canal ("120363...") sao mais longos e NAO sao telefone.
+_MAX_PHONE_DIGITS = 15
+
+
 def normalize_phone(value):
     """Extrai apenas os digitos do telefone (DDI + DDD + numero).
 
     "5516999999999@s.whatsapp.net" -> "5516999999999"
     "+55 (16) 99999-9999"          -> "5516999999999"
-    Retorna vazio se nao houver numero valido.
+    Retorna vazio se nao houver numero valido (grupo/canal/transmissao/LID, ou
+    id interno longo demais para ser telefone, como "120363...").
     """
     text = _as_text(value)
     if not text:
         return ''
-    # Grupo (@g.us) e identificador interno LID (@lid) nao sao telefone de pessoa.
+    # Grupo/canal/transmissao/LID nao sao telefone de pessoa.
     low = text.lower()
-    if '@g.us' in low or '@lid' in low:
+    if any(suffix in low for suffix in _NON_PERSONAL_JID_SUFFIXES):
         return ''
     # Remove sufixos de JID do WhatsApp e identificador de dispositivo.
     text = text.split('@', 1)[0].split(':', 1)[0]
     digits = _only_digits(text)
-    # Um telefone real tem pelo menos DDI+DDD+numero; evita capturar ruido.
-    return digits if len(digits) >= 8 else ''
+    # Telefone real tem DDI+DDD+numero e no maximo 15 digitos; fora disso e ruido
+    # ou id interno do WhatsApp (ex.: JID numerico de grupo/canal).
+    if len(digits) < 8 or len(digits) > _MAX_PHONE_DIGITS:
+        return ''
+    return digits
+
+
+def is_group_jid(value):
+    """True para IDs que representam conversa coletiva/nao-pessoal: grupo (@g.us),
+    canal (@newsletter) ou transmissao (@broadcast), e tambem o id numerico
+    interno "pelado" do WhatsApp (ex.: "120363...") que as vezes chega sem sufixo.
+
+    JIDs de pessoa (@s.whatsapp.net, @c.us, @lid) sao considerados DIRETOS.
+    """
+    text = _as_text(value).lower()
+    if not text:
+        return False
+    if text.endswith('@g.us') or text.endswith('@newsletter') or text.endswith('@broadcast'):
+        return True
+    if '@' in text:
+        return False  # outro JID com sufixo (ex.: @lid, @s.whatsapp.net) = direto
+    # Numero "pelado" longo demais para telefone => JID interno (grupo/canal).
+    return len(_only_digits(text)) > _MAX_PHONE_DIGITS
 
 
 def _deep_find(node, target_keys, validate):
@@ -582,8 +614,9 @@ def normalize_wapi_message_context(payload):
     if not isinstance(payload, dict):
         payload = {}
 
-    # 1) chat_id real. Um JID de grupo (@g.us) tem prioridade sobre qualquer
-    # telefone/remetente, esteja em que posicao estiver nos candidatos.
+    # 1) chat_id real. Um JID coletivo/nao-pessoal (grupo @g.us, canal
+    # @newsletter, transmissao @broadcast ou id numerico interno longo) tem
+    # prioridade sobre qualquer telefone/remetente, em qualquer posicao.
     chat_id = ''
     source = None
     first_chat_id = ''
@@ -594,13 +627,13 @@ def normalize_wapi_message_context(payload):
             continue
         if not first_chat_id:
             first_chat_id, first_source = value, path
-        if value.lower().endswith('@g.us'):
+        if is_group_jid(value):
             chat_id, source = value, path
             break
     if not chat_id:
         chat_id, source = first_chat_id, first_source
 
-    is_group = chat_id.lower().endswith('@g.us')
+    is_group = is_group_jid(chat_id)
     chat_type = 'group' if is_group else 'private'
 
     # 2) Participante/remetente individual. Em conversa direta o remetente e o

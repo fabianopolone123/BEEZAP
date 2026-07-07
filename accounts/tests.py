@@ -3,10 +3,72 @@ from unittest.mock import patch
 
 from django.contrib.messages import get_messages
 from django.contrib.auth.hashers import check_password
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase
 from django.urls import reverse
 
+from wapi.parser import is_group_jid, normalize_phone, normalize_wapi_message_context
+
 from .models import Attendant, PasswordResetCode, User
+
+
+class WapiJidClassificationTests(SimpleTestCase):
+    """Grupo/canal/transmissao nunca podem virar 'telefone' nem conversa direta.
+
+    Regressao do caso em que um canal/grupo (JID numerico interno "120363...",
+    18 digitos) chegou como conversa DIRETA, criando um contato com telefone
+    invalido.
+    """
+
+    GROUP_LIKE_JID = '120363144038483540'  # id interno do WhatsApp (nao e telefone)
+
+    def test_normalize_phone_accepts_real_phone(self):
+        self.assertEqual(normalize_phone('5516999999999@s.whatsapp.net'), '5516999999999')
+        self.assertEqual(normalize_phone('+55 (16) 99999-9999'), '5516999999999')
+
+    def test_normalize_phone_rejects_non_personal_jids(self):
+        self.assertEqual(normalize_phone(self.GROUP_LIKE_JID + '@g.us'), '')
+        self.assertEqual(normalize_phone(self.GROUP_LIKE_JID + '@newsletter'), '')
+        self.assertEqual(normalize_phone('status@broadcast'), '')
+        self.assertEqual(normalize_phone('183545595199545@lid'), '')
+
+    def test_normalize_phone_rejects_internal_id_too_long_for_phone(self):
+        # 18 digitos "pelados": id interno de grupo/canal, nunca telefone.
+        self.assertEqual(normalize_phone(self.GROUP_LIKE_JID), '')
+
+    def test_is_group_jid(self):
+        self.assertTrue(is_group_jid(self.GROUP_LIKE_JID + '@g.us'))
+        self.assertTrue(is_group_jid(self.GROUP_LIKE_JID + '@newsletter'))
+        self.assertTrue(is_group_jid('status@broadcast'))
+        self.assertTrue(is_group_jid(self.GROUP_LIKE_JID))  # bare, longo demais
+        self.assertFalse(is_group_jid('5516999999999'))
+        self.assertFalse(is_group_jid('5516999999999@s.whatsapp.net'))
+        self.assertFalse(is_group_jid('183545595199545@lid'))
+
+    def test_newsletter_message_is_not_a_direct_conversation(self):
+        ctx = normalize_wapi_message_context(
+            {'data': {'key': {'remoteJid': self.GROUP_LIKE_JID + '@newsletter'}}}
+        )
+        self.assertTrue(ctx['is_group'])
+        self.assertEqual(ctx['chat_type'], 'group')
+
+    def test_bare_internal_id_is_not_a_direct_conversation(self):
+        ctx = normalize_wapi_message_context({'sender': {'id': self.GROUP_LIKE_JID}})
+        self.assertTrue(ctx['is_group'])
+        self.assertEqual(ctx['chat_type'], 'group')
+
+    def test_real_direct_message_still_private(self):
+        ctx = normalize_wapi_message_context({'sender': {'id': '5516999999999'}})
+        self.assertFalse(ctx['is_group'])
+        self.assertEqual(ctx['chat_type'], 'private')
+        self.assertEqual(ctx['sender_id'], '5516999999999')
+
+    def test_real_group_still_group(self):
+        ctx = normalize_wapi_message_context(
+            {'data': {'key': {'remoteJid': self.GROUP_LIKE_JID + '@g.us',
+                              'participant': '5516999999999@s.whatsapp.net'}}}
+        )
+        self.assertTrue(ctx['is_group'])
+        self.assertEqual(ctx['sender_id'], '5516999999999')
 
 
 class AttendantsViewTests(TestCase):
