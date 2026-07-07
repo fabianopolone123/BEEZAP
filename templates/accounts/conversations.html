@@ -5,7 +5,7 @@
 
 {% block extra_head %}
 <link rel="stylesheet" href="{% static 'css/dashboard.css' %}?v=5">
-<link rel="stylesheet" href="{% static 'css/conversations.css' %}?v=7">
+<link rel="stylesheet" href="{% static 'css/conversations.css' %}?v=8">
 {% endblock %}
 
 {% block content %}
@@ -313,6 +313,84 @@
     return base + id + '/' + suffix + '/';
   }
 
+  /* ---------- Lightbox (foto/video em tela grande) ---------- */
+  var lightbox = null;
+  function ensureLightbox() {
+    if (lightbox) return lightbox;
+    lightbox = document.createElement('div');
+    lightbox.className = 'conv-lightbox';
+    lightbox.hidden = true;
+    var inner = document.createElement('div');
+    inner.className = 'conv-lightbox-inner';
+    var closeBtn = document.createElement('button');
+    closeBtn.type = 'button';
+    closeBtn.className = 'conv-lightbox-close';
+    closeBtn.setAttribute('aria-label', 'Fechar');
+    closeBtn.textContent = '×';
+    var stage = document.createElement('div');
+    stage.className = 'conv-lightbox-stage';
+    inner.appendChild(closeBtn);
+    inner.appendChild(stage);
+    lightbox.appendChild(inner);
+    lightbox._stage = stage;
+    // Fecha ao clicar no fundo (fora da midia) ou no X; nao fecha ao clicar na midia.
+    lightbox.addEventListener('click', function (e) {
+      if (e.target === lightbox || e.target === inner || e.target === closeBtn) closeLightbox();
+    });
+    document.body.appendChild(lightbox);
+    return lightbox;
+  }
+
+  function closeLightbox() {
+    if (!lightbox || lightbox.hidden) return;
+    lightbox._stage.replaceChildren(); // remove o <video> -> interrompe play/download
+    lightbox.hidden = true;
+    document.body.classList.remove('conv-lightbox-open');
+  }
+
+  function openLightbox(kind, url) {
+    var lb = ensureLightbox();
+    var stage = lb._stage;
+    stage.replaceChildren();
+    if (kind === 'video') {
+      var v = document.createElement('video');
+      v.src = url; v.controls = true; v.autoplay = true; v.playsInline = true;
+      v.className = 'conv-lightbox-video';
+      stage.appendChild(v);
+    } else {
+      var img = document.createElement('img');
+      img.src = url; img.alt = 'imagem'; img.className = 'conv-lightbox-img';
+      stage.appendChild(img);
+    }
+    lb.hidden = false;
+    document.body.classList.add('conv-lightbox-open');
+  }
+
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') closeLightbox();
+  });
+
+  // Carrega a capa do video (primeiro quadro) so quando ela entra em tela,
+  // evitando baixar metadados de dezenas de videos de uma vez (performance).
+  var posterObserver = null;
+  function observeLazyPoster(video) {
+    if (!('IntersectionObserver' in window)) {
+      if (video.dataset.src) { video.preload = 'metadata'; video.src = video.dataset.src; }
+      return;
+    }
+    if (!posterObserver) {
+      posterObserver = new IntersectionObserver(function (entries) {
+        entries.forEach(function (entry) {
+          if (!entry.isIntersecting) return;
+          var v = entry.target;
+          if (v.dataset.src && !v.src) { v.preload = 'metadata'; v.src = v.dataset.src; }
+          posterObserver.unobserve(v);
+        });
+      }, {root: messagesEl, rootMargin: '250px'});
+    }
+    posterObserver.observe(video);
+  }
+
   /* ---------- Render de mensagens ---------- */
   function appendText(parent, text) {
     // Texto seguro (sem HTML), preservando quebras de linha.
@@ -339,6 +417,15 @@
       var img = document.createElement('img');
       img.className = 'conv-media-img' + (kind === 'sticker' ? ' conv-media-sticker' : '');
       img.src = url; img.alt = kind; img.loading = 'lazy';
+      // Foto/gif-imagem: clicar abre grande no lightbox (figurinha fica so inline).
+      if (kind !== 'sticker') {
+        img.setAttribute('role', 'button');
+        img.setAttribute('tabindex', '0');
+        img.addEventListener('click', function () { openLightbox('image', url); });
+        img.addEventListener('keydown', function (e) {
+          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openLightbox('image', url); }
+        });
+      }
       bubble.appendChild(img);
     } else if (kind === 'audio') {
       var audio = document.createElement('audio');
@@ -364,10 +451,39 @@
       audio.addEventListener('error', function () { audioDl.hidden = false; });
       bubble.appendChild(audio);
       bubble.appendChild(audioDl);
-    } else if (kind === 'video' || kind === 'gif') {
+    } else if (kind === 'video') {
+      // Miniatura leve (nao baixa o video inteiro): mostra o primeiro quadro e
+      // um botao de play; clicar abre o video grande no lightbox.
+      var thumb = document.createElement('div');
+      thumb.className = 'conv-media-video-thumb';
+      thumb.setAttribute('role', 'button');
+      thumb.setAttribute('tabindex', '0');
+      thumb.setAttribute('aria-label', 'Abrir video');
+      var poster = document.createElement('video');
+      poster.className = 'conv-media-video-poster';
+      poster.muted = true;
+      poster.preload = 'none';
+      poster.tabIndex = -1;
+      poster.setAttribute('playsinline', '');
+      // '#t=0.1' faz o navegador exibir o 1o quadro como capa, sem tocar.
+      poster.dataset.src = url + '#t=0.1';
+      observeLazyPoster(poster);
+      var play = document.createElement('span');
+      play.className = 'conv-media-play';
+      play.setAttribute('aria-hidden', 'true');
+      thumb.appendChild(poster);
+      thumb.appendChild(play);
+      thumb.addEventListener('click', function () { openLightbox('video', url); });
+      thumb.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openLightbox('video', url); }
+      });
+      bubble.appendChild(thumb);
+    } else if (kind === 'gif') {
+      // GIF (mp4 curto) mantem o loop automatico silencioso, como no WhatsApp.
       var video = document.createElement('video');
-      video.src = url; video.className = 'conv-media-video'; video.controls = true;
-      if (kind === 'gif') { video.loop = true; video.muted = true; video.autoplay = true; video.controls = false; }
+      video.src = url; video.className = 'conv-media-video';
+      video.loop = true; video.muted = true; video.autoplay = true;
+      video.controls = false; video.playsInline = true;
       bubble.appendChild(video);
     } else if (kind === 'document') {
       var link = document.createElement('a');
@@ -455,6 +571,8 @@
 
   // Render COMPLETO — usado ao abrir uma conversa (troca tudo de uma vez).
   function renderMessages(messages) {
+    // Troca de conversa: descarta o observer antigo (os posters serao recriados).
+    if (posterObserver) { posterObserver.disconnect(); posterObserver = null; }
     var frag = document.createDocumentFragment();
     messages.forEach(function (msg) { frag.appendChild(buildMessageEl(msg)); });
     messagesEl.replaceChildren(frag);

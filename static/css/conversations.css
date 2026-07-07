@@ -1126,6 +1126,137 @@
   border-radius: 10px;
 }
 
+/* Miniatura de video: capa (1o quadro) + botao de play; abre no lightbox. */
+.conv-media-video-thumb {
+  position: relative;
+  display: block;
+  width: 240px;
+  max-width: 100%;
+  border-radius: 10px;
+  overflow: hidden;
+  cursor: pointer;
+  background: #0b1220;
+  line-height: 0;
+}
+
+.conv-media-video-poster {
+  display: block;
+  width: 100%;
+  height: 180px;
+  object-fit: cover;
+  pointer-events: none;
+  background: #0b1220;
+}
+
+.conv-media-play {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s ease, transform 0.15s ease;
+}
+
+.conv-media-play::before {
+  content: "";
+  display: block;
+  margin-left: 4px;
+  border-style: solid;
+  border-width: 10px 0 10px 17px;
+  border-color: transparent transparent transparent #fff;
+}
+
+.conv-media-video-thumb:hover .conv-media-play,
+.conv-media-video-thumb:focus-visible .conv-media-play {
+  background: rgba(0, 0, 0, 0.72);
+  transform: translate(-50%, -50%) scale(1.08);
+}
+
+.conv-media-video-thumb:focus-visible {
+  outline: 2px solid #6366f1;
+  outline-offset: 2px;
+}
+
+/* Lightbox: foto/video em tela grande sobre um fundo escurecido. */
+.conv-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(8, 12, 20, 0.85);
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
+}
+
+.conv-lightbox[hidden] {
+  display: none;
+}
+
+.conv-lightbox-inner {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  max-width: 92vw;
+  max-height: 92vh;
+}
+
+.conv-lightbox-stage {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  max-width: 92vw;
+  max-height: 92vh;
+}
+
+.conv-lightbox-img,
+.conv-lightbox-video {
+  display: block;
+  max-width: 92vw;
+  max-height: 92vh;
+  width: auto;
+  height: auto;
+  border-radius: 8px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  background: #000;
+}
+
+.conv-lightbox-close {
+  position: absolute;
+  top: -14px;
+  right: -14px;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: none;
+  background: #fff;
+  color: #15213d;
+  font-size: 1.6rem;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+}
+
+.conv-lightbox-close:hover {
+  background: #f1f5f9;
+}
+
+body.conv-lightbox-open {
+  overflow: hidden;
+}
+
 .conv-media-doc {
   display: inline-flex;
   align-items: center;
