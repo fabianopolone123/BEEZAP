@@ -5,7 +5,7 @@
 
 {% block extra_head %}
 <link rel="stylesheet" href="{% static 'css/dashboard.css' %}?v=5">
-<link rel="stylesheet" href="{% static 'css/conversations.css' %}?v=9">
+<link rel="stylesheet" href="{% static 'css/conversations.css' %}?v=10">
 {% endblock %}
 
 {% block content %}
@@ -70,6 +70,11 @@
           </div>
 
           <div class="conv-head-actions">
+            <button type="button" class="conv-notif-toggle" data-notif-toggle title="Ativar notificacoes do navegador">
+              <span data-notif-icon aria-hidden="true">🔔</span>
+              <span data-notif-label>Notificações</span>
+            </button>
+
             <button type="button" class="conv-sound-toggle" data-sound-toggle title="Ativar/desativar aviso sonoro de novas mensagens">
               <span data-sound-icon aria-hidden="true">🔊</span>
               <span data-sound-label>Som</span>
@@ -1198,12 +1203,82 @@
   document.addEventListener('keydown', firstGestureUnlock);
 
   /* ---------- Permissao e pop-up do desktop ---------- */
-  function canNotify() {
-    return ('Notification' in window) && Notification.permission === 'granted';
+  var notifToggle = document.querySelector('[data-notif-toggle]');
+  var notifIcon = document.querySelector('[data-notif-icon]');
+  var notifLabel = document.querySelector('[data-notif-label]');
+
+  function notifState() {
+    if (!('Notification' in window)) return 'unsupported';
+    return Notification.permission; // 'granted' | 'denied' | 'default'
   }
-  function ensureNotifyPermission() {
-    if (('Notification' in window) && Notification.permission === 'default') {
-      try { Notification.requestPermission(); } catch (e) {}
+
+  function canNotify() {
+    return notifState() === 'granted';
+  }
+
+  // Reflete o estado da permissao no botao (verde=ativa, ambar=ativar, vermelho=bloqueada).
+  function setNotifUI() {
+    if (!notifToggle) return;
+    var s = notifState();
+    if (s === 'unsupported') { notifToggle.style.display = 'none'; return; }
+    notifToggle.classList.toggle('on', s === 'granted');
+    notifToggle.classList.toggle('off', s === 'default');
+    notifToggle.classList.toggle('blocked', s === 'denied');
+    if (s === 'granted') {
+      if (notifIcon) notifIcon.textContent = '🔔';
+      if (notifLabel) notifLabel.textContent = 'Notificações ativas';
+      notifToggle.title = 'Notificacoes do navegador ativas';
+    } else if (s === 'default') {
+      if (notifIcon) notifIcon.textContent = '🔔';
+      if (notifLabel) notifLabel.textContent = 'Ativar notificações';
+      notifToggle.title = 'Clique para ativar as notificacoes do navegador';
+    } else {
+      if (notifIcon) notifIcon.textContent = '🔕';
+      if (notifLabel) notifLabel.textContent = 'Notificações bloqueadas';
+      notifToggle.title = 'Notificacoes bloqueadas — libere no cadeado da barra de endereco';
+    }
+    notifToggle.setAttribute('aria-pressed', s === 'granted' ? 'true' : 'false');
+  }
+
+  function requestNotifyPermission() {
+    if (!('Notification' in window)) return;
+    var done = function () { setNotifUI(); if (canNotify()) showDesktopTestNotification(); };
+    try {
+      var p = Notification.requestPermission(done); // navegadores antigos: callback
+      if (p && typeof p.then === 'function') p.then(done); // modernos: Promise
+    } catch (e) {}
+  }
+
+  function showDesktopTestNotification() {
+    try {
+      var n = new Notification('BEEZap', {
+        body: 'Notificacoes ativadas! Voce sera avisado de novas mensagens.',
+        icon: NOTIF_ICON || undefined,
+      });
+      window.setTimeout(function () { n.close(); }, 4000);
+    } catch (e) {}
+  }
+
+  if (notifToggle) {
+    setNotifUI();
+    notifToggle.addEventListener('click', function () {
+      var s = notifState();
+      if (s === 'unsupported') {
+        showToast('Este navegador nao suporta notificacoes.', 'error');
+      } else if (s === 'granted') {
+        showToast('Notificacoes ja estao ativadas.', 'success');
+        showDesktopTestNotification();
+      } else if (s === 'denied') {
+        showToast('Notificacoes bloqueadas. Clique no cadeado da barra de endereco e permita as notificacoes deste site.', 'error');
+      } else {
+        requestNotifyPermission(); // 'default' -> pede a permissao (gesto do usuario)
+      }
+    });
+    // Atualiza a cor sozinho se a permissao mudar (ex.: liberou no cadeado).
+    if (navigator.permissions && navigator.permissions.query) {
+      navigator.permissions.query({name: 'notifications'})
+        .then(function (status) { status.onchange = setNotifUI; })
+        .catch(function () {});
     }
   }
 
@@ -1288,15 +1363,12 @@
       if (soundEnabled) {
         unlockAudio();
         playBeep();  // toca uma vez pra confirmar
-        ensureNotifyPermission();  // aproveita o gesto pra pedir permissao do pop-up
         showToast('Aviso sonoro ativado.', 'success');
       } else {
         showToast('Aviso sonoro desativado.', 'info');
       }
     });
   }
-
-  ensureNotifyPermission();
 
   /* Atualiza mensagens da conversa aberta periodicamente (recebe respostas novas). */
   pollTimer = window.setInterval(refreshOpenMessages, 6000);

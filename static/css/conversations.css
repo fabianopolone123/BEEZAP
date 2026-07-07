@@ -239,7 +239,8 @@
   gap: 8px;
 }
 
-.conv-sound-toggle {
+.conv-sound-toggle,
+.conv-notif-toggle {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -253,6 +254,33 @@
   color: #0d8d43;
   cursor: pointer;
   transition: background 0.18s, color 0.18s, border-color 0.18s;
+}
+
+/* Botao de notificacoes: cor reflete o estado da permissao do navegador. */
+.conv-notif-toggle.on {           /* permitidas */
+  color: #0d8d43;
+  border-color: #21c25e;
+  background: #f0fdf4;
+}
+
+.conv-notif-toggle.off {          /* precisa clicar para ativar */
+  color: #b45309;
+  border-color: #f59e0b;
+  background: #fffbeb;
+}
+
+.conv-notif-toggle.off:hover {
+  background: #fef3c7;
+}
+
+.conv-notif-toggle.blocked {      /* bloqueadas no navegador */
+  color: #b91c1c;
+  border-color: #ef4444;
+  background: #fef2f2;
+}
+
+.conv-notif-toggle.blocked:hover {
+  background: #fee2e2;
 }
 
 .conv-sound-toggle:hover {
