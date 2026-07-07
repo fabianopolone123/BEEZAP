@@ -118,6 +118,43 @@ def is_ignorable_jid(value):
     return text.endswith('@newsletter') or text.endswith('@broadcast')
 
 
+# Flags que a W-API/Baileys pode usar para marcar Status/transmissao.
+_BROADCAST_FLAG_PATHS = (
+    ('broadcast',), ('isStatus',), ('is_status',), ('status',),
+    ('data', 'broadcast'), ('data', 'isStatus'), ('data', 'is_status'),
+    ('key', 'broadcast'), ('data', 'key', 'broadcast'),
+    ('message', 'broadcast'), ('data', 'message', 'broadcast'),
+)
+
+
+def _deep_contains_status_broadcast(node, depth=0):
+    """Procura o JID de status ('status@broadcast') em qualquer valor do payload."""
+    if depth > 7:
+        return False
+    if isinstance(node, str):
+        return 'status@broadcast' in node.lower()
+    if isinstance(node, dict):
+        return any(_deep_contains_status_broadcast(v, depth + 1) for v in node.values())
+    if isinstance(node, (list, tuple)):
+        return any(_deep_contains_status_broadcast(v, depth + 1) for v in node)
+    return False
+
+
+def is_status_or_broadcast(payload):
+    """True quando o payload e uma atualizacao de STATUS/transmissao do WhatsApp.
+
+    Status ('stories') chegam com o JID 'status@broadcast' e o autor como
+    remetente — nao sao conversa/atendimento e devem ser ignorados. Detecta pelo
+    JID em qualquer lugar do payload ou por uma flag explicita de broadcast/status.
+    """
+    if not isinstance(payload, dict):
+        return False
+    for path in _BROADCAST_FLAG_PATHS:
+        if _as_bool(_safe_get(payload, path)):
+            return True
+    return _deep_contains_status_broadcast(payload)
+
+
 def _deep_find(node, target_keys, validate):
     """Procura recursivamente, em qualquer profundidade, o primeiro valor escalar
     cuja chave (em minusculas) esteja em target_keys e passe no validador."""

@@ -20,6 +20,7 @@ from django.utils import timezone
 from accounts.models import Contact, Conversation, Message
 from wapi.parser import (
     is_ignorable_jid,
+    is_status_or_broadcast,
     normalize_phone,
     normalize_wapi_message_context,
     parse_wapi_media,
@@ -617,10 +618,11 @@ def ingest_wapi_payload(payload):
     if not ctx.get('chat_id'):
         return None
 
-    # Canal (@newsletter) e transmissao/status (@broadcast) nao sao atendimento:
-    # sao mensagens de mao unica, entao ignoramos sem criar conversa/contato.
-    if is_ignorable_jid(ctx['chat_id']):
-        ingest_logger.info('[WAPI WEBHOOK] ignorado (canal/transmissao): %s', ctx['chat_id'])
+    # Status do WhatsApp ('stories', JID status@broadcast) nao sao conversa: o
+    # W-API pode mandar o autor como remetente e o status@broadcast em outro
+    # campo, entao checamos o payload inteiro, alem do proprio chat_id.
+    if is_ignorable_jid(ctx['chat_id']) or is_status_or_broadcast(payload):
+        ingest_logger.info('[WAPI WEBHOOK] ignorado (status/canal/transmissao): %s', ctx['chat_id'])
         return None
 
     conversation = resolve_conversation_for_context(ctx)

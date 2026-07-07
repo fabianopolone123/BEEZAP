@@ -9,6 +9,7 @@ from django.urls import reverse
 from wapi.parser import (
     is_group_jid,
     is_ignorable_jid,
+    is_status_or_broadcast,
     normalize_phone,
     normalize_wapi_message_context,
 )
@@ -176,6 +177,51 @@ class WapiIngestIgnoreTests(TestCase):
 
         self.assertIsNotNone(result)
         self.assertEqual(Conversation.objects.filter(chat_type='group').count(), 1)
+
+    def test_status_broadcast_is_ignored(self):
+        # Status do WhatsApp: remoteJid = status@broadcast (autor no remetente).
+        from wapi.services import ingest_wapi_payload
+        from accounts.models import Conversation, Contact
+
+        result = ingest_wapi_payload(self._payload('status@broadcast'))
+
+        self.assertIsNone(result)
+        self.assertEqual(Conversation.objects.count(), 0)
+        self.assertEqual(Contact.objects.count(), 0)
+
+    def test_status_with_author_as_sender_is_ignored(self):
+        # Caso real: o autor (telefone) vem como remetente e o status@broadcast
+        # aparece em outro campo do payload — nao pode virar conversa direta.
+        from wapi.services import ingest_wapi_payload
+        from accounts.models import Conversation, Contact
+
+        payload = {
+            'sender': {'id': '5516999998888', 'pushName': 'Marcia Nunes'},
+            'chat': {'id': 'status@broadcast'},
+            'msgContent': {'conversation': 'Boa tarde'},
+            'messageId': 'STATUSMSG1',
+        }
+        result = ingest_wapi_payload(payload)
+
+        self.assertIsNone(result)
+        self.assertEqual(Conversation.objects.count(), 0)
+        self.assertEqual(Contact.objects.count(), 0)
+
+
+class WapiStatusDetectionTests(SimpleTestCase):
+    def test_detects_status_broadcast_anywhere(self):
+        self.assertTrue(is_status_or_broadcast({'data': {'key': {'remoteJid': 'status@broadcast'}}}))
+        self.assertTrue(is_status_or_broadcast({'chat': {'id': 'status@broadcast'}}))
+        self.assertTrue(is_status_or_broadcast({'foo': {'bar': ['x', 'STATUS@BROADCAST']}}))
+
+    def test_detects_broadcast_flag(self):
+        self.assertTrue(is_status_or_broadcast({'broadcast': True}))
+        self.assertTrue(is_status_or_broadcast({'data': {'isStatus': 'true'}}))
+
+    def test_normal_message_is_not_status(self):
+        self.assertFalse(is_status_or_broadcast({'sender': {'id': '5516999998888'},
+                                                 'msgContent': {'conversation': 'oi'}}))
+        self.assertFalse(is_status_or_broadcast({'data': {'key': {'remoteJid': '5516999998888@s.whatsapp.net'}}}))
 
 
 class AttendantsViewTests(TestCase):
