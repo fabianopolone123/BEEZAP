@@ -231,6 +231,45 @@
 }
 
 /* Botao "Sincronizar grupos" */
+/* Linha de acoes do topo da lista (som + sincronizar grupos). */
+.conv-head-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.conv-sound-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 1px solid rgba(15, 23, 42, 0.1);
+  border-radius: 8px;
+  background: #fff;
+  font-family: inherit;
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: #0d8d43;
+  cursor: pointer;
+  transition: background 0.18s, color 0.18s, border-color 0.18s;
+}
+
+.conv-sound-toggle:hover {
+  background: #f0fdf4;
+  border-color: #21c25e;
+}
+
+.conv-sound-toggle.off {
+  color: #94a3b8;
+}
+
+.conv-sound-toggle.off:hover {
+  background: #f8fafc;
+  border-color: rgba(15, 23, 42, 0.2);
+  color: #64748b;
+}
+
 .conv-sync-groups {
   display: inline-flex;
   align-items: center;

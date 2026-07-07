@@ -5,7 +5,7 @@
 
 {% block extra_head %}
 <link rel="stylesheet" href="{% static 'css/dashboard.css' %}?v=5">
-<link rel="stylesheet" href="{% static 'css/conversations.css' %}?v=8">
+<link rel="stylesheet" href="{% static 'css/conversations.css' %}?v=9">
 {% endblock %}
 
 {% block content %}
@@ -55,7 +55,8 @@
     <!-- Corpo: 3 colunas -->
     <div class="conv-body"
          data-conv-base="{% url 'conversations' %}"
-         data-csrf="{{ csrf_token }}">
+         data-csrf="{{ csrf_token }}"
+         data-logo="{% static 'images/logo-transparent.png' %}">
 
       <!-- COLUNA ESQUERDA — Lista de conversas -->
       <div class="conv-list-col">
@@ -68,12 +69,19 @@
             {% endfor %}
           </div>
 
-          <button type="button" class="conv-sync-groups" data-sync-groups title="Atualizar os nomes dos grupos pela W-API">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
-            </svg>
-            <span>Sincronizar grupos</span>
-          </button>
+          <div class="conv-head-actions">
+            <button type="button" class="conv-sound-toggle" data-sound-toggle title="Ativar/desativar aviso sonoro de novas mensagens">
+              <span data-sound-icon aria-hidden="true">🔊</span>
+              <span data-sound-label>Som</span>
+            </button>
+
+            <button type="button" class="conv-sync-groups" data-sync-groups title="Atualizar os nomes dos grupos pela W-API">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+              </svg>
+              <span>Sincronizar grupos</span>
+            </button>
+          </div>
 
           <div class="conv-search-bar">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2.2" aria-hidden="true">
@@ -1138,10 +1146,165 @@
     attendantSelect.addEventListener('change', function () { transfer('attendant_id', attendantSelect.value); });
   }
 
+  /* ================================================================
+     Notificacoes de nova mensagem: pop-up (Web Notifications) + som
+     ================================================================ */
+  var NOTIF_ICON = body.dataset.logo || '';
+  var soundEnabled = localStorage.getItem('beezap_sound') !== '0'; // padrao: ligado
+  var prevUnread = {};        // {convId: ultimo unread conhecido}
+  var notifyReady = false;    // 1o poll so semeia o estado (nao notifica)
+  var audioCtx = null;
+
+  var soundToggle = document.querySelector('[data-sound-toggle]');
+  var soundIcon = document.querySelector('[data-sound-icon]');
+  var soundLabel = document.querySelector('[data-sound-label]');
+
+  /* ---------- Som (beep sintetizado, sem arquivo) ---------- */
+  function unlockAudio() {
+    try {
+      audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+    } catch (e) { audioCtx = null; }
+  }
+
+  function playBeep() {
+    if (!audioCtx) unlockAudio();
+    if (!audioCtx) return;
+    try {
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+      var t = audioCtx.currentTime;
+      [[0, 880], [0.16, 1175]].forEach(function (pair) {
+        var offset = pair[0], freq = pair[1];
+        var osc = audioCtx.createOscillator();
+        var gain = audioCtx.createGain();
+        osc.type = 'sine';
+        osc.frequency.value = freq;
+        gain.gain.setValueAtTime(0.0001, t + offset);
+        gain.gain.exponentialRampToValueAtTime(0.28, t + offset + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, t + offset + 0.15);
+        osc.connect(gain); gain.connect(audioCtx.destination);
+        osc.start(t + offset); osc.stop(t + offset + 0.16);
+      });
+    } catch (e) {}
+  }
+
+  // Destrava o audio no 1o clique/tecla (navegadores exigem gesto do usuario).
+  function firstGestureUnlock() {
+    unlockAudio();
+    document.removeEventListener('click', firstGestureUnlock);
+    document.removeEventListener('keydown', firstGestureUnlock);
+  }
+  document.addEventListener('click', firstGestureUnlock);
+  document.addEventListener('keydown', firstGestureUnlock);
+
+  /* ---------- Permissao e pop-up do desktop ---------- */
+  function canNotify() {
+    return ('Notification' in window) && Notification.permission === 'granted';
+  }
+  function ensureNotifyPermission() {
+    if (('Notification' in window) && Notification.permission === 'default') {
+      try { Notification.requestPermission(); } catch (e) {}
+    }
+  }
+
+  function showDesktopNotification(conv) {
+    if (!canNotify()) return;
+    try {
+      var n = new Notification(conv.name || 'Nova mensagem', {
+        body: conv.preview || 'Voce recebeu uma nova mensagem.',
+        icon: NOTIF_ICON || undefined,
+        tag: 'beezap-conv-' + conv.id,  // agrupa varias da mesma conversa
+        renotify: true,
+      });
+      n.onclick = function () { window.focus(); n.close(); openConvById(conv.id); };
+    } catch (e) {}
+  }
+
+  function openConvById(id) {
+    var item = listEl.querySelector('.conv-item[data-conv-id="' + id + '"]');
+    if (item) item.click(); else openConversation(id);
+  }
+
+  /* ---------- Titulo da aba com contador (estilo WhatsApp Web) ---------- */
+  function updateTitle(totalUnread) {
+    document.title = (totalUnread > 0 ? '(' + totalUnread + ') ' : '') + 'Conversas | BEEZap';
+  }
+
+  /* ---------- Reacao a novas mensagens recebidas ---------- */
+  function handleNewIncoming(newOnes) {
+    var hidden = document.hidden;
+    // Se a conversa ja esta aberta e a aba em foco, o usuario ja esta vendo.
+    var relevant = newOnes.filter(function (c) {
+      return !(String(c.id) === String(currentId) && !hidden);
+    });
+    if (!relevant.length) return;
+    if (soundEnabled) playBeep();
+    relevant.forEach(function (c) {
+      if (hidden) showDesktopNotification(c);
+      else showToast('💬 ' + (c.name || 'Nova mensagem') + (c.preview ? (': ' + c.preview) : ''), 'info');
+    });
+  }
+
+  /* ---------- Poll dedicado de notificacoes (todas as conversas) ---------- */
+  function pollNotifications() {
+    fetch(base + 'lista/?status=todas&tipo=todas', {headers: {'X-Requested-With': 'XMLHttpRequest'}})
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (data) {
+        if (!data || !data.ok) return;
+        var items = data.conversations || [];
+        var newOnes = [];
+        var total = 0;
+        items.forEach(function (c) {
+          var cur = c.unread || 0;
+          total += cur;
+          var prev = prevUnread[c.id] || 0;
+          if (notifyReady && cur > prev) {
+            newOnes.push({id: c.id, name: c.name, preview: c.preview});
+          }
+          prevUnread[c.id] = cur;
+        });
+        updateTitle(total);
+        if (notifyReady && newOnes.length) handleNewIncoming(newOnes);
+        notifyReady = true;  // a partir do 2o poll, notifica
+      })
+      .catch(function () {});
+  }
+
+  /* ---------- Botao de ligar/desligar o som ---------- */
+  function setSoundUI() {
+    if (soundIcon) soundIcon.textContent = soundEnabled ? '🔊' : '🔇';
+    if (soundLabel) soundLabel.textContent = soundEnabled ? 'Som' : 'Sem som';
+    if (soundToggle) {
+      soundToggle.classList.toggle('off', !soundEnabled);
+      soundToggle.setAttribute('aria-pressed', soundEnabled ? 'true' : 'false');
+    }
+  }
+  if (soundToggle) {
+    setSoundUI();
+    soundToggle.addEventListener('click', function () {
+      soundEnabled = !soundEnabled;
+      localStorage.setItem('beezap_sound', soundEnabled ? '1' : '0');
+      setSoundUI();
+      if (soundEnabled) {
+        unlockAudio();
+        playBeep();  // toca uma vez pra confirmar
+        ensureNotifyPermission();  // aproveita o gesto pra pedir permissao do pop-up
+        showToast('Aviso sonoro ativado.', 'success');
+      } else {
+        showToast('Aviso sonoro desativado.', 'info');
+      }
+    });
+  }
+
+  ensureNotifyPermission();
+
   /* Atualiza mensagens da conversa aberta periodicamente (recebe respostas novas). */
   pollTimer = window.setInterval(refreshOpenMessages, 6000);
   /* Mantem a lista e os contadores atualizados (novas mensagens, leitura, status). */
   window.setInterval(refreshList, 12000);
+  /* Detecta novas mensagens em qualquer conversa para pop-up/som. */
+  pollNotifications();
+  window.setInterval(pollNotifications, 6000);
 }());
 </script>
 {% endblock %}
