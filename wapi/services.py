@@ -26,6 +26,7 @@ from wapi.parser import (
     parse_wapi_media,
     parse_wapi_webhook_payload,
     strip_jid,
+    wapi_content_keys,
 )
 
 ingest_logger = logging.getLogger('beezap.wapi.webhook')
@@ -632,6 +633,17 @@ def ingest_wapi_payload(payload):
     media_info = parse_wapi_media(payload)
     message_type = media_info['message_type']
     external_message_id = parsed.get('message_id', '')
+
+    # Tipos nao reconhecidos sao, em quase todos os casos, mensagens de SISTEMA do
+    # WhatsApp (ex.: senderKeyDistributionMessage/protocolMessage em grupos) sem
+    # conteudo para o usuario. Ignoramos em vez de poluir o chat com "Tipo de
+    # mensagem nao suportado". O log guarda as chaves para diagnostico.
+    if message_type == 'unknown':
+        ingest_logger.info(
+            '[WAPI WEBHOOK] ignorado (tipo nao suportado): chat=%s content=%s',
+            ctx.get('chat_id') or '-', wapi_content_keys(payload),
+        )
+        return None
 
     if message_type == 'text':
         text = parsed.get('message_text', '')

@@ -210,7 +210,11 @@ def _valid_name(value):
     if not text:
         return False
     digits = _only_digits(text)
-    return len(digits) < 8
+    if len(digits) >= 8:
+        return False
+    # Precisa ter ao menos um caractere alfanumerico (evita nomes so com
+    # pontuacao/simbolo, como "." ou "!!!", que nao identificam ninguem).
+    return any(ch.isalnum() for ch in text)
 
 
 def parse_wapi_webhook_payload(payload):
@@ -434,6 +438,11 @@ def _message_content(payload):
         if ok and isinstance(node, dict):
             return node
     return {}
+
+
+def wapi_content_keys(payload):
+    """Chaves do conteudo da mensagem (para diagnostico de tipos ignorados)."""
+    return sorted(_message_content(payload).keys())
 
 
 # Chave de conteudo -> tipo normalizado do BEEZAP.

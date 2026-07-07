@@ -208,6 +208,67 @@ class WapiIngestIgnoreTests(TestCase):
         self.assertEqual(Contact.objects.count(), 0)
 
 
+class WapiUnknownMessageTests(TestCase):
+    """Mensagens de sistema/tipo desconhecido nao devem virar 'Tipo nao suportado'."""
+
+    def test_system_message_is_ignored(self):
+        from wapi.services import ingest_wapi_payload
+        from accounts.models import Message, Conversation
+
+        # senderKeyDistributionMessage: mensagem de sistema de grupo, sem conteudo.
+        payload = {
+            'data': {'key': {'remoteJid': '120363144038483540@g.us',
+                             'participant': '5516999998888@s.whatsapp.net',
+                             'id': 'SYS1'},
+                     'message': {'senderKeyDistributionMessage': {'groupId': 'x'}}},
+        }
+        with patch('wapi.services.resolve_group_name', return_value=''):
+            result = ingest_wapi_payload(payload)
+
+        self.assertIsNone(result)
+        self.assertEqual(Message.objects.filter(message_type='unknown').count(), 0)
+
+    def test_real_group_text_has_sender(self):
+        from wapi.services import ingest_wapi_payload
+        from accounts.models import Message
+
+        payload = {
+            'data': {'key': {'remoteJid': '120363144038483540@g.us',
+                             'participant': '5516999998888@s.whatsapp.net',
+                             'id': 'TXT1'},
+                     'message': {'conversation': 'ok'}},
+            'sender': {'pushName': 'Fulano'},
+        }
+        with patch('wapi.services.resolve_group_name', return_value=''):
+            msg = ingest_wapi_payload(payload)
+
+        self.assertIsNotNone(msg)
+        self.assertEqual(msg.message_type, 'text')
+        self.assertEqual(msg.sender_name, 'Fulano')
+
+
+class WapiSenderNameTests(SimpleTestCase):
+    def test_punctuation_only_name_is_invalid(self):
+        from wapi.parser import normalize_wapi_message_context
+        ctx = normalize_wapi_message_context({
+            'data': {'key': {'remoteJid': '120363144038483540@g.us',
+                             'participant': '5516999998888@s.whatsapp.net'}},
+            'sender': {'pushName': '.'},
+        })
+        self.assertTrue(ctx['is_group'])
+        self.assertEqual(ctx['sender_name'], '')          # "." rejeitado
+        self.assertEqual(ctx['sender_id'], '5516999998888')  # front usa como fallback
+
+    def test_real_name_is_kept(self):
+        from wapi.parser import normalize_wapi_message_context
+        ctx = normalize_wapi_message_context({
+            'data': {'key': {'remoteJid': '120363144038483540@g.us',
+                             'participant': '5516999998888@s.whatsapp.net'}},
+            'sender': {'pushName': 'Marcelo'},
+        })
+        self.assertEqual(ctx['sender_name'], 'Marcelo')
+
+
 class WapiStatusDetectionTests(SimpleTestCase):
     def test_detects_status_broadcast_anywhere(self):
         self.assertTrue(is_status_or_broadcast({'data': {'key': {'remoteJid': 'status@broadcast'}}}))

@@ -539,12 +539,18 @@
     var bubble = document.createElement('div');
     bubble.className = 'conv-bubble';
 
-    // Em grupo, mostra o nome de quem enviou acima da mensagem recebida.
-    if (msg.is_group && msg.type === 'received' && msg.sender_name) {
-      var sender = document.createElement('div');
-      sender.className = 'conv-msg-sender';
-      sender.textContent = msg.sender_name;
-      bubble.appendChild(sender);
+    // Em grupo, mostra quem enviou acima da mensagem recebida. Se nao houver
+    // nome (ou for invalido), usa o numero do participante para nao ficar em branco.
+    if (msg.is_group && msg.type === 'received') {
+      var senderText = (msg.sender_name && msg.sender_name.trim())
+        ? msg.sender_name.trim()
+        : (msg.sender_id ? String(msg.sender_id).trim() : '');
+      if (senderText) {
+        var sender = document.createElement('div');
+        sender.className = 'conv-msg-sender';
+        sender.textContent = senderText;
+        bubble.appendChild(sender);
+      }
     }
 
     if (kind === 'text') {
