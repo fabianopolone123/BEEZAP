@@ -799,42 +799,55 @@ def _serialize_conversation_item(conversation):
 _MENTION_RE = re.compile(r'@(\d{7,})')
 
 
-def _build_mention_map(conversation):
-    """Mapa {digitos: nome} dos participantes que ja enviaram no grupo, para
-    trocar "@<numero>" pelo nome de quem foi mencionado."""
-    mapping = {}
-    rows = (
-        conversation.messages
-        .exclude(sender_id='')
-        .exclude(sender_name='')
-        .values_list('sender_id', 'sender_name')
-    )
-    for sender_id, sender_name in rows:
-        digits = ''.join(ch for ch in (sender_id or '') if ch.isdigit())
-        name = (sender_name or '').strip()
-        if digits and name and digits not in mapping:
-            mapping[digits] = name
-    return mapping
+def _digits(value):
+    return ''.join(ch for ch in (value or '') if ch.isdigit())
 
 
-def _resolve_mentions(text, mention_map):
+def _build_name_map(conversation):
+    """Mapa {digitos: nome} dos participantes do grupo, para exibir o remetente e
+    resolver mencoes (@numero). Fonte: pushName com que a pessoa enviou; um
+    Contato salvo manualmente (mesmo numero) tem PRIORIDADE sobre o pushName."""
+    names = {}       # digitos -> pushName valido
+    numbers = set()  # numeros relevantes (remetentes + mencionados)
+    rows = conversation.messages.values_list('sender_id', 'sender_name', 'text')
+    for sender_id, sender_name, text in rows:
+        digits = _digits(sender_id)
+        if digits:
+            numbers.add(digits)
+            name = (sender_name or '').strip()
+            if name and any(ch.isalnum() for ch in name) and digits not in names:
+                names[digits] = name
+        for mentioned in _MENTION_RE.findall(text or ''):
+            numbers.add(mentioned)
+    if numbers:
+        for phone, cname in Contact.objects.filter(phone__in=numbers).values_list('phone', 'name'):
+            if cname and cname.strip():
+                names[phone] = cname.strip()  # Contato salvo vence o pushName
+    return names
+
+
+def _resolve_mentions(text, name_map):
     """Substitui "@<numero>" por "@<nome>" quando conhecemos o participante."""
-    if not text or '@' not in text or not mention_map:
+    if not text or '@' not in text or not name_map:
         return text or ''
 
     def repl(match):
-        name = mention_map.get(match.group(1))
+        name = name_map.get(match.group(1))
         return '@' + name if name else match.group(0)
 
     return _MENTION_RE.sub(repl, text)
 
 
-def _serialize_message(message, mention_map=None):
+def _serialize_message(message, name_map=None):
+    if name_map is None:
+        sender_display = message.sender_name
+    else:
+        sender_display = name_map.get(_digits(message.sender_id), '')
     return {
         'id': message.id,
         'type': 'sent' if message.direction == 'out' else 'received',
         'kind': message.message_type,
-        'text': _resolve_mentions(message.text, mention_map),
+        'text': _resolve_mentions(message.text, name_map),
         'time': timezone.localtime(message.created_at).strftime('%H:%M'),
         'status': message.status,
         'media_url': message.resolved_media_url,
@@ -842,10 +855,11 @@ def _serialize_message(message, mention_map=None):
         'media_status': message.media_status,
         # Nome real do arquivo (documento) para baixar com nome/extensao corretos.
         'filename': document_filename(message) if message.message_type == 'document' else '',
-        # Em grupo, o front mostra o nome de quem enviou acima da mensagem.
+        # Em grupo, o front mostra o nome de quem enviou (nome resolvido: Contato
+        # salvo > pushName). Se vazio, o front exibe o numero (sender_id) clicavel.
         'is_group': message.is_group,
         'from_me': message.from_me,
-        'sender_name': message.sender_name,
+        'sender_name': sender_display,
         'sender_id': message.sender_id,
     }
 
@@ -997,12 +1011,12 @@ def conversation_messages_view(request, conversation_id):
     messages_qs = conversation.messages.all()
     sectors = Sector.objects.all()
     attendants = Attendant.objects.select_related('user').filter(user__is_active=True)
-    mention_map = _build_mention_map(conversation) if conversation.is_group else None
+    name_map = _build_name_map(conversation) if conversation.is_group else None
 
     return JsonResponse({
         'ok': True,
         'contact': _serialize_contact_info(conversation),
-        'messages': [_serialize_message(m, mention_map) for m in messages_qs],
+        'messages': [_serialize_message(m, name_map) for m in messages_qs],
         'sectors': [{'id': s.id, 'name': s.name} for s in sectors],
         'attendants': [{'id': a.id, 'name': a.name} for a in attendants],
     })
@@ -1163,6 +1177,22 @@ def conversation_sync_groups_view(request):
             status=502,
         )
     return JsonResponse({'ok': True, 'updated': result['updated']})
+
+
+@login_required
+@require_POST
+def conversation_name_contact_view(request):
+    """Nomeia um numero (remetente de grupo ou mencionado) criando/atualizando um
+    Contato. O nome passa a aparecer no lugar do numero nas mensagens."""
+    number = _digits(request.POST.get('number'))
+    name = (request.POST.get('name') or '').strip()
+    if not number or not name:
+        return JsonResponse({'ok': False, 'error': 'Informe o numero e o nome.'}, status=400)
+    contact, _created = Contact.objects.get_or_create(phone=number, defaults={'name': name})
+    if contact.name != name:
+        contact.name = name
+        contact.save(update_fields=['name', 'updated_at'])
+    return JsonResponse({'ok': True, 'number': number, 'name': name})
 
 
 @login_required

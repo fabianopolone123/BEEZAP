@@ -5,7 +5,7 @@
 
 {% block extra_head %}
 <link rel="stylesheet" href="{% static 'css/dashboard.css' %}?v=5">
-<link rel="stylesheet" href="{% static 'css/conversations.css' %}?v=12">
+<link rel="stylesheet" href="{% static 'css/conversations.css' %}?v=13">
 {% endblock %}
 
 {% block content %}
@@ -380,6 +380,90 @@
     if (e.key === 'Escape') closeLightbox();
   });
 
+  /* ---------- Modal "Nomear contato" ---------- */
+  var nameModal = null;
+  var nameModalInput = null;
+  var nameModalNumberEl = null;
+  var nameModalNumber = '';
+
+  function ensureNameModal() {
+    if (nameModal) return nameModal;
+    nameModal = document.createElement('div');
+    nameModal.className = 'conv-name-modal';
+    nameModal.hidden = true;
+    var card = document.createElement('div');
+    card.className = 'conv-name-card';
+    card.innerHTML =
+      '<div class="conv-name-title">Nomear contato</div>' +
+      '<div class="conv-name-number" data-name-number></div>' +
+      '<input type="text" class="conv-name-input" data-name-input placeholder="Nome do contato" maxlength="150">' +
+      '<div class="conv-name-actions">' +
+      '  <button type="button" class="conv-name-cancel" data-name-cancel>Cancelar</button>' +
+      '  <button type="button" class="conv-name-save" data-name-save>Adicionar</button>' +
+      '</div>';
+    nameModal.appendChild(card);
+    document.body.appendChild(nameModal);
+    nameModalInput = card.querySelector('[data-name-input]');
+    nameModalNumberEl = card.querySelector('[data-name-number]');
+    var saveBtn = card.querySelector('[data-name-save]');
+    var cancelBtn = card.querySelector('[data-name-cancel]');
+    cancelBtn.addEventListener('click', closeNameModal);
+    saveBtn.addEventListener('click', submitNameModal);
+    nameModal.addEventListener('click', function (e) { if (e.target === nameModal) closeNameModal(); });
+    nameModalInput.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); submitNameModal(); }
+      else if (e.key === 'Escape') { e.preventDefault(); closeNameModal(); }
+    });
+    return nameModal;
+  }
+
+  function openNameModal(number) {
+    var m = ensureNameModal();
+    nameModalNumber = number;
+    nameModalNumberEl.textContent = number;
+    nameModalInput.value = '';
+    m.hidden = false;
+    document.body.classList.add('conv-lightbox-open');
+    window.setTimeout(function () { nameModalInput.focus(); }, 30);
+  }
+
+  function closeNameModal() {
+    if (!nameModal || nameModal.hidden) return;
+    nameModal.hidden = true;
+    document.body.classList.remove('conv-lightbox-open');
+  }
+
+  function submitNameModal() {
+    var name = (nameModalInput.value || '').trim();
+    if (!name) { nameModalInput.focus(); return; }
+    var payload = new URLSearchParams();
+    payload.append('number', nameModalNumber);
+    payload.append('name', name);
+    fetch(base + 'nomear-contato/', {
+      method: 'POST',
+      headers: {
+        'X-CSRFToken': csrf,
+        'X-Requested-With': 'XMLHttpRequest',
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: payload.toString(),
+    })
+      .then(function (r) { return r.json().then(function (d) { return {ok: r.ok, data: d}; }); })
+      .then(function (res) {
+        if (!res.ok || !res.data.ok) {
+          showToast((res.data && res.data.error) || 'Nao foi possivel salvar o contato.', 'error');
+          return;
+        }
+        closeNameModal();
+        showToast('Contato salvo como "' + name + '".', 'success');
+        refreshOpenMessages();  // reexibe as mensagens com o nome no lugar do numero
+        refreshList(true);
+      })
+      .catch(function () {
+        showToast('Nao foi possivel salvar o contato. Tente novamente.', 'error');
+      });
+  }
+
   // Carrega a capa do video (primeiro quadro) so quando ela entra em tela,
   // evitando baixar metadados de dezenas de videos de uma vez (performance).
   var posterObserver = null;
@@ -539,17 +623,24 @@
     var bubble = document.createElement('div');
     bubble.className = 'conv-bubble';
 
-    // Em grupo, mostra quem enviou acima da mensagem recebida. Se nao houver
-    // nome (ou for invalido), usa o numero do participante para nao ficar em branco.
+    // Em grupo, mostra quem enviou acima da mensagem recebida. Com nome: texto
+    // simples. Sem nome: o NUMERO vira um botao que abre o modal para nomear.
     if (msg.is_group && msg.type === 'received') {
-      var senderText = (msg.sender_name && msg.sender_name.trim())
-        ? msg.sender_name.trim()
-        : (msg.sender_id ? String(msg.sender_id).trim() : '');
-      if (senderText) {
+      var sname = (msg.sender_name && msg.sender_name.trim()) ? msg.sender_name.trim() : '';
+      var snum = (msg.sender_id ? String(msg.sender_id).trim() : '');
+      if (sname) {
         var sender = document.createElement('div');
         sender.className = 'conv-msg-sender';
-        sender.textContent = senderText;
+        sender.textContent = sname;
         bubble.appendChild(sender);
+      } else if (snum) {
+        var senderBtn = document.createElement('button');
+        senderBtn.type = 'button';
+        senderBtn.className = 'conv-msg-sender conv-msg-sender-num';
+        senderBtn.textContent = snum;
+        senderBtn.title = 'Clique para nomear este contato';
+        senderBtn.addEventListener('click', function () { openNameModal(snum); });
+        bubble.appendChild(senderBtn);
       }
     }
 

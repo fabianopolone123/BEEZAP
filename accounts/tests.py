@@ -316,6 +316,47 @@ class MentionResolutionTests(SimpleTestCase):
         self.assertEqual(out, '@Ana e @Bia vejam')
 
 
+class ContactNamingTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(email='adm@beezap.com', password='1234', role=User.Role.ADM)
+
+    def _group_with_message(self, sender_id, sender_name='', text='oi'):
+        from accounts.models import Conversation, Message
+        conv = Conversation.objects.create(external_id='120363@g.us', chat_type='group', name='Grupo')
+        Message.objects.create(conversation=conv, direction='in', message_type='text',
+                               text=text, is_group=True, sender_id=sender_id, sender_name=sender_name)
+        return conv
+
+    def test_name_endpoint_creates_contact_and_resolves_mention(self):
+        from accounts.views import _build_name_map, _resolve_mentions
+        from accounts.models import Contact
+        conv = self._group_with_message('5516993364676', '', '@140437377568773 vem')
+
+        nm = _build_name_map(conv)
+        self.assertEqual(_resolve_mentions('@140437377568773 vem', nm), '@140437377568773 vem')
+
+        self.client.force_login(self.user)
+        r = self.client.post(reverse('conversation-name-contact'),
+                             {'number': '140437377568773', 'name': 'Juliane'})
+        self.assertEqual(r.status_code, 200)
+        self.assertTrue(Contact.objects.filter(phone='140437377568773', name='Juliane').exists())
+
+        nm2 = _build_name_map(conv)
+        self.assertEqual(_resolve_mentions('@140437377568773 vem', nm2), '@Juliane vem')
+
+    def test_contact_overrides_pushname(self):
+        from accounts.views import _build_name_map
+        from accounts.models import Contact
+        conv = self._group_with_message('5516993364676', 'Ze')
+        Contact.objects.create(phone='5516993364676', name='Jose Silva')
+        self.assertEqual(_build_name_map(conv)['5516993364676'], 'Jose Silva')
+
+    def test_name_endpoint_rejects_empty(self):
+        self.client.force_login(self.user)
+        r = self.client.post(reverse('conversation-name-contact'), {'number': '', 'name': ''})
+        self.assertEqual(r.status_code, 400)
+
+
 class WapiStatusDetectionTests(SimpleTestCase):
     def test_detects_status_broadcast_anywhere(self):
         self.assertTrue(is_status_or_broadcast({'data': {'key': {'remoteJid': 'status@broadcast'}}}))

@@ -310,6 +310,117 @@
   max-width: 100%;
 }
 
+/* Remetente sem nome: numero clicavel para nomear o contato. */
+.conv-msg-sender-num {
+  display: block;
+  border: none;
+  background: none;
+  padding: 0;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  color: #64748b;
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+}
+
+.conv-msg-sender-num:hover {
+  color: #0d8d43;
+}
+
+/* Modal "Nomear contato" */
+.conv-name-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 1001;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(8, 12, 20, 0.55);
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
+}
+
+.conv-name-modal[hidden] {
+  display: none;
+}
+
+.conv-name-card {
+  width: 100%;
+  max-width: 340px;
+  background: #fff;
+  border-radius: 14px;
+  padding: 18px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
+}
+
+.conv-name-title {
+  font-size: 1rem;
+  font-weight: 700;
+  color: #15213d;
+  margin-bottom: 4px;
+}
+
+.conv-name-number {
+  font-size: 0.82rem;
+  color: #64748b;
+  margin-bottom: 12px;
+  word-break: break-all;
+}
+
+.conv-name-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border: 1px solid rgba(15, 23, 42, 0.18);
+  border-radius: 10px;
+  font-family: inherit;
+  font-size: 0.9rem;
+  outline: none;
+}
+
+.conv-name-input:focus {
+  border-color: #21c25e;
+}
+
+.conv-name-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.conv-name-cancel,
+.conv-name-save {
+  padding: 8px 16px;
+  border-radius: 9px;
+  font-family: inherit;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+
+.conv-name-cancel {
+  background: #f1f5f9;
+  color: #475569;
+  border-color: rgba(15, 23, 42, 0.1);
+}
+
+.conv-name-cancel:hover {
+  background: #e2e8f0;
+}
+
+.conv-name-save {
+  background: #21c25e;
+  color: #fff;
+}
+
+.conv-name-save:hover {
+  background: #0d8d43;
+}
+
 /* Lista */
 .conv-list {
   flex: 1 1 auto;
