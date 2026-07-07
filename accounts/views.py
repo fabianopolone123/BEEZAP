@@ -56,6 +56,7 @@ from wapi.parser import parse_wapi_webhook_payload
 from wapi.services import (
     convert_audio_to_ogg,
     ingest_wapi_payload,
+    retry_conversation_media_async,
     save_outgoing_media_message,
     save_outgoing_text_message,
     sync_group_names,
@@ -948,6 +949,12 @@ def conversation_messages_view(request, conversation_id):
     if conversation.unread_count:
         conversation.unread_count = 0
         conversation.save(update_fields=['unread_count', 'updated_at'])
+
+    # So ao ABRIR a conversa (retry=1), nao no poll: tenta rebaixar em background
+    # as midias que falharam na chegada. A midia recuperada aparece sozinha no
+    # proximo ciclo do poll, sem travar a abertura.
+    if request.GET.get('retry'):
+        retry_conversation_media_async(conversation.id)
 
     messages_qs = conversation.messages.all()
     sectors = Sector.objects.all()

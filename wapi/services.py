@@ -9,6 +9,7 @@ import os
 import shutil
 import subprocess
 import tempfile
+import threading
 import uuid
 from urllib import request
 
@@ -402,6 +403,73 @@ def retry_incoming_media_downloads():
         except Exception:
             media_logger.exception('Falha ao re-baixar midia (msg=%s).', message.id)
     return {'recovered': recovered, 'total': total}
+
+
+# Evita disparar dois retries em paralelo para a mesma conversa (ex.: abrir,
+# fechar e abrir de novo rapidamente).
+_media_retry_lock = threading.Lock()
+_media_retry_active = set()
+
+
+def _conversation_pending_media(conversation_id, limit=None):
+    """Midias recebidas desta conversa que ficaram SEM arquivo local (falharam
+    no download da chegada) e ainda tem payload para tentar de novo."""
+    from django.db.models import Q
+    qs = (
+        Message.objects
+        .filter(conversation_id=conversation_id, direction='in',
+                message_type__in=MEDIA_TYPES)
+        .filter(Q(media_file='') | Q(media_file__isnull=True))
+        .exclude(raw_payload__isnull=True)
+        .order_by('-created_at')
+    )
+    return qs[:limit] if limit else qs
+
+
+def retry_conversation_media_downloads(conversation_id, limit=8):
+    """Tenta rebaixar ate `limit` midias 'unavailable' (sem arquivo local) de uma
+    conversa. Sincrono — use retry_conversation_media_async para nao bloquear."""
+    recovered = 0
+    for message in _conversation_pending_media(conversation_id, limit=limit):
+        try:
+            if retry_media_download(message):
+                recovered += 1
+        except Exception:
+            media_logger.exception('Falha ao re-baixar midia (msg=%s).', message.id)
+    return recovered
+
+
+def retry_conversation_media_async(conversation_id, limit=8):
+    """Dispara, em background, o retry das midias que falharam nesta conversa.
+
+    Chamado ao ABRIR a conversa (nao no poll), para nao virar loop automatico.
+    Roda em thread para nao travar a abertura quando um link estiver morto (o
+    download tem timeout longo); a midia recuperada aparece sozinha no proximo
+    ciclo do poll. Evita rodar em paralelo para a mesma conversa e so gasta uma
+    thread quando ha algo pendente."""
+    if not _conversation_pending_media(conversation_id).exists():
+        return False
+
+    with _media_retry_lock:
+        if conversation_id in _media_retry_active:
+            return False
+        _media_retry_active.add(conversation_id)
+
+    def _worker():
+        from django.db import connection
+        try:
+            retry_conversation_media_downloads(conversation_id, limit=limit)
+        except Exception:
+            media_logger.exception('Falha no retry de midia (conv=%s).', conversation_id)
+        finally:
+            connection.close()  # nao deixar conexao de banco pendurada na thread
+            with _media_retry_lock:
+                _media_retry_active.discard(conversation_id)
+
+    threading.Thread(
+        target=_worker, name='media-retry-%s' % conversation_id, daemon=True
+    ).start()
+    return True
 
 
 def save_incoming_message(conversation, ctx, message_type='text', text='',
