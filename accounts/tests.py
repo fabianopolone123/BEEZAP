@@ -357,6 +357,50 @@ class ContactNamingTests(TestCase):
         self.assertEqual(r.status_code, 400)
 
 
+class ContactsPageTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(email='adm@beezap.com', password='1234', role=User.Role.ADM)
+        self.client.force_login(self.user)
+
+    def test_page_loads(self):
+        r = self.client.get(reverse('contacts'))
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, 'Contatos')
+
+    def test_create_normalizes_phone(self):
+        from accounts.models import Contact
+        r = self.client.post(reverse('contacts'), {'name': 'Maria', 'phone': '+55 (16) 99999-8888'}, follow=True)
+        self.assertEqual(r.status_code, 200)
+        self.assertTrue(Contact.objects.filter(name='Maria', phone='5516999998888').exists())
+
+    def test_edit_contact(self):
+        from accounts.models import Contact
+        c = Contact.objects.create(name='Ana', phone='5516000000000')
+        self.client.post(reverse('contacts'), {'contact_id': c.id, 'name': 'Ana Paula', 'phone': '5516111111111'})
+        c.refresh_from_db()
+        self.assertEqual(c.name, 'Ana Paula')
+        self.assertEqual(c.phone, '5516111111111')
+
+    def test_delete_contact(self):
+        from accounts.models import Contact
+        c = Contact.objects.create(name='X', phone='5516222222222')
+        self.client.post(reverse('contacts'), {'action': 'delete', 'contact_id': c.id})
+        self.assertFalse(Contact.objects.filter(pk=c.id).exists())
+
+    def test_create_requires_name_and_phone(self):
+        from accounts.models import Contact
+        self.client.post(reverse('contacts'), {'name': '', 'phone': ''})
+        self.assertEqual(Contact.objects.count(), 0)
+
+    def test_search_filters(self):
+        from accounts.models import Contact
+        Contact.objects.create(name='Joao', phone='5516333333333')
+        Contact.objects.create(name='Pedro', phone='5516444444444')
+        r = self.client.get(reverse('contacts'), {'q': 'Joao'})
+        self.assertContains(r, 'Joao')
+        self.assertNotContains(r, 'Pedro')
+
+
 class WapiStatusDetectionTests(SimpleTestCase):
     def test_detects_status_broadcast_anywhere(self):
         self.assertTrue(is_status_or_broadcast({'data': {'key': {'remoteJid': 'status@broadcast'}}}))

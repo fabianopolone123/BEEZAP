@@ -91,7 +91,7 @@ NAV_ITEMS = [
     {'label': 'Dashboard', 'required': 'leitor', 'url_name': 'dashboard'},
     {'label': 'Conversas', 'required': 'leitor', 'url_name': 'conversations'},
     {'label': 'Atendimentos', 'required': 'leitor', 'url_name': None},
-    {'label': 'Contatos', 'required': 'leitor', 'url_name': None},
+    {'label': 'Contatos', 'required': 'leitor', 'url_name': 'contacts'},
     {'label': 'Atendentes', 'required': 'adm', 'url_name': 'attendants'},
     {'label': 'Setores', 'required': 'adm', 'url_name': 'sectors'},
     {'label': 'Campanhas', 'required': 'usuario', 'url_name': None},
@@ -970,6 +970,56 @@ def conversations_view(request):
             'conversations': [_serialize_conversation_item(c) for c in conversations],
             'filter_chips': filter_chips,
             'type_tabs': type_tabs,
+        },
+    )
+
+
+@login_required
+def contacts_view(request):
+    """Lista/gerencia os contatos (nome + telefone). Os nomes salvos aqui aparecem
+    no lugar do numero nas mensagens de grupo (remetente e mencoes)."""
+    if request.method == 'POST':
+        action = (request.POST.get('action') or '').strip()
+        if action == 'delete':
+            Contact.objects.filter(pk=(request.POST.get('contact_id') or '').strip()).delete()
+            messages.success(request, 'Contato removido.')
+            return redirect('contacts')
+
+        contact_id = (request.POST.get('contact_id') or '').strip()
+        name = (request.POST.get('name') or '').strip()
+        phone = _digits(request.POST.get('phone'))
+        if not name or not phone:
+            messages.error(request, 'Informe o nome e o telefone do contato.')
+            return redirect('contacts')
+        try:
+            if contact_id:
+                contact = Contact.objects.filter(pk=contact_id).first()
+                if contact:
+                    contact.name = name
+                    contact.phone = phone
+                    contact.save(update_fields=['name', 'phone', 'updated_at'])
+                    messages.success(request, 'Contato atualizado.')
+            else:
+                Contact.objects.create(name=name, phone=phone)
+                messages.success(request, 'Contato adicionado.')
+        except IntegrityError:
+            messages.error(request, 'Ja existe um contato com esse telefone.')
+        return redirect('contacts')
+
+    term = (request.GET.get('q') or '').strip()
+    contacts = Contact.objects.all()
+    if term:
+        contacts = contacts.filter(Q(name__icontains=term) | Q(phone__icontains=term))
+    return render(
+        request,
+        'accounts/contacts.html',
+        {
+            'contacts': contacts,
+            'search_term': term,
+            'total_contacts': Contact.objects.count(),
+            'nav_items': build_nav_items(request.user.role, 'Contatos'),
+            'role_label': request.user.get_role_display(),
+            'user_initial': (request.user.first_name[:1] or request.user.email[:1]).upper(),
         },
     )
 

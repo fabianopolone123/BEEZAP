@@ -1,0 +1,169 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Contatos | BEEZap{% endblock %}
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/dashboard.css' %}">
+<link rel="stylesheet" href="{% static 'css/attendants.css' %}">
+<link rel="stylesheet" href="{% static 'css/contacts.css' %}?v=1">
+{% endblock %}
+
+{% block content %}
+<main class="dashboard-shell">
+  <aside class="sidebar">
+    <div class="sidebar-brand">
+      <img src="{% static 'images/logo-transparent.png' %}" alt="BEEZap" class="sidebar-logo">
+      <div>
+        <strong>BEEZap</strong>
+        <span>Central de atendimento</span>
+      </div>
+    </div>
+
+    <nav class="sidebar-nav">
+      {% for item in nav_items %}
+        <a href="{% if item.href %}{% url item.href %}{% else %}#{% endif %}" class="nav-item {% if item.active %}active{% endif %}">
+          <span class="nav-dot"></span>
+          <span>{{ item.label }}</span>
+        </a>
+      {% endfor %}
+    </nav>
+  </aside>
+
+  <section class="dashboard-main">
+    <div class="contacts-page">
+      <header class="topbar">
+        <div class="topbar-left">
+          <button class="icon-button" type="button" aria-label="Abrir menu">☰</button>
+          <div>
+            <p class="page-kicker">Cadastros</p>
+            <h1>Contatos</h1>
+          </div>
+        </div>
+
+        <div class="topbar-right">
+          <div class="profile-chip">
+            <div class="profile-avatar">{{ user_initial }}</div>
+            <div>
+              <strong>{{ request.user.get_full_name|default:request.user.email }}</strong>
+              <span>{{ role_label }}</span>
+            </div>
+          </div>
+          <a href="{% url 'logout' %}" class="logout-link">Sair</a>
+        </div>
+      </header>
+
+      <section class="contacts-toolbar">
+        <form method="get" class="contacts-search" role="search">
+          <input type="search" name="q" value="{{ search_term }}" placeholder="Buscar por nome ou telefone...">
+          <button type="submit" class="secondary-button">Buscar</button>
+        </form>
+        <button type="button" class="primary-button" data-contact-new>Novo contato</button>
+      </section>
+
+      <p class="contacts-count">{{ total_contacts }} contato(s) cadastrado(s).</p>
+
+      <section class="contacts-list">
+        {% if contacts %}
+          {% for c in contacts %}
+            <article class="contact-row">
+              <div class="contact-avatar" aria-hidden="true">{{ c.initials }}</div>
+              <div class="contact-main">
+                <strong class="contact-name">{{ c.name|default:"(sem nome)" }}</strong>
+                <span class="contact-phone">{{ c.phone }}</span>
+              </div>
+              <div class="contact-actions">
+                <button type="button" class="secondary-button"
+                        data-contact-edit
+                        data-id="{{ c.id }}"
+                        data-name="{{ c.name }}"
+                        data-phone="{{ c.phone }}">Editar</button>
+                <form method="post" class="contact-delete" onsubmit="return confirm('Remover o contato {{ c.name|escapejs }}?');">
+                  {% csrf_token %}
+                  <input type="hidden" name="action" value="delete">
+                  <input type="hidden" name="contact_id" value="{{ c.id }}">
+                  <button type="submit" class="danger-link">Excluir</button>
+                </form>
+              </div>
+            </article>
+          {% endfor %}
+        {% else %}
+          <article class="contacts-empty">
+            {% if search_term %}
+              <strong>Nenhum contato encontrado para "{{ search_term }}".</strong>
+              <span>Tente outro termo ou cadastre um novo contato.</span>
+            {% else %}
+              <strong>Nenhum contato cadastrado ainda.</strong>
+              <span>Use "Novo contato" para adicionar, ou clique no numero de um participante nas conversas de grupo.</span>
+            {% endif %}
+          </article>
+        {% endif %}
+      </section>
+    </div>
+  </section>
+</main>
+
+<div class="contacts-modal" data-modal-root>
+  <div class="contacts-modal-backdrop" data-modal-close></div>
+  <div class="contacts-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="contact-modal-title">
+    <div class="contacts-modal-head">
+      <h2 id="contact-modal-title">Novo contato</h2>
+      <button type="button" class="modal-close" aria-label="Fechar" data-modal-close>×</button>
+    </div>
+
+    <form method="post" class="contacts-form" novalidate>
+      {% csrf_token %}
+      <input type="hidden" name="contact_id" data-field-id>
+
+      <div class="contacts-field">
+        <label for="contact-name">Nome</label>
+        <input type="text" id="contact-name" name="name" data-field-name maxlength="150" required>
+      </div>
+
+      <div class="contacts-field">
+        <label for="contact-phone">Telefone / número (WhatsApp)</label>
+        <input type="text" id="contact-phone" name="phone" data-field-phone maxlength="30" required>
+      </div>
+
+      <div class="contacts-form-actions">
+        <button type="submit" class="primary-button">Salvar</button>
+        <button type="button" class="secondary-button" data-modal-close>Cancelar</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+  (function () {
+    var modal = document.querySelector('[data-modal-root]');
+    if (!modal) return;
+    var title = modal.querySelector('#contact-modal-title');
+    var fieldId = modal.querySelector('[data-field-id]');
+    var fieldName = modal.querySelector('[data-field-name]');
+    var fieldPhone = modal.querySelector('[data-field-phone]');
+
+    function open(mode, data) {
+      title.textContent = mode === 'edit' ? 'Editar contato' : 'Novo contato';
+      fieldId.value = (data && data.id) || '';
+      fieldName.value = (data && data.name) || '';
+      fieldPhone.value = (data && data.phone) || '';
+      modal.classList.add('is-open');
+      window.setTimeout(function () { fieldName.focus(); }, 30);
+    }
+    function close() { modal.classList.remove('is-open'); }
+
+    var newBtn = document.querySelector('[data-contact-new]');
+    if (newBtn) newBtn.addEventListener('click', function () { open('create'); });
+
+    document.querySelectorAll('[data-contact-edit]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        open('edit', {id: btn.dataset.id, name: btn.dataset.name, phone: btn.dataset.phone});
+      });
+    });
+
+    document.querySelectorAll('[data-modal-close]').forEach(function (btn) {
+      btn.addEventListener('click', close);
+    });
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape') close(); });
+  }());
+</script>
+{% endblock %}
