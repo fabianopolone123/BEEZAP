@@ -107,6 +107,17 @@ def is_group_jid(value):
     return len(_only_digits(text)) > _MAX_PHONE_DIGITS
 
 
+def is_ignorable_jid(value):
+    """True para conversas que NAO sao atendimento e devem ser ignoradas:
+    canal/newsletter (@newsletter) e transmissao/status (@broadcast).
+
+    Grupos (@g.us) e diretas seguem normais; so os sufixos de broadcast/canal
+    (mensagens de mao unica, sem atendimento) sao descartados.
+    """
+    text = _as_text(value).lower()
+    return text.endswith('@newsletter') or text.endswith('@broadcast')
+
+
 def _deep_find(node, target_keys, validate):
     """Procura recursivamente, em qualquer profundidade, o primeiro valor escalar
     cuja chave (em minusculas) esteja em target_keys e passe no validador."""

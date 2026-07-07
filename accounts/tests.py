@@ -6,7 +6,12 @@ from django.contrib.auth.hashers import check_password
 from django.test import SimpleTestCase, TestCase
 from django.urls import reverse
 
-from wapi.parser import is_group_jid, normalize_phone, normalize_wapi_message_context
+from wapi.parser import (
+    is_group_jid,
+    is_ignorable_jid,
+    normalize_phone,
+    normalize_wapi_message_context,
+)
 
 from .models import Attendant, PasswordResetCode, User
 
@@ -69,6 +74,54 @@ class WapiJidClassificationTests(SimpleTestCase):
         )
         self.assertTrue(ctx['is_group'])
         self.assertEqual(ctx['sender_id'], '5516999999999')
+
+    def test_is_ignorable_jid(self):
+        self.assertTrue(is_ignorable_jid(self.GROUP_LIKE_JID + '@newsletter'))
+        self.assertTrue(is_ignorable_jid('status@broadcast'))
+        self.assertFalse(is_ignorable_jid(self.GROUP_LIKE_JID + '@g.us'))  # grupo fica
+        self.assertFalse(is_ignorable_jid('5516999999999@s.whatsapp.net'))
+
+
+class WapiIngestIgnoreTests(TestCase):
+    """Mensagens de canal (@newsletter) e transmissao (@broadcast) devem ser
+    ignoradas: nenhuma conversa/contato criado."""
+
+    def _payload(self, remote_jid):
+        return {
+            'data': {
+                'key': {'remoteJid': remote_jid, 'id': 'MSGID123'},
+                'message': {'conversation': 'oi'},
+            }
+        }
+
+    def test_newsletter_message_is_ignored(self):
+        from wapi.services import ingest_wapi_payload
+        from accounts.models import Conversation, Contact
+
+        result = ingest_wapi_payload(self._payload('120363144038483540@newsletter'))
+
+        self.assertIsNone(result)
+        self.assertEqual(Conversation.objects.count(), 0)
+        self.assertEqual(Contact.objects.count(), 0)
+
+    def test_broadcast_message_is_ignored(self):
+        from wapi.services import ingest_wapi_payload
+        from accounts.models import Conversation
+
+        result = ingest_wapi_payload(self._payload('status@broadcast'))
+
+        self.assertIsNone(result)
+        self.assertEqual(Conversation.objects.count(), 0)
+
+    def test_group_message_is_not_ignored(self):
+        from wapi.services import ingest_wapi_payload
+        from accounts.models import Conversation
+
+        with patch('wapi.services.resolve_group_name', return_value=''):
+            result = ingest_wapi_payload(self._payload('120363144038483540@g.us'))
+
+        self.assertIsNotNone(result)
+        self.assertEqual(Conversation.objects.filter(chat_type='group').count(), 1)
 
 
 class AttendantsViewTests(TestCase):

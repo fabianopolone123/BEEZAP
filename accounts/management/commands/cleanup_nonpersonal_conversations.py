@@ -13,11 +13,11 @@ junto dos contatos-lixo que ficarem sem nenhuma conversa valida.
 from django.core.management.base import BaseCommand
 
 from accounts.models import Contact, Conversation
-from wapi.parser import is_group_jid
+from wapi.parser import is_group_jid, is_ignorable_jid
 
 
 class Command(BaseCommand):
-    help = 'Lista/remove conversas diretas criadas por engano de JIDs nao-pessoais (grupo/canal).'
+    help = 'Lista/remove conversas criadas por engano de JIDs nao-pessoais (canal/transmissao/grupo).'
 
     def add_arguments(self, parser):
         parser.add_argument(
@@ -26,15 +26,23 @@ class Command(BaseCommand):
         )
 
     def _is_bogus(self, conversation):
-        if is_group_jid(conversation.external_id):
+        # Canal (@newsletter) / transmissao (@broadcast) nao sao atendimento,
+        # independentemente do tipo com que foram gravados.
+        if is_ignorable_jid(conversation.external_id):
             return True
-        contact = conversation.contact
-        return bool(contact and is_group_jid(contact.phone))
+        # Conversa DIRETA cujo identificador (ou telefone do contato) nao e de
+        # pessoa: virou contato-lixo por engano.
+        if conversation.chat_type == 'private':
+            if is_group_jid(conversation.external_id):
+                return True
+            contact = conversation.contact
+            return bool(contact and is_group_jid(contact.phone))
+        return False
 
     def handle(self, *args, **options):
         do_delete = options['delete']
         bogus = [
-            c for c in Conversation.objects.filter(chat_type='private').select_related('contact')
+            c for c in Conversation.objects.select_related('contact')
             if self._is_bogus(c)
         ]
 
