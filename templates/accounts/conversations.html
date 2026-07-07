@@ -1321,16 +1321,23 @@
   }
 
   /* ---------- Reacao a novas mensagens recebidas ---------- */
+  // Janela "em foco" = aba visivel E com foco. Se o usuario esta em outro app
+  // ou outra janela (mesmo com a aba do BEEZAP visivel ao lado), consideramos
+  // fora de foco e mostramos o pop-up do desktop — vale para grupo e direta.
+  function windowFocused() {
+    return !document.hidden && (document.hasFocus ? document.hasFocus() : true);
+  }
+
   function handleNewIncoming(newOnes) {
-    var hidden = document.hidden;
-    // Se a conversa ja esta aberta e a aba em foco, o usuario ja esta vendo.
+    var focused = windowFocused();
+    // Se a conversa ja esta aberta e a janela em foco, o usuario ja esta vendo.
     var relevant = newOnes.filter(function (c) {
-      return !(String(c.id) === String(currentId) && !hidden);
+      return !(String(c.id) === String(currentId) && focused);
     });
     if (!relevant.length) return;
     if (soundEnabled) playBeep();
     relevant.forEach(function (c) {
-      if (hidden) showDesktopNotification(c);
+      if (!focused) showDesktopNotification(c);
       else showToast('💬 ' + (c.name || 'Nova mensagem') + (c.preview ? (': ' + c.preview) : ''), 'info');
     });
   }
