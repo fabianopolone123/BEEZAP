@@ -318,6 +318,7 @@ inspect_wapi_events --hours 6 --full    # DIAGNÓSTICO: eventos BRUTOS do webhoo
 cleanup_status_messages [--delete]      # remove mensagens de Status que viraram conversa
 cleanup_unknown_messages [--delete]     # remove mensagens de tipo 'unknown' (sistema)
 cleanup_nonpersonal_conversations [--delete]  # remove conversas de canal/transmissão/"status"
+merge_contact_conversations [--apply]   # unifica conversas picotadas em 1 chat por pessoa/grupo (dry-run)
 ```
 > Os `cleanup_*` e o `inspect_*` são **dry-run por padrão** (só listam); `--delete`
 > aplica. Úteis para limpar lixo antigo (status/canal/sistema) após um deploy do fix.

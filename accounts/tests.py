@@ -937,3 +937,58 @@ class ConversationTransferViewTests(TestCase):
         self.assertEqual(data['text'], 'Atendimento encerrado')
 
 
+
+
+class MergeContactConversationsTests(TestCase):
+    """Comando que unifica conversas picotadas em um unico chat por contato."""
+
+    def setUp(self):
+        from datetime import timedelta
+        from django.utils import timezone
+        from .models import Contact, Conversation, Message
+        now = timezone.now()
+        self.contact = Contact.objects.create(name='Cliente', phone='5516999990000')
+        # Conversa 1 (atendimento antigo, encerrado) com uma mensagem de "ontem".
+        self.conv1 = Conversation.objects.create(
+            contact=self.contact, external_id='5516999990000', chat_type='private', status='closed',
+        )
+        m1 = Message.objects.create(conversation=self.conv1, direction='in', message_type='text',
+                                    text='primeira mensagem', status='received')
+        # Conversa 2 (atendimento novo) com outra mensagem de "hoje".
+        self.conv2 = Conversation.objects.create(
+            contact=self.contact, external_id='5516999990000', chat_type='private', status='open',
+        )
+        m2 = Message.objects.create(conversation=self.conv2, direction='in', message_type='text',
+                                    text='segunda mensagem', status='received')
+        # Timestamps realistas (conversas separadas no tempo, como em producao).
+        Conversation.objects.filter(pk=self.conv1.pk).update(created_at=now - timedelta(days=1))
+        Message.objects.filter(pk=m1.pk).update(created_at=now - timedelta(days=1))
+        Conversation.objects.filter(pk=self.conv2.pk).update(created_at=now)
+        Message.objects.filter(pk=m2.pk).update(created_at=now)
+
+    def test_dry_run_does_not_change(self):
+        from django.core.management import call_command
+        from .models import Conversation
+        call_command('merge_contact_conversations')  # sem --apply
+        self.assertEqual(Conversation.objects.filter(contact=self.contact).count(), 2)
+
+    def test_apply_merges_into_single_chat_with_divider(self):
+        from django.core.management import call_command
+        from .models import Conversation, Message
+        call_command('merge_contact_conversations', '--apply')
+
+        # Sobra 1 conversa (a mais antiga, canonica) com todo o historico.
+        convs = Conversation.objects.filter(contact=self.contact)
+        self.assertEqual(convs.count(), 1)
+        canonical = convs.first()
+        self.assertEqual(canonical.id, self.conv1.id)
+        self.assertEqual(canonical.status, 'open')  # estado do atendimento mais recente
+
+        texts = list(
+            Message.objects.filter(conversation=canonical).order_by('created_at', 'id')
+            .values_list('message_type', 'text')
+        )
+        # Ordem: 1a msg, divisoria (system), 2a msg.
+        self.assertEqual(texts[0], ('text', 'primeira mensagem'))
+        self.assertEqual(texts[1][0], 'system')
+        self.assertEqual(texts[2], ('text', 'segunda mensagem'))
