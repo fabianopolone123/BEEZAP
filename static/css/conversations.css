@@ -523,6 +523,23 @@
   flex: 1;
 }
 
+.conv-item-meta {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  margin-top: 6px;
+  padding: 3px 7px;
+  border-radius: 6px;
+  background: #ecfdf3;
+  color: #157347;
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .conv-unread-badge {
   flex-shrink: 0;
   min-width: 20px;

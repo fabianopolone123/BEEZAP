@@ -5,7 +5,7 @@
 
 {% block extra_head %}
 <link rel="stylesheet" href="{% static 'css/dashboard.css' %}?v=5">
-<link rel="stylesheet" href="{% static 'css/conversations.css' %}?v=16">
+<link rel="stylesheet" href="{% static 'css/conversations.css' %}?v=17">
 {% endblock %}
 
 {% block content %}
@@ -123,6 +123,9 @@
                   <span class="conv-unread-badge" data-conv-unread aria-label="{{ conv.unread }} mensagens nao lidas">{{ conv.unread }}</span>
                 {% endif %}
               </div>
+              {% if conv.queue_label %}
+                <div class="conv-item-meta">{{ conv.queue_label }}</div>
+              {% endif %}
             </div>
           </li>
           {% endfor %}
@@ -897,6 +900,12 @@
     }
     bodyDiv.appendChild(top);
     bodyDiv.appendChild(bottom);
+    if (conv.queue_label) {
+      var meta = document.createElement('div');
+      meta.className = 'conv-item-meta';
+      meta.textContent = conv.queue_label;
+      bodyDiv.appendChild(meta);
+    }
     li.appendChild(bodyDiv);
 
     bindItem(li);

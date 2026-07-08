@@ -123,6 +123,8 @@ def handle_incoming_for_ai(conversation, message):
         return
     if conversation.assigned_attendant_id is not None:
         return
+    if conversation.sector_id is not None:
+        return
     if conversation.ai_state != 'active':
         return
     if message.direction != 'in':

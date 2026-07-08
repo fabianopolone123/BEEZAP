@@ -957,6 +957,14 @@ class AiAttendantFlowTests(TestCase):
         self.assertEqual(self.conversation.ai_turns, 0)
         mock_send.assert_not_called()
 
+    def test_skips_when_conversation_already_has_sector(self):
+        self.conversation.sector = self.vendas
+        self.conversation.save(update_fields=['sector'])
+        mock_send = self._handle(self._incoming('ola'))
+        self.conversation.refresh_from_db()
+        self.assertEqual(self.conversation.ai_turns, 0)
+        mock_send.assert_not_called()
+
     def test_async_trigger_guards_do_not_spawn(self):
         # Guardas baratas: nao dispara (retorna False) quando desligado, em grupo
         # ou para mensagem enviada — sem criar thread nem tocar a rede.
@@ -980,6 +988,76 @@ class AiAttendantFlowTests(TestCase):
             save_incoming_message(self.conversation, ctx, message_type='text', text='oi',
                                   external_message_id='X1')
         mock_async.assert_called_once()
+
+
+class ConversationTransferViewTests(TestCase):
+    """Transferencia manual pelo painel de Conversas."""
+
+    def setUp(self):
+        from .models import Contact, Conversation, Sector
+        self.admin = User.objects.create_user(email='adm-transfer@beezap.com', password='1234', role=User.Role.ADM)
+        self.attendant_user = User.objects.create_user(
+            email='atendente-transfer@beezap.com', password='1234', role=User.Role.USUARIO,
+        )
+        self.attendant = Attendant.objects.create(
+            user=self.attendant_user, name='Atendente Vendas', must_change_password=False,
+        )
+        self.sector = Sector.objects.create(name='Vendas')
+        self.contact = Contact.objects.create(name='Cliente', phone='5516999990000')
+        self.conversation = Conversation.objects.create(
+            contact=self.contact,
+            external_id='5516999990000',
+            chat_type='private',
+            status='open',
+            ai_state='active',
+        )
+
+    def test_admin_transfer_to_sector_marks_pending_and_stops_ai(self):
+        self.client.force_login(self.admin)
+
+        response = self.client.post(
+            reverse('conversation-transfer', args=[self.conversation.id]),
+            {'sector_id': str(self.sector.id)},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.conversation.refresh_from_db()
+        self.assertEqual(self.conversation.sector, self.sector)
+        self.assertEqual(self.conversation.status, 'pending')
+        self.assertEqual(self.conversation.ai_state, 'off')
+        data = response.json()
+        self.assertEqual(data['contact']['sector'], 'Vendas')
+        self.assertEqual(data['contact']['status_label'], 'Pendente')
+
+    def test_admin_assign_attendant_marks_open_service(self):
+        self.client.force_login(self.admin)
+        self.conversation.sector = self.sector
+        self.conversation.status = 'pending'
+        self.conversation.save(update_fields=['sector', 'status'])
+
+        response = self.client.post(
+            reverse('conversation-transfer', args=[self.conversation.id]),
+            {'attendant_id': str(self.attendant.id)},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.conversation.refresh_from_db()
+        self.assertEqual(self.conversation.assigned_attendant, self.attendant)
+        self.assertEqual(self.conversation.status, 'open')
+        data = response.json()
+        self.assertEqual(data['contact']['attendant'], 'Atendente Vendas')
+        self.assertEqual(data['contact']['status_label'], 'Aberta')
+
+    def test_pending_sector_conversation_has_queue_label(self):
+        from accounts.views import _serialize_conversation_item
+        self.conversation.sector = self.sector
+        self.conversation.status = 'pending'
+        self.conversation.save(update_fields=['sector', 'status'])
+
+        data = _serialize_conversation_item(self.conversation)
+
+        self.assertEqual(data['queue_label'], 'Aguardando Vendas')
+        self.assertEqual(data['sector'], 'Vendas')
 
 
 class AiAttendantSettingsViewTests(TestCase):

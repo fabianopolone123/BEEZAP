@@ -818,6 +818,15 @@ def _format_conv_time(dt):
 
 
 def _serialize_conversation_item(conversation):
+    sector_name = conversation.sector.name if conversation.sector_id else ''
+    attendant_name = conversation.assigned_attendant.name if conversation.assigned_attendant_id else ''
+    queue_label = ''
+    if conversation.status == 'pending' and sector_name and not attendant_name:
+        queue_label = f'Aguardando {sector_name}'
+    elif attendant_name:
+        queue_label = f'Com {attendant_name}'
+    elif sector_name:
+        queue_label = sector_name
     return {
         'id': conversation.id,
         'name': conversation.display_title,
@@ -829,6 +838,9 @@ def _serialize_conversation_item(conversation):
         'status_label': conversation.status_label,
         'chat_type': conversation.chat_type,
         'is_group': conversation.is_group,
+        'sector': sector_name,
+        'attendant': attendant_name,
+        'queue_label': queue_label,
     }
 
 
@@ -1354,18 +1366,30 @@ def conversation_name_contact_view(request):
 @require_POST
 def conversation_transfer_view(request, conversation_id):
     conversation = get_object_or_404(Conversation, pk=conversation_id)
+    update_fields = {'updated_at'}
 
     if 'attendant_id' in request.POST:
         attendant_id = (request.POST.get('attendant_id') or '').strip()
         conversation.assigned_attendant = (
             Attendant.objects.filter(pk=attendant_id).first() if attendant_id else None
         )
+        update_fields.add('assigned_attendant')
     if 'sector_id' in request.POST:
         sector_id = (request.POST.get('sector_id') or '').strip()
         conversation.sector = (
             Sector.objects.filter(pk=sector_id).first() if sector_id else None
         )
-    conversation.save(update_fields=['assigned_attendant', 'sector', 'updated_at'])
+        update_fields.add('sector')
+
+    if conversation.assigned_attendant_id:
+        conversation.status = 'open'
+    elif conversation.sector_id:
+        conversation.status = 'pending'
+    else:
+        conversation.status = 'open'
+    conversation.ai_state = 'off'
+    update_fields.update({'status', 'ai_state'})
+    conversation.save(update_fields=list(update_fields))
 
     return JsonResponse({'ok': True, 'contact': _serialize_contact_info(conversation)})
 
