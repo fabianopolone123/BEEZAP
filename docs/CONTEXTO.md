@@ -139,6 +139,12 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
   (thread) as mídias que falharam na chegada; disparado pelo botão **Atualizar**.
 - `save_outgoing_media_message(...)` salva arquivo enviado em
   `MEDIA/whatsapp/outgoing/` (nome único uuid).
+- Envio de mídia (`conversation_send_media_view`): a W-API baixa a mídia pela URL
+  pública. Se o host for público (produção) usa a URL; se for **localhost/IP
+  privado/.local** (ambiente local, onde a W-API na nuvem não alcança a URL) envia
+  a mídia em **base64** (`_media_file_to_data_uri`) — decisão via
+  `_host_reachable_by_wapi`. Sem isso, o envio local de imagem/áudio/vídeo/documento
+  falhava com "verifique a conexão do WhatsApp".
 - `convert_audio_to_ogg(uploaded)` converte áudio (webm/opus do Chrome) → **ogg**
   via **ffmpeg** (a W-API só aceita `.mp3`/`.ogg`).
 - Rótulos de "última mensagem": 📷 Imagem, 🎧 Áudio, 🎥 Vídeo, 🎞️ GIF, 💟 Figurinha,

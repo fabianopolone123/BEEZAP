@@ -105,6 +105,12 @@ Fluxo:
      usa o nome do usuário, evita traversal/sobrescrita);
    - monta a **URL pública** com `request.build_absolute_uri(media_file.url)`
      (respeita o prefixo `/beezap/media/` via `MEDIA_URL`);
+   - decide o formato enviado à W-API com `_host_reachable_by_wapi`: a W-API roda
+     **na nuvem** e só baixa a mídia se a URL for acessível de fora. Host público
+     (produção) → envia a **URL**; `localhost` / IP privado / `.local` (ambiente
+     local com `runserver`) → envia a mídia em **base64** (data URI via
+     `_media_file_to_data_uri`, ex.: `data:image/jpeg;base64,...`), formato aceito
+     pela W-API. Sem isso, o envio local falhava com "verifique a conexão do WhatsApp";
    - chama o método correto do client: `send_image_message`, `send_audio_message`,
      `send_video_message` ou `send_document_message`;
    - salva a mensagem `out` com `media_file`, `media_mimetype`, `external_message_id`

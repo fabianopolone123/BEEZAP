@@ -1,3 +1,5 @@
+import base64
+import ipaddress
 import json
 import logging
 import mimetypes
@@ -5,6 +7,7 @@ import re
 import secrets
 from hmac import compare_digest
 from datetime import timedelta
+from urllib.parse import urlsplit
 
 from django.conf import settings
 from django.contrib import messages
@@ -1135,6 +1138,33 @@ def _media_category_ok(media_type, mimetype):
     return False
 
 
+def _host_reachable_by_wapi(host):
+    """A W-API roda na nuvem: so consegue baixar a midia se a URL apontar para um
+    host publico. localhost / IP privado / .local (tipico do ambiente local com
+    runserver) nao sao acessiveis de fora -> nesses casos enviamos base64."""
+    host = (host or '').split(':')[0].strip().lower()
+    if not host or host == 'localhost' or host.endswith('.local'):
+        return False
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        # E um dominio (ex.: beezap.exemplo.com) -> assume publico/acessivel.
+        return True
+    return not (ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved)
+
+
+def _media_file_to_data_uri(field_file, mimetype):
+    """Le os bytes do arquivo salvo e devolve um data URI base64 aceito pela W-API
+    (ex.: data:image/jpeg;base64,....). Usado quando a URL publica nao e acessivel."""
+    field_file.open('rb')
+    try:
+        raw = field_file.read()
+    finally:
+        field_file.close()
+    encoded = base64.b64encode(raw).decode('ascii')
+    return f'data:{mimetype or "application/octet-stream"};base64,{encoded}'
+
+
 @login_required
 @require_POST
 def conversation_send_media_view(request, conversation_id):
@@ -1189,17 +1219,24 @@ def conversation_send_media_view(request, conversation_id):
 
     # URL publica que a W-API consegue baixar (respeita o prefixo /beezap/ via MEDIA_URL).
     public_url = request.build_absolute_uri(message.media_file.url)
+    # A W-API (nuvem) baixa a midia pela URL. Em producao (dominio publico) isso
+    # funciona; em ambiente local (localhost/IP privado) ela nao alcanca a URL e o
+    # envio falha -> nesse caso mandamos a midia em base64 (data URI), aceito pela API.
+    if _host_reachable_by_wapi(urlsplit(public_url).hostname):
+        media_payload = public_url
+    else:
+        media_payload = _media_file_to_data_uri(message.media_file, mimetype)
     # Em grupo, destino e o JID (@g.us) — nunca o participante individual.
     phone = conversation.recipient
 
     if media_type == 'image':
-        result = send_image_message(phone, public_url, caption=caption or None)
+        result = send_image_message(phone, media_payload, caption=caption or None)
     elif media_type == 'audio':
-        result = send_audio_message(phone, public_url)
+        result = send_audio_message(phone, media_payload)
     elif media_type == 'video':
-        result = send_video_message(phone, public_url, caption=caption or None)
+        result = send_video_message(phone, media_payload, caption=caption or None)
     else:
-        result = send_document_message(phone, public_url, file_name=uploaded.name, caption=caption or None)
+        result = send_document_message(phone, media_payload, file_name=uploaded.name, caption=caption or None)
 
     if result.success:
         message.status = 'sent'
