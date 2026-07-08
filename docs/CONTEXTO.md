@@ -97,9 +97,12 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
 - `is_ignorable_jid(value)` → conversas que **não são atendimento** e são ignoradas:
   o id literal `status`, `@newsletter` e `@broadcast`.
 - `is_status_or_broadcast(payload)` → detecta **Status/stories** do WhatsApp mesmo
-  quando o W-API Lite manda `chat.id == "status"` (sem `@broadcast`) ou pelos
-  marcadores `statusSourceType`/`posterStatusID`, ou `status@broadcast` em qualquer
-  campo. Status **não** vira conversa.
+  quando o W-API Lite manda `chat.id == "status"` (sem `@broadcast`), ou pelo
+  marcador `posterStatusID` (id do post de status), ou `status@broadcast` em
+  qualquer campo. **Não usa `statusSourceType`**: o WhatsApp coloca esse campo em
+  foto/vídeo/GIF **comuns** (`"IMAGE"`/`"VIDEO"`/`"GIF"`) só indicando que a mídia
+  pode ser repostada como status — usá-lo fazia lotes de fotos/vídeos/gifs sumirem
+  do chat. Status **não** vira conversa.
 - `normalize_wapi_message_context(payload)` → **função central de GRUPO vs DIRETA**.
   Usa `is_group_jid` para decidir: JID coletivo ⇒ **grupo** (chat_id = JID, remetente
   separado em `sender_id`/`participant_id`); número puro / `@s.whatsapp.net` / `@lid`

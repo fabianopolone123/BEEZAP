@@ -432,6 +432,35 @@ class WapiStatusDetectionTests(SimpleTestCase):
             {'chat': {'id': 'x'}, 'msgContent': {'imageMessage': {'posterStatusID': 'abc'}}}
         ))
 
+    def test_normal_media_with_status_source_type_is_not_status(self):
+        # Regressao (payload real): foto/video/GIF NORMAIS trazem statusSourceType
+        # no contextInfo so para indicar que podem ser repostados como status.
+        # Nao pode ser tratado como status, senao lotes de fotos somem do chat.
+        photo = {
+            'chat': {'id': '55525538541752@lid'},
+            'sender': {'id': '393519098476', 'pushName': 'Lucas P'},
+            'msgContent': {'imageMessage': {
+                'mimetype': 'image/jpeg', 'mediaKey': 'K', 'directPath': '/d',
+                'contextInfo': {'pairedMediaType': 'NOT_PAIRED_MEDIA',
+                                'statusSourceType': 'IMAGE'},
+            }},
+        }
+        self.assertFalse(is_status_or_broadcast(photo))
+        gif = {'chat': {'id': '120363039427798532@g.us'},
+               'msgContent': {'videoMessage': {'gifPlayback': True,
+                                               'contextInfo': {'statusSourceType': 'GIF'}}}}
+        self.assertFalse(is_status_or_broadcast(gif))
+
+    def test_real_status_still_detected_without_source_type(self):
+        # Status de verdade continua pego por chat.id == "status" e posterStatusID.
+        status = {
+            'chat': {'id': 'status'},
+            'msgContent': {'videoMessage': {
+                'contextInfo': {'posterStatusID': 'Xb+0mG5wAuzlU0nW8V2WhFc=',
+                                'statusSourceType': 'VIDEO'}}},
+        }
+        self.assertTrue(is_status_or_broadcast(status))
+
 
 class AttendantsViewTests(TestCase):
     def setUp(self):

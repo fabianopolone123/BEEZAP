@@ -168,8 +168,13 @@ _STATUS_CHAT_PATHS = (
     ('key', 'remoteJid'), ('data', 'key', 'remoteJid'),
 )
 
-# Chaves que so aparecem em atualizacoes de Status ('stories').
-_STATUS_MARKER_KEYS = ('statussourcetype', 'posterstatusid')
+# Marcador exclusivo de Status ('stories'): posterStatusID e o id do post de
+# status. ATENCAO: NAO incluir 'statusSourceType' aqui. O WhatsApp hoje coloca
+# esse campo em foto/video/GIF NORMAIS (statusSourceType: "IMAGE"/"VIDEO"/"GIF")
+# dentro do contextInfo, so para indicar que a midia PODE ser repostada como
+# status — nao que ela E um status. Usa-lo como marcador fazia fotos/videos/gifs
+# comuns (inclusive lotes de fotos) serem descartados como se fossem stories.
+_STATUS_MARKER_KEYS = ('posterstatusid',)
 
 
 def is_status_or_broadcast(payload):
@@ -177,8 +182,9 @@ def is_status_or_broadcast(payload):
 
     Status ('stories') nao sao conversa/atendimento e devem ser ignorados.
     Deteccao (W-API Lite): chat.id == "status", ou JID @broadcast/status@broadcast,
-    ou uma flag de broadcast, ou os marcadores 'statusSourceType'/'posterStatusID'
-    que so existem em posts de Status.
+    ou uma flag de broadcast, ou o marcador 'posterStatusID' (id do post de
+    status). NAO usa 'statusSourceType', que aparece em midia comum e nao
+    identifica um status (ver _STATUS_MARKER_KEYS).
     """
     if not isinstance(payload, dict):
         return False
