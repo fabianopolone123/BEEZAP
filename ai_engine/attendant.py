@@ -166,7 +166,7 @@ def _recent_customer_context(conversation, current_message, limit=5):
     return '\n'.join(parts[-limit:])
 
 
-def _sibling_conversation_ids(conversation, limit=5):
+def _sibling_conversation_ids(conversation, limit=10):
     """Conversas ANTERIORES do mesmo contato (por contato ou, sem contato, pelo
     external_id da direta), da mais recente para a mais antiga."""
     from accounts.models import Conversation
@@ -183,9 +183,14 @@ def _sibling_conversation_ids(conversation, limit=5):
     )
 
 
-def _contact_history_context(conversation, limit_msgs=8):
-    """Resumo curto das ultimas mensagens de texto em conversas ANTERIORES com o
-    mesmo contato, para a IA se inteirar do historico. Vazio se nao houver."""
+# Quantas mensagens de conversas ANTERIORES do contato entram no contexto da IA.
+# ~10 trocas (cliente + atendimento) = ~20 mensagens.
+CONTACT_HISTORY_MAX_MESSAGES = 20
+
+
+def _contact_history_context(conversation, limit_msgs=CONTACT_HISTORY_MAX_MESSAGES):
+    """Resumo das ultimas mensagens de texto em conversas ANTERIORES com o mesmo
+    contato (~10 trocas), para a IA se inteirar do historico. Vazio se nao houver."""
     from accounts.models import Message
 
     conv_ids = _sibling_conversation_ids(conversation)

@@ -370,7 +370,8 @@ intenção do cliente e **transfere para o setor certo** (deixa `status='pending
   `INDEFINIDO`** (prompt `build_intent_classification_messages`). Retorna
   `IntentResult(sector, source)`. Nunca quebra por rede (cai em indefinido).
   **`llm_only=True`** (config `AiAttendantConfig.llm_only`, modo de teste): pula a camada
-  (1) inteira e deixa o modelo decidir sozinho. **`history`**: resumo curto de conversas
+  (1) inteira e deixa o modelo decidir sozinho. **`history`**: resumo das
+  **últimas ~10 trocas** (≈20 mensagens, `CONTACT_HISTORY_MAX_MESSAGES`) de conversas
   ANTERIORES com o mesmo contato (montado por `_contact_history_context` no orquestrador,
   via `_sibling_conversation_ids`), passado ao modelo como contexto. **`instructions`**
   (`AiAttendantConfig.instructions`, editável no painel): vira o **system prompt** da
