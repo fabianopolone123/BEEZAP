@@ -120,6 +120,13 @@ Fluxo:
 (pdf, doc/docx, xls/xlsx, ppt/pptx, txt, csv). Legenda (caption) ainda não é
 enviada pelo composer (ver pendências).
 
+**Imagem — extensão obrigatória na URL:** a W-API exige que a URL da imagem
+termine em `.png`, `.jpeg` ou `.jpg` (senão responde HTTP 500 "A URL da imagem
+deve ser nos formatos ..."). Por isso `ensure_wapi_image()` roda **antes de salvar**:
+PNG/JPEG só têm a extensão do arquivo normalizada (cobre `.jfif`, print colado sem
+extensão, etc.); **webp/gif/bmp/heic/...** são convertidos para **JPEG** com ffmpeg
+(`_convert_image_to_jpeg`). O ffmpeg, além do áudio, passa a ser usado para imagem.
+
 A mensagem enviada é renderizada imediatamente no chat (reaproveitando o mesmo
 render de mídia recebida) e a última mensagem da conversa vira o rótulo do tipo.
 

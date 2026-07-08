@@ -147,6 +147,11 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
   falhava com "verifique a conexão do WhatsApp".
 - `convert_audio_to_ogg(uploaded)` converte áudio (webm/opus do Chrome) → **ogg**
   via **ffmpeg** (a W-API só aceita `.mp3`/`.ogg`).
+- `ensure_wapi_image(uploaded, mimetype)` garante que a imagem enviada resulte numa
+  URL terminada em `.png`/`.jpeg`/`.jpg` (a W-API **recusa** o resto com HTTP 500
+  "A URL da imagem deve ser nos formatos ..."). PNG/JPEG → só normaliza a extensão
+  do nome; webp/gif/bmp/heic/... → converte para **JPEG** via `_convert_image_to_jpeg`
+  (ffmpeg). Chamada em `conversation_send_media_view` antes de salvar.
 - Rótulos de "última mensagem": 📷 Imagem, 🎧 Áudio, 🎥 Vídeo, 🎞️ GIF, 💟 Figurinha,
   👍 Reação, 📄 Documento.
 

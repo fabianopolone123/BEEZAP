@@ -679,6 +679,60 @@ def save_outgoing_text_message(conversation, text, external_message_id='', statu
     return save_outgoing_message(conversation, 'text', text=text, external_message_id=external_message_id, status=status)
 
 
+def _convert_image_to_jpeg(uploaded_file):
+    """Converte a imagem enviada (webp/gif/bmp/heic/...) para JPEG via ffmpeg.
+    Retorna um ContentFile chamado 'image.jpg' ou None se nao der para converter."""
+    if not shutil.which('ffmpeg'):
+        media_logger.warning('ffmpeg nao encontrado; nao foi possivel converter a imagem para JPEG.')
+        return None
+    tmpdir = tempfile.mkdtemp(prefix='beezap_img_')
+    try:
+        in_path = os.path.join(tmpdir, 'in')
+        out_path = os.path.join(tmpdir, 'out.jpg')
+        with open(in_path, 'wb') as dst:
+            for chunk in uploaded_file.chunks():
+                dst.write(chunk)
+        # -frames:v 1 garante 1 quadro (ex.: webp/gif animado vira a 1a imagem).
+        proc = subprocess.run(
+            ['ffmpeg', '-y', '-i', in_path, '-frames:v', '1', out_path],
+            capture_output=True, timeout=90,
+        )
+        if proc.returncode != 0 or not os.path.exists(out_path):
+            media_logger.warning('ffmpeg falhou ao converter imagem (rc=%s).', proc.returncode)
+            return None
+        with open(out_path, 'rb') as src:
+            data = src.read()
+        return ContentFile(data, name='image.jpg')
+    except Exception:
+        media_logger.exception('Erro convertendo imagem para JPEG.')
+        return None
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+def ensure_wapi_image(uploaded_file, mimetype):
+    """A W-API exige que a URL da imagem termine em .png/.jpeg/.jpg (senao HTTP 500
+    'A URL da imagem deve ser nos formatos ...'). Garante isso:
+
+    - PNG e JPEG passam direto, so forcando a extensao correta no nome do arquivo
+      (cobre .jfif, print colado sem extensao, extensao errada, etc.);
+    - outros formatos (webp/gif/bmp/heic/tiff/...) sao convertidos para JPEG.
+
+    Retorna (arquivo, mimetype) pronto para salvar, ou (None, mimetype) se falhar."""
+    mimetype = (mimetype or '').lower()
+    name = (getattr(uploaded_file, 'name', '') or '').lower()
+    if mimetype == 'image/png' or (not mimetype and name.endswith('.png')):
+        uploaded_file.name = 'image.png'
+        return uploaded_file, 'image/png'
+    if mimetype in ('image/jpeg', 'image/jpg') or (not mimetype and name.endswith(('.jpg', '.jpeg'))):
+        uploaded_file.name = 'image.jpg'
+        return uploaded_file, 'image/jpeg'
+    converted = _convert_image_to_jpeg(uploaded_file)
+    if converted is None:
+        return None, mimetype
+    return converted, 'image/jpeg'
+
+
 def convert_audio_to_ogg(uploaded_file):
     """Converte o audio enviado (ex.: webm/opus do Chrome) para ogg/opus, formato
     aceito pela W-API. Requer ffmpeg instalado. Retorna um ContentFile chamado

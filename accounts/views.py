@@ -60,6 +60,7 @@ from wapi.formatting import markdown_to_whatsapp
 from wapi.parser import parse_wapi_webhook_payload
 from wapi.services import (
     convert_audio_to_ogg,
+    ensure_wapi_image,
     document_filename,
     ingest_wapi_payload,
     retry_conversation_media_async,
@@ -1216,6 +1217,16 @@ def conversation_send_media_view(request, conversation_id):
             )
         uploaded = converted
         mimetype = 'audio/ogg'
+
+    # A W-API exige que a URL da imagem termine em .png/.jpeg/.jpg. Garante a
+    # extensao aceita e converte formatos nao suportados (webp/gif/bmp/heic...) p/ JPEG.
+    if media_type == 'image':
+        uploaded, mimetype = ensure_wapi_image(uploaded, mimetype)
+        if uploaded is None:
+            return JsonResponse(
+                {'ok': False, 'error': 'Nao foi possivel preparar a imagem. Envie um JPG ou PNG, ou instale o ffmpeg no servidor.'},
+                status=400,
+            )
 
     # Salva o arquivo localmente e cria a mensagem (pendente).
     message = save_outgoing_media_message(

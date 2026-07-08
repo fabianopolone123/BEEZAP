@@ -3,6 +3,7 @@ gunicorn>=23.0,<24.0
 psycopg[binary]>=3.2,<4.0
 
 # Dependencia de SISTEMA (nao e pacote pip): ffmpeg
-#   Necessaria para converter o audio gravado no navegador (.webm) para .ogg
-#   antes de enviar pela W-API. Instale no servidor com: sudo apt install -y ffmpeg
+#   Necessaria para (1) converter o audio gravado no navegador (.webm) para .ogg e
+#   (2) converter imagens nao suportadas (webp/gif/bmp/heic...) para JPEG antes de
+#   enviar pela W-API. Instale no servidor com: sudo apt install -y ffmpeg
 #   Ver docs/DEPLOY.md e docs/WAPI_MEDIA_INTEGRATION.md.
