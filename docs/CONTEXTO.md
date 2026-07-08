@@ -33,7 +33,7 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
 > `wapi/` é um módulo Python comum (importa `accounts.models`); **não** está em
 > `INSTALLED_APPS`, por isso os models ficam em `accounts/models.py`.
 
-## 3. Modelos (`accounts/models.py`) — migração atual: `0018`
+## 3. Modelos (`accounts/models.py`) — migração atual: `0019`
 
 - **User** (AbstractUser, login por e-mail; `role`: `leitor`/`usuario`/`adm`).
 - **Attendant** (perfil de atendente, vínculo com User, troca de senha inicial).
@@ -49,14 +49,16 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
   e também ao **nomear** um participante de grupo (clique no número) ou cadastrar
   manualmente. O `phone` (dígitos) é a chave usada para trocar número→nome nas
   mensagens de grupo (remetente e menções `@`).
-- **Conversation**: `contact` (**opcional** — grupo não tem contato individual),
+- **Conversation**: **um único chat por pessoa/grupo** (padrão WhatsApp — não dá mais
+  fork por atendimento). `contact` (**opcional** — grupo não tem contato individual),
   `chat_type` (`private`/`group`), `external_id` (JID do grupo `@g.us`, telefone
   ou LID da direta), `name` (título/nome do grupo), `status`
   (`open`/`pending`/`closed`), `assigned_attendant`, `sector`,
   `last_message_text`, `last_message_at`, `unread_count`. Propriedades:
   `is_group`, `display_title`, `display_initials`, `recipient` (destino de envio).
 - **Message**: `conversation`, `direction` (`in`/`out`), `message_type`
-  (`text/image/audio/video/document/sticker/gif/reaction/location/contact/unknown`),
+  (`text/image/audio/video/document/sticker/gif/reaction/location/contact/unknown/system`;
+  `system` = **divisória** de atendimento no meio do chat),
   `text`, `sender_name`, `sender_id`/`participant_id` (quem enviou; em grupo é o
   participante), `is_group`, `from_me`, `external_message_id` (id real da W-API,
   serve de `wapi_message_id`), `media_file`, `media_url`, `media_mimetype`,
@@ -351,10 +353,20 @@ cleanup_nonpersonal_conversations [--delete]  # remove conversas de canal/transm
 > `Conversation.ai_state/ai_turns` e `Message.is_ai`, integração Ollama). Migração `0018`.
 > O recebimento/webhook, Conversas, Contatos, Setores e envio seguem intactos.
 
+- **Um único chat por pessoa/grupo** (padrão WhatsApp): `resolve_conversation_for_context`
+  **sempre reusa a mesma** `Conversation` do contato/grupo (não exclui mais `closed`, não dá
+  fork). Todo o histórico fica num só chat.
 - Na tela Conversas há ações de atendimento: **Assumir** (usuário com perfil de atendente)
   e **Encerrar**. O admin pode transferir setor/atendente pelos selects da coluna de info.
 - **Transferir** para um setor sem atendente deixa a conversa `pending` (Aguardando <Setor>);
   atribuir atendente deixa `open`.
-- **Encerrar** marca a conversa como `closed`; a próxima mensagem do mesmo contato cria uma
-  **nova** `Conversation` aberta, sem setor/atendente (o ingest ignora conversas fechadas ao
-  resolver a conversa de uma nova mensagem).
+- **Encerrar** (`conversation_close_view`): insere uma **divisória** no chat
+  (`save_system_message`, `Message.message_type='system'` → "Atendimento encerrado"), marca
+  `status='closed'` e limpa `assigned_attendant`/`sector`. A conversa e o histórico **permanecem**.
+- A **próxima mensagem** do mesmo contato reusa o mesmo chat: `_reopen_for_new_service` insere
+  a divisória "Novo atendimento iniciado" e volta `status='open'`. As divisórias marcam os
+  limites de cada atendimento dentro do chat único.
+- **Front**: `buildMessageEl` renderiza `kind='system'` como uma **pílula centralizada**
+  (`.conv-divider`, sem balão/horário); CSS em `conversations.css?v=19`.
+- **Chats já picotados** (do comportamento antigo de fork) são unificados pelo comando
+  `merge_contact_conversations` (ver seção 9 / comandos de management).

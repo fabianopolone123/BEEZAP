@@ -1587,3 +1587,22 @@ body.conv-lightbox-open {
     display: none;
   }
 }
+
+/* Divisoria de atendimento (mensagem de sistema): pilula cinza centralizada no
+   meio do chat, marcando encerramento / novo atendimento. */
+.conv-divider {
+  display: flex;
+  justify-content: center;
+  margin: 14px 0;
+}
+
+.conv-divider-pill {
+  background: rgba(0, 0, 0, 0.06);
+  color: #5b6b7a;
+  font-size: 12px;
+  line-height: 1.2;
+  padding: 5px 12px;
+  border-radius: 12px;
+  text-align: center;
+  max-width: 80%;
+}

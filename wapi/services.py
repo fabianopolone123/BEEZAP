@@ -217,7 +217,6 @@ def resolve_conversation_for_context(ctx):
         conversation = (
             Conversation.objects
             .filter(external_id=chat_id, chat_type='group')
-            .exclude(status='closed')
             .order_by('-last_message_at', '-created_at')
             .first()
         )
@@ -225,6 +224,8 @@ def resolve_conversation_for_context(ctx):
             if ctx.get('display_name') and not conversation.name:
                 conversation.name = ctx['display_name']
                 conversation.save(update_fields=['name', 'updated_at'])
+            if conversation.status == 'closed':
+                _reopen_for_new_service(conversation)
             return conversation
         # Conversa de grupo nova: o webhook LITE quase nunca traz o nome, so o JID.
         # Buscamos o nome real na W-API uma unica vez (na criacao) para nao ficar
@@ -245,7 +246,6 @@ def resolve_conversation_for_context(ctx):
             return None
         conversation = (
             contact.conversations
-            .exclude(status='closed')
             .order_by('-last_message_at', '-created_at')
             .first()
         )
@@ -254,6 +254,8 @@ def resolve_conversation_for_context(ctx):
                 conversation.external_id = conversation.external_id or phone
                 conversation.chat_type = 'private'
                 conversation.save(update_fields=['external_id', 'chat_type', 'updated_at'])
+            if conversation.status == 'closed':
+                _reopen_for_new_service(conversation)
             return conversation
         return Conversation.objects.create(contact=contact, external_id=phone, chat_type='private')
 
@@ -261,11 +263,12 @@ def resolve_conversation_for_context(ctx):
     conversation = (
         Conversation.objects
         .filter(external_id=chat_id, chat_type='private')
-        .exclude(status='closed')
         .order_by('-last_message_at', '-created_at')
         .first()
     )
     if conversation:
+        if conversation.status == 'closed':
+            _reopen_for_new_service(conversation)
         return conversation
     return Conversation.objects.create(
         external_id=chat_id,
@@ -283,6 +286,31 @@ def update_conversation_summary(conversation, text, direction):
         conversation.unread_count = (conversation.unread_count or 0) + 1
         update_fields.append('unread_count')
     conversation.save(update_fields=update_fields)
+
+
+# Textos das divisorias de atendimento (mensagens de sistema no meio do chat).
+SYSTEM_CLOSE_TEXT = 'Atendimento encerrado'
+SYSTEM_NEW_SERVICE_TEXT = 'Novo atendimento iniciado'
+
+
+def save_system_message(conversation, text):
+    """Cria uma divisoria (mensagem de sistema) no chat. NAO atualiza o resumo da
+    conversa (divisoria nao deve virar a 'ultima mensagem' na lista)."""
+    return Message.objects.create(
+        conversation=conversation,
+        direction='out',
+        message_type='system',
+        text=text or '',
+        status='sent',
+    )
+
+
+def _reopen_for_new_service(conversation):
+    """Reabre a MESMA conversa para um novo atendimento (padrao WhatsApp: um unico
+    chat por pessoa), inserindo a divisoria de novo atendimento antes das mensagens."""
+    save_system_message(conversation, SYSTEM_NEW_SERVICE_TEXT)
+    conversation.status = 'open'
+    conversation.save(update_fields=['status', 'updated_at'])
 
 
 def _ext_for_mime(mimetype):

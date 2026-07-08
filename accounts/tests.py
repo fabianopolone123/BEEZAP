@@ -887,7 +887,8 @@ class ConversationTransferViewTests(TestCase):
         self.assertEqual(self.conversation.status, 'open')
         self.assertEqual(response.json()['contact']['attendant'], 'Atendente Vendas')
 
-    def test_close_conversation_ends_current_service(self):
+    def test_close_conversation_inserts_divider_and_clears_service(self):
+        from .models import Message
         self.client.force_login(self.admin)
         self.conversation.sector = self.sector
         self.conversation.assigned_attendant = self.attendant
@@ -900,24 +901,39 @@ class ConversationTransferViewTests(TestCase):
         self.conversation.refresh_from_db()
         self.assertEqual(self.conversation.status, 'closed')
         self.assertIsNone(self.conversation.assigned_attendant)
-        self.assertEqual(response.json()['contact']['status_label'], 'Encerrada')
+        self.assertIsNone(self.conversation.sector)  # novo atendimento comeca do zero
+        # Divisoria de "encerrado" inserida no chat (mensagem de sistema).
+        divider = Message.objects.filter(conversation=self.conversation, message_type='system').last()
+        self.assertIsNotNone(divider)
+        self.assertIn('encerrado', divider.text.lower())
 
-    def test_incoming_after_closed_conversation_starts_new_conversation(self):
+    def test_incoming_after_closed_reuses_same_conversation_with_divider(self):
+        # Padrao WhatsApp: um unico chat por pessoa. Mensagem apos encerrar NAO cria
+        # conversa nova — reusa a mesma, reabre e insere a divisoria de novo atendimento.
         from wapi.services import resolve_conversation_for_context
+        from .models import Conversation, Message
         self.conversation.status = 'closed'
-        self.conversation.sector = self.sector
-        self.conversation.assigned_attendant = self.attendant
-        self.conversation.save(update_fields=['status', 'sector', 'assigned_attendant'])
+        self.conversation.save(update_fields=['status'])
 
-        new_conversation = resolve_conversation_for_context({
+        resolved = resolve_conversation_for_context({
             'chat_id': self.contact.phone,
             'is_group': False,
             'sender_name': self.contact.name,
         })
 
-        self.assertNotEqual(new_conversation.id, self.conversation.id)
-        self.assertEqual(new_conversation.status, 'open')
-        self.assertIsNone(new_conversation.sector)
-        self.assertIsNone(new_conversation.assigned_attendant)
+        self.assertEqual(resolved.id, self.conversation.id)   # MESMA conversa
+        self.assertEqual(resolved.status, 'open')             # reaberta
+        self.assertEqual(Conversation.objects.filter(contact=self.contact).count(), 1)
+        divider = Message.objects.filter(conversation=resolved, message_type='system').last()
+        self.assertIsNotNone(divider)
+        self.assertIn('novo atendimento', divider.text.lower())
+
+    def test_system_message_serializes_as_system_kind(self):
+        from accounts.views import _serialize_message
+        from wapi.services import save_system_message
+        msg = save_system_message(self.conversation, 'Atendimento encerrado')
+        data = _serialize_message(msg)
+        self.assertEqual(data['kind'], 'system')
+        self.assertEqual(data['text'], 'Atendimento encerrado')
 
 

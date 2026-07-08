@@ -56,6 +56,7 @@ from wapi.client import (
 from wapi.formatting import markdown_to_whatsapp
 from wapi.parser import parse_wapi_webhook_payload
 from wapi.services import (
+    SYSTEM_CLOSE_TEXT,
     convert_audio_to_ogg,
     ensure_wapi_image,
     document_filename,
@@ -63,6 +64,7 @@ from wapi.services import (
     retry_conversation_media_async,
     save_outgoing_media_message,
     save_outgoing_text_message,
+    save_system_message,
     sync_group_names,
 )
 
@@ -1213,9 +1215,13 @@ def conversation_take_view(request, conversation_id):
 @require_POST
 def conversation_close_view(request, conversation_id):
     conversation = get_object_or_404(Conversation, pk=conversation_id)
+    # Divisoria no chat marcando o fim do atendimento (o chat permanece; padrao
+    # WhatsApp = um unico chat por pessoa com todo o historico).
+    save_system_message(conversation, SYSTEM_CLOSE_TEXT)
     conversation.status = 'closed'
     conversation.assigned_attendant = None
-    conversation.save(update_fields=['status', 'assigned_attendant', 'updated_at'])
+    conversation.sector = None
+    conversation.save(update_fields=['status', 'assigned_attendant', 'sector', 'updated_at'])
 
     return JsonResponse({'ok': True, 'contact': _serialize_contact_info(conversation)})
 

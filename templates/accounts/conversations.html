@@ -5,7 +5,7 @@
 
 {% block extra_head %}
 <link rel="stylesheet" href="{% static 'css/dashboard.css' %}?v=5">
-<link rel="stylesheet" href="{% static 'css/conversations.css' %}?v=18">
+<link rel="stylesheet" href="{% static 'css/conversations.css' %}?v=19">
 {% endblock %}
 
 {% block content %}
@@ -647,6 +647,21 @@
   // incremental). Marca id/assinatura para permitir a atualizacao seletiva.
   function buildMessageEl(msg) {
     var kind = msg.kind || 'text';
+
+    // Mensagem de sistema = divisoria de atendimento (encerramento / novo
+    // atendimento), centralizada no meio do chat, sem balao nem horario.
+    if (kind === 'system') {
+      var divider = document.createElement('div');
+      divider.className = 'conv-divider';
+      divider.dataset.msgId = msg.id;
+      divider.dataset.msgSig = msgSignature(msg);
+      var pill = document.createElement('span');
+      pill.className = 'conv-divider-pill';
+      pill.textContent = (msg.text || '') + (msg.time ? ' · ' + msg.time : '');
+      divider.appendChild(pill);
+      return divider;
+    }
+
     var wrap = document.createElement('div');
     wrap.className = 'conv-msg conv-msg-' + msg.type;
     if (kind !== 'text') wrap.classList.add('conv-msg-kind-' + kind);

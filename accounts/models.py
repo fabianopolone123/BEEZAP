@@ -343,6 +343,9 @@ class Message(models.Model):
         ('location', 'Localizacao'),
         ('contact', 'Contato'),
         ('unknown', 'Nao suportado'),
+        # Mensagem de sistema (divisoria no meio do chat: encerramento / novo
+        # atendimento). Nao e enviada/recebida pelo WhatsApp; so exibida no chat.
+        ('system', 'Sistema'),
     ]
     # Estado do download da midia recebida.
     MEDIA_STATUS_CHOICES = [
