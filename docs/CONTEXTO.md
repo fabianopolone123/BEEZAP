@@ -378,3 +378,11 @@ intenção do cliente e **transfere para o setor certo** (deixa `status='pending
 - **Config** (`AiAttendantConfig.get_solo()`): master switch **default OFF**; editável na tela
   **Atendente Virtual** (ADM). Falas do bot salvas com `Message.is_ai=True`.
 - Logs no logger `beezap.ai` (sem token/dado sensível).
+
+### Complemento IA/recepcao - regras basicas
+
+- Em producao, o Ollama deve rodar localmente em `127.0.0.1:11434` com o modelo `qwen2.5:1.5b`, CPU (`OLLAMA_NUM_GPU=0`) e `OLLAMA_KEEP_ALIVE=30s` para liberar RAM quando ocioso.
+- As regras de atendimento por setor devem existir mesmo com Ollama ativo, pois a camada deterministica por palavra-chave tem prioridade e reduz uso de CPU/RAM.
+- Comando idempotente para criar/atualizar regras iniciais de Compras/Vendas e Financeiro:
+  `venv/bin/python manage.py seed_ai_sector_rules --overwrite`.
+- A tela Atendente Virtual continua sendo o interruptor de producao (`AiAttendantConfig.enabled`). Sem ligar essa tela, o webhook salva mensagens, mas a IA nao recepciona.

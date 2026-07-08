@@ -26,5 +26,11 @@ psycopg[binary]>=3.2,<4.0     # driver PostgreSQL (se usar DATABASE_URL=postgres
 #   nginx    proxy reverso + serve /beezap/static/ e /beezap/media/ (producao).
 #   git      deploy (git pull).
 #
+#   ollama   OPCIONAL, mas RECOMENDADO para o atendente virtual classificar texto
+#            livre por IA local. Sem Ollama, o bot ainda roteia por palavras-chave
+#            das regras de atendimento. Modelo padrao: qwen2.5:1.5b.
+#              Linux:  curl -fsSL https://ollama.com/install.sh | sh
+#                      ollama pull qwen2.5:1.5b
+#
 #   Ver docs/DEPLOY.md, docs/DEPLOY_VPS.md e docs/WAPI_MEDIA_INTEGRATION.md.
 # ============================================================================

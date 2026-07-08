@@ -203,3 +203,21 @@ sudo systemctl restart beezap
 
 Em produção o ideal é `DEBUG=False` no `.env` (com `DEBUG=True` o Django expõe
 traceback técnico ao usuário final). Ajustar quando possível.
+
+## Regras basicas da IA por setor
+
+Depois de instalar o Ollama e cadastrar os setores, rode o comando idempotente abaixo para criar/atualizar regras iniciais de roteamento para Compras/Vendas e Financeiro:
+
+```bash
+cd /var/www/beezap
+venv/bin/python manage.py seed_ai_sector_rules --overwrite
+```
+
+Essas regras sao usadas antes do modelo local: se uma palavra-chave casar, a conversa e roteada deterministicamente para o setor. O Ollama (`qwen2.5:1.5b`) fica como segunda camada para texto livre.
+
+Teste direto da classificacao usada pelo atendente virtual:
+
+```bash
+cd /var/www/beezap
+venv/bin/python manage.py shell -c "from ai_engine.services import classify_intent; from accounts.models import Sector; r=classify_intent('preciso da segunda via do boleto', Sector.objects.all()); print(r.sector.name if r.sector else '-', r.source)"
+```
