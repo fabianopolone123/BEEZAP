@@ -25,6 +25,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 
 from .forms import (
+    AiAttendantConfigForm,
     AutomationAiTestForm,
     AutomationRuleForm,
     AttendantForm,
@@ -38,6 +39,7 @@ from .forms import (
     WapiSendTextForm,
 )
 from .models import (
+    AiAttendantConfig,
     Attendant,
     AutomationRule,
     Contact,
@@ -103,6 +105,7 @@ NAV_ITEMS = [
     {'label': 'Campanhas', 'required': 'usuario', 'url_name': None},
     {'label': 'Relatorios', 'required': 'leitor', 'url_name': None},
     {'label': 'Automacao', 'required': 'adm', 'url_name': 'automation-ai'},
+    {'label': 'Atendente Virtual', 'required': 'adm', 'url_name': 'ai-attendant-settings'},
     {'label': 'Configuracoes', 'required': 'adm', 'url_name': 'wapi-settings'},
 ]
 
@@ -559,6 +562,34 @@ def automation_ai_view(request):
             'use_rules': use_rules,
             'rules_checked': rules_checked,
             'nav_items': build_nav_items(request.user.role, 'Automacao'),
+            'role_label': request.user.get_role_display(),
+            'user_initial': (request.user.first_name[:1] or request.user.email[:1]).upper(),
+        },
+    )
+
+
+@login_required
+def ai_attendant_settings_view(request):
+    if request.user.role != 'adm':
+        return HttpResponseForbidden('Acesso restrito.')
+
+    config = AiAttendantConfig.get_solo()
+    form = AiAttendantConfigForm(request.POST or None, instance=config)
+    if request.method == 'POST':
+        if form.is_valid():
+            form.save()
+            messages.success(request, 'Configuracao do atendente virtual salva.')
+            return redirect('ai-attendant-settings')
+        messages.error(request, 'Verifique os campos e tente novamente.')
+
+    return render(
+        request,
+        'accounts/ai_attendant_settings.html',
+        {
+            'form': form,
+            'config': config,
+            'has_sectors': Sector.objects.exists(),
+            'nav_items': build_nav_items(request.user.role, 'Atendente Virtual'),
             'role_label': request.user.get_role_display(),
             'user_initial': (request.user.first_name[:1] or request.user.email[:1]).upper(),
         },

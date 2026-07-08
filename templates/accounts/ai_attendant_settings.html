@@ -1,0 +1,136 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Atendente virtual | BEEZap{% endblock %}
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/dashboard.css' %}">
+<link rel="stylesheet" href="{% static 'css/automation_ai.css' %}">
+{% endblock %}
+
+{% block content %}
+<main class="dashboard-shell">
+  <aside class="sidebar">
+    <div class="sidebar-brand">
+      <img src="{% static 'images/logo-transparent.png' %}" alt="BEEZap" class="sidebar-logo">
+      <div>
+        <strong>BEEZap</strong>
+        <span>Central de atendimento</span>
+      </div>
+    </div>
+
+    <nav class="sidebar-nav">
+      {% for item in nav_items %}
+        <a href="{% if item.href %}{% url item.href %}{% else %}#{% endif %}" class="nav-item {% if item.active %}active{% endif %}">
+          <span class="nav-dot"></span>
+          <span>{{ item.label }}</span>
+        </a>
+      {% endfor %}
+    </nav>
+  </aside>
+
+  <section class="dashboard-main dashboard-main-ai">
+    <div class="automation-ai-page">
+      <header class="topbar">
+        <div class="topbar-left">
+          <button class="icon-button" type="button" aria-label="Abrir menu">&#9776;</button>
+          <div>
+            <p class="page-kicker">Automacao</p>
+            <h1>Atendente virtual</h1>
+          </div>
+        </div>
+
+        <div class="topbar-right">
+          <div class="profile-chip">
+            <div class="profile-avatar">{{ user_initial }}</div>
+            <div>
+              <strong>{{ request.user.get_full_name|default:request.user.email }}</strong>
+              <span>{{ role_label }}</span>
+            </div>
+          </div>
+          <a href="{% url 'logout' %}" class="logout-link">Sair</a>
+        </div>
+      </header>
+
+      <nav class="automation-tabs" aria-label="Navegacao da automacao">
+        <a href="{% url 'automation-ai' %}">IA de atendimento</a>
+        <a href="{% url 'automation-rules' %}">Regras de atendimento</a>
+        <a href="{% url 'ai-attendant-settings' %}" class="active">Atendente virtual</a>
+      </nav>
+
+      <form method="post" class="ai-form">
+        {% csrf_token %}
+
+        <section class="ai-card">
+          <div class="ai-card-head">
+            <div>
+              <h2>Recepcao automatica</h2>
+              <p>A IA recebe o cliente, entende o que ele precisa e transfere para o setor certo.</p>
+            </div>
+            <span class="ai-status">{% if config.enabled %}Ativo{% else %}Desligado{% endif %}</span>
+          </div>
+
+          <label class="ai-check" for="{{ form.enabled.id_for_label }}">
+            {{ form.enabled }}
+            <span>
+              <strong>Ativar atendente virtual</strong>
+              <small>Enquanto desligado, a IA nao responde nenhuma conversa.</small>
+            </span>
+          </label>
+
+          {% if not has_sectors %}
+            <p class="ai-empty-rules">
+              Cadastre setores em <a href="{% url 'sectors' %}">Setores</a> para a IA conseguir
+              direcionar os atendimentos.
+            </p>
+          {% endif %}
+        </section>
+
+        <section class="ai-card">
+          <div class="ai-card-head">
+            <div>
+              <h2>Mensagens e direcionamento</h2>
+              <p>Personalize as boas-vindas e defina para onde enviar quando nao entender.</p>
+            </div>
+          </div>
+
+          <div class="ai-grid ai-grid-config">
+            <div class="ai-field">
+              <label for="{{ form.company_name.id_for_label }}">Nome da empresa</label>
+              {{ form.company_name }}
+              {% if form.company_name.errors %}<small class="field-error">{{ form.company_name.errors|striptags }}</small>{% endif %}
+            </div>
+
+            <div class="ai-field">
+              <label for="{{ form.fallback_sector.id_for_label }}">Setor padrao (quando nao entender)</label>
+              {{ form.fallback_sector }}
+              {% if form.fallback_sector.errors %}<small class="field-error">{{ form.fallback_sector.errors|striptags }}</small>{% endif %}
+            </div>
+
+            <div class="ai-field">
+              <label for="{{ form.max_turns.id_for_label }}">Tentativas antes de transferir</label>
+              {{ form.max_turns }}
+              {% if form.max_turns.errors %}<small class="field-error">{{ form.max_turns.errors|striptags }}</small>{% endif %}
+            </div>
+          </div>
+
+          <div class="ai-field">
+            <label for="{{ form.welcome_message.id_for_label }}">Mensagem de boas-vindas</label>
+            {{ form.welcome_message }}
+            <small class="field-hint">Use <code>{empresa}</code> para inserir o nome da empresa automaticamente.</small>
+            {% if form.welcome_message.errors %}<small class="field-error">{{ form.welcome_message.errors|striptags }}</small>{% endif %}
+          </div>
+
+          <div class="ai-actions">
+            <button type="submit" class="primary-button">Salvar</button>
+          </div>
+        </section>
+      </form>
+
+      <p class="ai-note">
+        A IA so atua em conversas diretas (nunca em grupos) e para de responder assim que
+        transfere para um setor ou assim que um atendente humano responde.
+      </p>
+    </div>
+  </section>
+</main>
+{% endblock %}

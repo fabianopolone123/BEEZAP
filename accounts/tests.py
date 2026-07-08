@@ -980,3 +980,36 @@ class AiAttendantFlowTests(TestCase):
             save_incoming_message(self.conversation, ctx, message_type='text', text='oi',
                                   external_message_id='X1')
         mock_async.assert_called_once()
+
+
+class AiAttendantSettingsViewTests(TestCase):
+    """Tela de administracao do atendente virtual."""
+
+    def setUp(self):
+        self.admin = User.objects.create_user(email='adm@beezap.com', password='1234', role=User.Role.ADM)
+        self.common = User.objects.create_user(email='user@beezap.com', password='1234', role=User.Role.USUARIO)
+
+    def test_requires_admin(self):
+        self.client.force_login(self.common)
+        response = self.client.get(reverse('ai-attendant-settings'))
+        self.assertEqual(response.status_code, 403)
+
+    def test_admin_can_open_and_save(self):
+        from .models import AiAttendantConfig, Sector
+        sector = Sector.objects.create(name='Vendas')
+        self.client.force_login(self.admin)
+        self.assertEqual(self.client.get(reverse('ai-attendant-settings')).status_code, 200)
+        response = self.client.post(reverse('ai-attendant-settings'), {
+            'enabled': 'on',
+            'company_name': 'Minha Empresa',
+            'welcome_message': 'Ola, bem-vindo a {empresa}!',
+            'fallback_sector': sector.id,
+            'max_turns': 4,
+        })
+        self.assertEqual(response.status_code, 302)
+        config = AiAttendantConfig.get_solo()
+        self.assertTrue(config.enabled)
+        self.assertEqual(config.company_name, 'Minha Empresa')
+        self.assertEqual(config.fallback_sector, sector)
+        self.assertEqual(config.max_turns, 4)
+        self.assertIn('Minha Empresa', config.render_welcome())

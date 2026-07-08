@@ -3,7 +3,7 @@ from django.conf import settings
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
 
-from .models import Attendant, AutomationRule, Sector, User
+from .models import AiAttendantConfig, Attendant, AutomationRule, Sector, User
 
 
 class LoginForm(forms.Form):
@@ -389,3 +389,36 @@ class PasswordRecoveryNewPasswordForm(forms.Form):
         if new_password and confirm_password and new_password != confirm_password:
             self.add_error('confirm_password', 'As senhas digitadas nao conferem.')
         return cleaned_data
+
+
+class AiAttendantConfigForm(forms.ModelForm):
+    """Configuracao do atendente virtual (IA) editada pelo ADM."""
+
+    class Meta:
+        model = AiAttendantConfig
+        fields = ['enabled', 'company_name', 'welcome_message', 'fallback_sector', 'max_turns']
+        labels = {
+            'enabled': 'Ativar atendente virtual',
+            'company_name': 'Nome da empresa',
+            'welcome_message': 'Mensagem de boas-vindas',
+            'fallback_sector': 'Setor padrao (quando nao entender)',
+            'max_turns': 'Tentativas de entender antes de transferir',
+        }
+        widgets = {
+            'company_name': forms.TextInput(attrs={'placeholder': 'Ex.: BEEZAP', 'autocomplete': 'off'}),
+            'welcome_message': forms.Textarea(attrs={
+                'rows': 3,
+                'placeholder': 'Use {empresa} para inserir o nome da empresa.',
+            }),
+            'max_turns': forms.NumberInput(attrs={'min': 1, 'max': 10}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['fallback_sector'].required = False
+        self.fields['fallback_sector'].empty_label = 'Nenhum (encaminhar sem setor)'
+        self.fields['fallback_sector'].queryset = Sector.objects.all()
+
+    def clean_max_turns(self):
+        value = self.cleaned_data.get('max_turns') or 1
+        return max(1, min(int(value), 10))
