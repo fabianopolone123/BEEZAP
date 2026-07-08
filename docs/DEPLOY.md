@@ -15,14 +15,27 @@ garantir que alterações de **CSS/JS apareçam** em produção após o deploy.
 
 ## Dependências do sistema
 
-Além do Python/pip (`requirements.txt`), o servidor precisa de:
+Além do Python **3.12+** e dos pacotes pip (`requirements.txt`: Django, gunicorn,
+psycopg), o servidor precisa destas dependências de **sistema** (não vêm pelo pip):
 
-- **ffmpeg** — converte o áudio gravado no navegador (`.webm` do Chrome) para
-  `.ogg`, que é o formato aceito pela W-API. Sem ele, o **envio de áudio gravado
-  falha** (imagem/vídeo/documento/texto continuam funcionando).
+- **ffmpeg** — **OBRIGATÓRIO** para o envio de mídia. Converte (1) o áudio gravado
+  no navegador (`.webm` do Chrome) para `.ogg` e (2) imagens não suportadas pela
+  W-API (**webp/gif/bmp/heic...**) para `.jpg` (a W-API exige URL terminando em
+  `.png`/`.jpeg`/`.jpg`). Sem ele, o **envio de áudio gravado e de imagens
+  webp/gif/etc. falha** (JPG/PNG, vídeo, documento e texto continuam funcionando).
   ```bash
   sudo apt update && sudo apt install -y ffmpeg
   ```
+  > O `python manage.py check` avisa quando o ffmpeg está ausente
+  > (**`beezap.W001`**) — assim o problema aparece no deploy, não só em produção.
+- **nginx** — proxy reverso; serve `/beezap/static/` e `/beezap/media/`.
+- **git** — deploy via `git pull`.
+
+Verificação rápida depois de instalar:
+```bash
+ffmpeg -version            # deve imprimir a versão
+cd /var/www/beezap && venv/bin/python manage.py check   # não deve listar beezap.W001
+```
 
 ## Variáveis de ambiente obrigatórias (`.env`)
 

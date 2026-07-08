@@ -244,8 +244,10 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
 - **Histórico do bug de estáticos**: o `settings.py` do servidor já foi editado à
   mão com `STATICFILES_DIRS=[]`, o que impedia o `collectstatic` de publicar o
   CSS. Corrigido de forma versionada (ver `DEPLOY.md`). Não esvaziar `STATICFILES_DIRS`.
-- **ffmpeg**: dependência de **sistema** (não pip) para converter áudio gravado.
-  `sudo apt install -y ffmpeg`.
+- **ffmpeg**: dependência de **sistema** (não pip), **obrigatória** para envio de
+  mídia — converte áudio gravado (`.webm`→`.ogg`) e imagens não suportadas pela
+  W-API (webp/gif/bmp/heic→`.jpg`). `sudo apt install -y ffmpeg`. O `manage.py check`
+  avisa se faltar (**`beezap.W001`**). Ver `requirements.txt` e `DEPLOY.md`.
 - **DEBUG=True em produção**: ainda ativo no servidor — **risco de segurança**
   (expõe traceback). Pendência: mover para `DEBUG=False` no `.env`.
 

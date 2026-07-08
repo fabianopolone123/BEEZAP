@@ -42,8 +42,13 @@ Na VPS, validar Python e ferramentas basicas:
 ```bash
 python3 --version
 sudo apt update
-sudo apt install python3-venv python3-pip git nginx
+sudo apt install python3-venv python3-pip git nginx ffmpeg
 ```
+
+> **ffmpeg e OBRIGATORIO** para o envio de midia: converte o audio gravado no
+> navegador (.webm -> .ogg) e imagens nao suportadas pela W-API (webp/gif/bmp/heic
+> -> .jpg). Sem ele o envio desses formatos falha (o `manage.py check` avisa —
+> `beezap.W001`). Ver `requirements.txt` e `docs/DEPLOY.md`.
 
 Se for usar PostgreSQL:
 
@@ -297,6 +302,7 @@ Ativar IA local no VPS apenas depois de avaliar consumo.
 
 - Porta `8006` livre.
 - Pasta `/var/www/beezap` separada.
+- **ffmpeg instalado** (`ffmpeg -version`) — envio de audio/imagem depende dele.
 - `.env` criado e nao versionado.
 - `DEBUG=False` no VPS.
 - `ALLOWED_HOSTS` com dominio correto.
