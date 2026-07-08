@@ -202,7 +202,9 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
 - **Campo de texto = `<textarea>`** (não `<input>`, que perdia quebras de linha):
   cresce sozinho até ~140px, **Enter envia / Shift+Enter quebra linha** (estilo
   WhatsApp Web). Uma trava `sendingMessage` impede **reenvio duplicado** ao apertar
-  Enter várias vezes seguidas (o campo só limpa quando o envio termina). Ao enviar,
+  Enter várias vezes seguidas (o campo só limpa quando o envio termina). Enquanto
+  envia, o **botão de enviar** troca o ícone do avião por um **spinner girando**
+  (classe `.is-sending`), voltando ao normal ao terminar. Ao enviar,
   `conversation_send_view` passa o texto por
   `markdown_to_whatsapp()` (`wapi/formatting.py`): converte Markdown → formatação
   nativa do WhatsApp (`**negrito**`→`*negrito*`, títulos `#`→linha em negrito,
@@ -244,7 +246,7 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
 - **Estáticos**: como o Nginx serve `static/` (a fonte) direto, **um `git pull`
   já publica CSS/JS** — sem `collectstatic`/`cp`. O admin do Django vem de
   `staticfiles/admin/` (rodar `collectstatic` uma vez). Cache-busting: `?v=N` nos
-  links de CSS em `conversations.html` (hoje `conversations.css?v=14`) — **incrementar
+  links de CSS em `conversations.html` (hoje `conversations.css?v=16`) — **incrementar
   ao editar o CSS**. O JS fica inline no template (publica com o `git pull`).
 - **Histórico do bug de estáticos**: o `settings.py` do servidor já foi editado à
   mão com `STATICFILES_DIRS=[]`, o que impedia o `collectstatic` de publicar o

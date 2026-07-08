@@ -890,6 +890,33 @@
   background: #0d8d43;
 }
 
+/* Spinner de "enviando": esconde o aviao e mostra o circulo girando */
+.conv-send-spin {
+  display: none;
+}
+
+.conv-send-btn.is-sending {
+  background: #94a3b8;
+  cursor: default;
+}
+
+.conv-send-btn.is-sending:hover {
+  background: #94a3b8;
+}
+
+.conv-send-btn.is-sending .conv-send-icon {
+  display: none;
+}
+
+.conv-send-btn.is-sending .conv-send-spin {
+  display: block;
+  animation: conv-send-spin 0.7s linear infinite;
+}
+
+@keyframes conv-send-spin {
+  to { transform: rotate(360deg); }
+}
+
 /* ======================================================
    COLUNA DIREITA — Informações do contato
    ====================================================== */
