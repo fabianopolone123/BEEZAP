@@ -1200,6 +1200,43 @@ class AiAttendantFlowTests(TestCase):
         self.assertEqual(self.conversation.ai_state, 'active')
         self.assertEqual(self.conversation.ai_turns, 1)
 
+    def test_generative_mode_gives_up_with_notice(self):
+        # Ao atingir max_turns sem decisao, transfere AVISANDO (nunca fica mudo).
+        from ai_engine import attendant
+        from ai_engine.services import GenerativeResult
+        self.config.generative_replies = True
+        self.config.save(update_fields=['generative_replies'])
+        self.conversation.ai_turns = 1  # max_turns=2 -> proximo turno atinge o limite
+        self.conversation.save(update_fields=['ai_turns'])
+        with patch.object(attendant, '_send_bot_message') as mock_send, \
+                patch.object(attendant, 'generate_reply_and_route') as mock_gen:
+            mock_gen.return_value = GenerativeResult(
+                reply='ainda nao entendi', sector=None, action='continue', available=True,
+            )
+            attendant.handle_incoming_for_ai(self.conversation, self._incoming('uma fatura'))
+        self.conversation.refresh_from_db()
+        self.assertEqual(self.conversation.ai_state, 'handed_off')
+        self.assertEqual(self.conversation.status, 'pending')
+        self.assertEqual(self.conversation.sector, self.geral)  # fallback
+        mock_send.assert_called_once()  # a fala de transferencia, nao o silencio
+
+    def test_generative_route_without_reply_still_announces(self):
+        # IA decidiu o setor mas nao escreveu nada -> transfere com aviso pronto.
+        from ai_engine import attendant
+        from ai_engine.services import GenerativeResult
+        self.config.generative_replies = True
+        self.config.save(update_fields=['generative_replies'])
+        with patch.object(attendant, '_send_bot_message') as mock_send, \
+                patch.object(attendant, 'generate_reply_and_route') as mock_gen:
+            mock_gen.return_value = GenerativeResult(
+                reply='', sector=self.vendas, action='route', available=True,
+            )
+            attendant.handle_incoming_for_ai(self.conversation, self._incoming('quero comprar'))
+        self.conversation.refresh_from_db()
+        self.assertEqual(self.conversation.sector, self.vendas)
+        self.assertEqual(self.conversation.ai_state, 'handed_off')
+        mock_send.assert_called_once()
+
 
 class ConversationTransferViewTests(TestCase):
     """Transferencia manual pelo painel de Conversas."""

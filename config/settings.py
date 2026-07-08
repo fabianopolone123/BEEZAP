@@ -217,6 +217,10 @@ OLLAMA_NUM_GPU = int(os.getenv('OLLAMA_NUM_GPU', '0'))
 # VPS pequeno/compartilhado, um valor curto libera a memoria quando ocioso
 # (ex.: '30s', '0' = descarrega logo apos responder, '5m' = mantem 5 min).
 OLLAMA_KEEP_ALIVE = os.getenv('OLLAMA_KEEP_ALIVE', '30s')
+# Timeout do MODO GENERATIVO (a IA escreve a resposta). Maior que o de
+# classificacao porque gera texto e porque a 1a mensagem pode precisar carregar o
+# modelo na RAM (partida a frio no CPU). Evita cair na fala de seguranca a toa.
+OLLAMA_GENERATIVE_TIMEOUT = int(os.getenv('OLLAMA_GENERATIVE_TIMEOUT', '60'))
 
 # Logging
 # Sem esta config, os logs INFO da aplicacao (beezap.*) nao apareciam no journal

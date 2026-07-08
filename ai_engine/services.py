@@ -311,7 +311,9 @@ def generate_reply_and_route(instructions, sectors, transcript, history='',
         messages=build_generative_reply_messages(
             instructions, _sectors_block(sectors), transcript, history=history,
         ),
-        timeout=timeout or settings.OLLAMA_TIMEOUT,
+        # Timeout generoso: gerar texto demora mais e a 1a mensagem pode carregar
+        # o modelo na RAM (partida a frio no CPU).
+        timeout=timeout or getattr(settings, 'OLLAMA_GENERATIVE_TIMEOUT', 60),
         temperature=settings.OLLAMA_TEMPERATURE,
         num_predict=240,
         num_gpu=settings.OLLAMA_NUM_GPU,

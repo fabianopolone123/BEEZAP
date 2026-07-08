@@ -252,19 +252,31 @@ def _handle_generative_turn(conversation, config, message, sectors):
         fallback_sector=config.fallback_sector,
     )
 
+    # A IA decidiu o setor: fala (se escreveu algo) e transfere sem template extra.
+    # Se nao escreveu nada, transfere AVISANDO com a fala pronta (nunca mudo).
+    if result.action == 'route':
+        if result.reply:
+            _send_bot_message(conversation, result.reply)
+            _route_to_sector(conversation, result.sector, announce=False)
+        else:
+            _route_to_sector(conversation, result.sector, announce=True)
+        return
+
+    # 'continue': ainda conversando. Conta o turno.
+    conversation.ai_turns = conversation.ai_turns + 1
+    conversation.save(update_fields=['ai_turns', 'updated_at'])
+
+    # Atingiu o limite de tentativas: encaminha AVISANDO o cliente (nunca fica
+    # mudo), em vez de largar a conversa numa fila silenciosa.
+    if conversation.ai_turns >= config.max_turns:
+        _route_to_sector(conversation, config.fallback_sector, announce=True)
+        return
+
+    # Ainda dentro do limite: envia a fala da IA (ou a fala de seguranca se o
+    # modelo local nao respondeu), para nunca deixar o cliente sem resposta.
     reply = result.reply or (GENERATIVE_SAFETY_REPLY if not result.available else '')
     if reply:
         _send_bot_message(conversation, reply)
-
-    if result.action == 'route':
-        _route_to_sector(conversation, result.sector, announce=False)
-        return
-
-    # 'continue': segue a conversa. Conta o turno e, no limite, encaminha ao geral.
-    conversation.ai_turns = conversation.ai_turns + 1
-    conversation.save(update_fields=['ai_turns', 'updated_at'])
-    if conversation.ai_turns >= config.max_turns:
-        _route_to_sector(conversation, config.fallback_sector, announce=False)
 
 
 def _clarify_text_for_turn(conversation, message):

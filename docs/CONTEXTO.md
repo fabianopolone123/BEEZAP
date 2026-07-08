@@ -390,10 +390,12 @@ intenção do cliente e **transfere para o setor certo** (deixa `status='pending
   transferência) e decide o roteamento por um marcador `[SETOR: X | GERAL | CONTINUAR]` que
   o código extrai e o cliente não vê (`ai_engine/services.py` `generate_reply_and_route` +
   prompt `build_generative_reply_messages`; parsing tolerante em `_extract_marker`/
-  `_resolve_marker`). Roteia sem template (`_route_to_sector(..., announce=False)`), pois a
-  própria IA já avisou. Se a IA local estiver fora do ar, envia uma fala mínima de segurança
-  (`GENERATIVE_SAFETY_REPLY`) para não deixar o cliente sem resposta. Mais sujeito a erro com
-  modelo pequeno (`qwen2.5:1.5b`).
+  `_resolve_marker`). Roteia sem template quando a IA já escreveu o aviso (`announce=False`);
+  mas **nunca fica mudo**: se a IA decide o setor sem escrever nada, ou atinge `max_turns` sem
+  decidir, o handoff é feito **com** a fala de transferência (`announce=True`). Se a IA local
+  estiver fora do ar, envia a fala mínima de segurança (`GENERATIVE_SAFETY_REPLY`). Usa timeout
+  maior (`OLLAMA_GENERATIVE_TIMEOUT`, padrão 60s) por gerar texto / carregar o modelo na 1ª
+  mensagem. Mais sujeito a erro com modelo pequeno (`qwen2.5:1.5b`).
 - **Disparo**: `handle_incoming_for_ai_async` roda em **thread daemon** (lock por conversa),
   chamado por `wapi/services.py` após salvar uma mensagem recebida — nunca bloqueia o webhook.
 - **Config** (`AiAttendantConfig.get_solo()`): master switch **default OFF**; `llm_only`
