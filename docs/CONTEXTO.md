@@ -34,7 +34,7 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
 > `wapi/` é um módulo Python comum (importa `accounts.models`); **não** está em
 > `INSTALLED_APPS`, por isso os models ficam em `accounts/models.py`.
 
-## 3. Modelos (`accounts/models.py`) — migração atual: `0013`
+## 3. Modelos (`accounts/models.py`) — migração atual: `0014`
 
 - **User** (AbstractUser, login por e-mail; `role`: `leitor`/`usuario`/`adm`).
 - **Attendant** (perfil de atendente, vínculo com User, troca de senha inicial).
@@ -62,7 +62,13 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
   `text`, `sender_name`, `sender_id`/`participant_id` (quem enviou; em grupo é o
   participante), `is_group`, `from_me`, `external_message_id` (id real da W-API,
   serve de `wapi_message_id`), `media_file`, `media_url`, `media_mimetype`,
-  `media_status` (`none/pending/ok/unavailable`), `raw_payload`.
+  `media_status` (`none/pending/ok/unavailable`), `is_ai` (fala do atendente
+  virtual), `raw_payload`.
+- **AiAttendantConfig** (singleton `get_solo()`): configura o **atendente virtual (IA)**
+  — `enabled` (padrão **False**), `company_name`, `welcome_message` (usa `{empresa}`),
+  `fallback_sector`, `max_turns`. Editado na tela **Atendente Virtual** (ADM).
+- **Conversation** ganhou `ai_state` (`active`/`handed_off`/`off`) e `ai_turns` para o
+  atendente virtual (ver seção 12).
 
 ## 4. Integração W-API
 
@@ -347,3 +353,28 @@ cleanup_nonpersonal_conversations [--delete]  # remove conversas de canal/transm
 - Servidor: usar **chave SSH** e usuário não-root; **rotacionar** qualquer
   credencial que tenha sido exposta. Nunca colar senha/token em chat ou commit.
 - Nunca expor token/payload/traceback ao usuário final (padrão já seguido).
+
+## 12. Atendente virtual (IA) — `ai_engine/`
+
+Recepcionista automático: numa conversa **direta**, a IA dá boas-vindas, entende a
+intenção do cliente e **transfere para o setor certo** (deixa `status='pending'` /
+"Aguardando"). Para de agir ao transferir ou quando um humano assume.
+
+- **Motor**: Ollama local (`qwen2.5:1.5b`), **plugável** (trocar p/ Claude depois só mexe
+  no seam do `ai_engine`). As **falas do bot são templates fixos** (`ai_engine/attendant.py`),
+  não geradas pela IA — o modelo só é usado para **classificar** a intenção.
+- **`classify_intent(message, sectors)`** (`ai_engine/services.py`): 2 camadas — (1)
+  palavras-chave das `AutomationRule` que têm setor (determinístico, prioridade); (2) IA
+  local escolhe **1 setor da lista ou `INDEFINIDO`** (prompt `build_intent_classification_messages`).
+  Retorna `IntentResult(sector, source)`. Nunca quebra por rede (cai em indefinido).
+- **`handle_incoming_for_ai(conversation, message)`** (máquina de estados): guardas
+  (`AiAttendantConfig.enabled`, só `private`, não fechada/atribuída, `ai_state='active'`,
+  `direction='in'`); 1º contato → boas-vindas (`ai_turns=1`); intenção clara → define
+  `sector`+`status=pending`+`ai_state=handed_off` e avisa; indefinido → pede esclarecer até
+  `max_turns`, depois transfere ao `fallback_sector`; **humano assumiu** (mensagem `out` com
+  `is_ai=False`, inclui resposta pelo celular) → `ai_state='off'`, para.
+- **Disparo**: `handle_incoming_for_ai_async` roda em **thread daemon** (lock por conversa),
+  chamado por `wapi/services.py` após salvar uma mensagem recebida — nunca bloqueia o webhook.
+- **Config** (`AiAttendantConfig.get_solo()`): master switch **default OFF**; editável na tela
+  **Atendente Virtual** (ADM). Falas do bot salvas com `Message.is_ai=True`.
+- Logs no logger `beezap.ai` (sem token/dado sensível).

@@ -43,6 +43,38 @@ def build_messages(message, context=None):
     ]
 
 
+INTENT_CLASSIFICATION_PROMPT = """
+Voce classifica a intencao de um cliente no atendimento do BEEzap.
+Sua unica tarefa e escolher para qual SETOR a mensagem do cliente deve ir.
+Voce recebe a lista de setores possiveis (nome e descricao).
+Responda APENAS com o NOME EXATO de um setor da lista, sem mais nada.
+Se a mensagem nao permitir decidir com seguranca, responda exatamente: INDEFINIDO
+Nao explique, nao cumprimente, nao escreva frases. Responda so o nome do setor ou INDEFINIDO.
+""".strip()
+
+
+def build_intent_classification_messages(message, sectors_block):
+    """Monta as mensagens para o modelo CLASSIFICAR a intencao em um setor.
+
+    `sectors_block` e um texto com os setores disponiveis (nome + descricao).
+    A saida esperada e apenas o nome de um setor ou 'INDEFINIDO'.
+    """
+    user_message = (message or '').strip()
+    safe_sectors = (sectors_block or '').strip()
+
+    return [
+        {'role': 'system', 'content': INTENT_CLASSIFICATION_PROMPT},
+        {
+            'role': 'user',
+            'content': (
+                f'Setores disponiveis:\n{safe_sectors}\n\n'
+                f'Mensagem do cliente:\n{user_message}\n\n'
+                f'Responda so o nome do setor ou INDEFINIDO.'
+            ),
+        },
+    ]
+
+
 def build_messages_with_rules(message, rules_context):
     user_message = message.strip()
     safe_rules_context = (rules_context or '').strip()

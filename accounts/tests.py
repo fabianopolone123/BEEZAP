@@ -807,3 +807,176 @@ class PasswordRecoveryTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'As senhas digitadas nao conferem.')
+
+
+class AiIntentClassificationTests(TestCase):
+    """Classificacao de intencao: palavra-chave (deterministica) + IA local."""
+
+    def setUp(self):
+        from .models import AutomationRule, Sector
+        self.vendas = Sector.objects.create(name='Vendas', description='Compras e orcamentos')
+        self.suporte = Sector.objects.create(name='Suporte', description='Problemas e ajuda tecnica')
+        self.financeiro = Sector.objects.create(name='Financeiro', description='Boletos e pagamentos')
+        AutomationRule.objects.create(
+            title='Boletos', sector=self.financeiro, keywords='boleto, fatura, segunda via',
+            response_text='ok',
+        )
+
+    def _classify(self, message):
+        from ai_engine.services import classify_intent
+        from .models import Sector
+        return classify_intent(message, list(Sector.objects.all()))
+
+    def test_keyword_layer_decides_without_llm(self):
+        # Palavra-chave casa direto -> nem chama a IA.
+        with patch('ai_engine.services.chat_with_ollama') as mock_llm:
+            result = self._classify('preciso da segunda via do boleto')
+        self.assertTrue(result.decided)
+        self.assertEqual(result.sector, self.financeiro)
+        self.assertEqual(result.source, 'keyword')
+        mock_llm.assert_not_called()
+
+    def test_llm_layer_decides_when_no_keyword(self):
+        with patch('ai_engine.services.chat_with_ollama') as mock_llm:
+            mock_llm.return_value = SimpleNamespace(success=True, content='Vendas')
+            result = self._classify('gostaria de fazer uma compra')
+        self.assertTrue(result.decided)
+        self.assertEqual(result.sector, self.vendas)
+        self.assertEqual(result.source, 'llm')
+
+    def test_invalid_llm_output_is_undefined(self):
+        with patch('ai_engine.services.chat_with_ollama') as mock_llm:
+            mock_llm.return_value = SimpleNamespace(success=True, content='XPTO nao existe')
+            result = self._classify('mensagem sem intencao clara')
+        self.assertFalse(result.decided)
+        self.assertEqual(result.source, 'undefined')
+
+    def test_llm_failure_is_undefined(self):
+        with patch('ai_engine.services.chat_with_ollama') as mock_llm:
+            mock_llm.return_value = SimpleNamespace(success=False, content='')
+            result = self._classify('qualquer coisa')
+        self.assertFalse(result.decided)
+        self.assertEqual(result.source, 'undefined')
+
+
+class AiAttendantFlowTests(TestCase):
+    """Maquina de estados do atendente virtual (falas mockadas, sem rede)."""
+
+    def setUp(self):
+        from .models import AiAttendantConfig, Contact, Conversation, Sector
+        self.vendas = Sector.objects.create(name='Vendas', description='Compras')
+        self.geral = Sector.objects.create(name='Geral', description='Outros assuntos')
+        self.config = AiAttendantConfig.get_solo()
+        self.config.enabled = True
+        self.config.max_turns = 2
+        self.config.fallback_sector = self.geral
+        self.config.save()
+        self.contact = Contact.objects.create(name='Cliente', phone='5516999990000')
+        self.conversation = Conversation.objects.create(
+            contact=self.contact, external_id='5516999990000', chat_type='private',
+            status='open', ai_state='active', ai_turns=0,
+        )
+
+    def _incoming(self, text='oi', message_type='text'):
+        from .models import Message
+        return Message.objects.create(
+            conversation=self.conversation, direction='in', message_type=message_type,
+            text=text, status='received',
+        )
+
+    def _handle(self, message):
+        from ai_engine import attendant
+        with patch.object(attendant, '_send_bot_message') as mock_send:
+            attendant.handle_incoming_for_ai(self.conversation, message)
+        return mock_send
+
+    def test_first_message_sends_welcome(self):
+        mock_send = self._handle(self._incoming('ola'))
+        self.conversation.refresh_from_db()
+        self.assertEqual(self.conversation.ai_turns, 1)
+        self.assertEqual(self.conversation.ai_state, 'active')
+        mock_send.assert_called_once()
+
+    def test_clear_intent_routes_to_sector(self):
+        self.conversation.ai_turns = 1
+        self.conversation.save(update_fields=['ai_turns'])
+        with patch('ai_engine.attendant.classify_intent') as mock_intent:
+            from ai_engine.services import IntentResult
+            mock_intent.return_value = IntentResult(sector=self.vendas, source='llm')
+            self._handle(self._incoming('quero comprar'))
+        self.conversation.refresh_from_db()
+        self.assertEqual(self.conversation.sector, self.vendas)
+        self.assertEqual(self.conversation.status, 'pending')
+        self.assertEqual(self.conversation.ai_state, 'handed_off')
+
+    def test_undefined_then_fallback_after_max_turns(self):
+        from ai_engine.services import IntentResult
+        # turno 1 -> ainda pergunta (indefinido, turns 1 < max 2)
+        self.conversation.ai_turns = 1
+        self.conversation.save(update_fields=['ai_turns'])
+        with patch('ai_engine.attendant.classify_intent') as mock_intent:
+            mock_intent.return_value = IntentResult(sector=None, source='undefined')
+            self._handle(self._incoming('hmm'))
+        self.conversation.refresh_from_db()
+        self.assertEqual(self.conversation.ai_turns, 2)
+        self.assertEqual(self.conversation.ai_state, 'active')
+        # turno 2 -> atingiu max -> transfere para fallback
+        with patch('ai_engine.attendant.classify_intent') as mock_intent:
+            mock_intent.return_value = IntentResult(sector=None, source='undefined')
+            self._handle(self._incoming('nao sei'))
+        self.conversation.refresh_from_db()
+        self.assertEqual(self.conversation.sector, self.geral)
+        self.assertEqual(self.conversation.status, 'pending')
+        self.assertEqual(self.conversation.ai_state, 'handed_off')
+
+    def test_stops_when_human_took_over(self):
+        from .models import Message
+        self.conversation.ai_turns = 1
+        self.conversation.save(update_fields=['ai_turns'])
+        # atendente respondeu (mensagem out nao-IA)
+        Message.objects.create(conversation=self.conversation, direction='out',
+                               message_type='text', text='oi, eu assumo', is_ai=False)
+        mock_send = self._handle(self._incoming('ainda ai?'))
+        self.conversation.refresh_from_db()
+        self.assertEqual(self.conversation.ai_state, 'off')
+        mock_send.assert_not_called()
+
+    def test_skips_group_conversations(self):
+        self.conversation.chat_type = 'group'
+        self.conversation.save(update_fields=['chat_type'])
+        mock_send = self._handle(self._incoming('oi grupo'))
+        self.conversation.refresh_from_db()
+        self.assertEqual(self.conversation.ai_turns, 0)
+        mock_send.assert_not_called()
+
+    def test_skips_when_disabled(self):
+        self.config.enabled = False
+        self.config.save(update_fields=['enabled'])
+        mock_send = self._handle(self._incoming('ola'))
+        self.conversation.refresh_from_db()
+        self.assertEqual(self.conversation.ai_turns, 0)
+        mock_send.assert_not_called()
+
+    def test_async_trigger_guards_do_not_spawn(self):
+        # Guardas baratas: nao dispara (retorna False) quando desligado, em grupo
+        # ou para mensagem enviada — sem criar thread nem tocar a rede.
+        from ai_engine.attendant import handle_incoming_for_ai_async
+        self.config.enabled = False
+        self.config.save(update_fields=['enabled'])
+        self.assertFalse(handle_incoming_for_ai_async(self.conversation, self._incoming('oi')))
+        self.config.enabled = True
+        self.config.save(update_fields=['enabled'])
+        self.conversation.chat_type = 'group'
+        self.conversation.save(update_fields=['chat_type'])
+        self.assertFalse(handle_incoming_for_ai_async(self.conversation, self._incoming('oi')))
+
+    def test_ingest_triggers_ai_for_incoming_message(self):
+        from wapi.services import save_incoming_message
+        ctx = {
+            'chat_id': '5516999990000', 'chat_type': 'private', 'is_group': False,
+            'from_me': False, 'sender_name': 'Cliente', 'sender_id': '', 'participant_id': '',
+        }
+        with patch('ai_engine.attendant.handle_incoming_for_ai_async') as mock_async:
+            save_incoming_message(self.conversation, ctx, message_type='text', text='oi',
+                                  external_message_id='X1')
+        mock_async.assert_called_once()

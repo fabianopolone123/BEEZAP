@@ -289,6 +289,12 @@ class Conversation(models.Model):
         ('private', 'Direta'),
         ('group', 'Grupo'),
     ]
+    # Estado do atendente virtual (IA) nesta conversa.
+    AI_STATE_CHOICES = [
+        ('active', 'IA atendendo'),
+        ('handed_off', 'Transferida pela IA'),
+        ('off', 'IA desligada'),
+    ]
 
     # Conversa direta tem contato (telefone); conversa de grupo nao tem contato
     # individual, por isso o vinculo e opcional.
@@ -310,6 +316,9 @@ class Conversation(models.Model):
     last_message_text = models.TextField(blank=True, default='')
     last_message_at = models.DateTimeField(null=True, blank=True)
     unread_count = models.PositiveIntegerField(default=0)
+    # Atendente virtual (IA): estado e quantas vezes a IA ja falou nesta conversa.
+    ai_state = models.CharField(max_length=12, choices=AI_STATE_CHOICES, default='active')
+    ai_turns = models.PositiveSmallIntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -416,6 +425,9 @@ class Message(models.Model):
     media_url = models.URLField(max_length=500, blank=True, default='')
     media_mimetype = models.CharField(max_length=120, blank=True, default='')
     media_status = models.CharField(max_length=20, choices=MEDIA_STATUS_CHOICES, default='none')
+    # True quando a mensagem foi enviada pelo atendente virtual (IA). Serve para
+    # detectar quando um humano assume a conversa (mensagem 'out' com is_ai=False).
+    is_ai = models.BooleanField(default=False)
     raw_payload = models.JSONField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -440,3 +452,48 @@ class Message(models.Model):
 
     def __str__(self):
         return f'{self.get_direction_display()} ({self.message_type}): {self.text[:30]}'
+
+
+class AiAttendantConfig(models.Model):
+    """Configuracao (singleton) do atendente virtual (IA) de recepcao.
+
+    O bot recebe o cliente numa conversa DIRETA, entende a intencao e transfere
+    para o setor certo. Nada roda enquanto `enabled` estiver desligado (padrao).
+    """
+    enabled = models.BooleanField('Atendente virtual ativo', default=False)
+    company_name = models.CharField('Nome da empresa', max_length=120, default='BEEZAP')
+    welcome_message = models.TextField(
+        'Mensagem de boas-vindas',
+        default=(
+            'Ola! Bem-vindo(a) a {empresa}. '
+            'Sou o atendimento inicial e vou te direcionar para a area certa. '
+            'Como posso ajudar voce hoje?'
+        ),
+        help_text='Use {empresa} para inserir o nome da empresa automaticamente.',
+    )
+    # Setor usado quando a IA nao consegue identificar a intencao apos max_turns.
+    fallback_sector = models.ForeignKey(
+        Sector, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name='ai_fallback_configs', verbose_name='Setor padrao (fallback)',
+    )
+    max_turns = models.PositiveSmallIntegerField(
+        'Tentativas de esclarecer', default=3,
+        help_text='Quantas vezes a IA tenta entender antes de transferir mesmo assim.',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'Configuracao do atendente virtual'
+        verbose_name_plural = 'Configuracao do atendente virtual'
+
+    @classmethod
+    def get_solo(cls):
+        config, _ = cls.objects.get_or_create(pk=1)
+        return config
+
+    def render_welcome(self):
+        return (self.welcome_message or '').replace('{empresa}', self.company_name or '').strip()
+
+    def __str__(self):
+        return f'Atendente virtual ({"ativo" if self.enabled else "desligado"})'

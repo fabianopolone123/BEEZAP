@@ -9,7 +9,11 @@ from .fallbacks import (
     AI_UNAVAILABLE_ERROR,
     AI_UNAVAILABLE_REPLY,
 )
-from .prompts import build_messages, build_messages_with_rules
+from .prompts import (
+    build_intent_classification_messages,
+    build_messages,
+    build_messages_with_rules,
+)
 
 
 MAX_MESSAGE_LENGTH = 1200
@@ -79,6 +83,111 @@ def get_relevant_rules(message, sector=None, limit=MAX_RELEVANT_RULES):
 
     matches.sort(key=lambda item: (-item[0], item[1].sector_id is None, item[1].title))
     return [rule for _, rule in matches[:limit]]
+
+
+@dataclass
+class IntentResult:
+    """Resultado da classificacao de intencao do cliente.
+
+    `sector` e o Sector escolhido (ou None se indefinido). `source` diz como foi
+    decidido ('keyword', 'llm' ou 'undefined') — util para log/diagnostico.
+    """
+    sector: object = None
+    source: str = 'undefined'
+    raw: str = ''
+
+    @property
+    def decided(self):
+        return self.sector is not None
+
+
+def _sectors_block(sectors):
+    """Texto com os setores disponiveis (nome + descricao) para o prompt."""
+    blocks = []
+    for sector in sectors:
+        line = f'- {sector.name}'
+        description = (getattr(sector, 'description', '') or '').strip()
+        if description:
+            line += f': {description}'
+        blocks.append(line)
+    return '\n'.join(blocks)
+
+
+def _match_sector_by_name(sectors, name):
+    """Casa o nome retornado pelo modelo com um Sector real (defensivo)."""
+    target = _normalize_search_text(name)
+    if not target or target == 'indefinido':
+        return None
+    # 1) match exato pelo nome normalizado.
+    for sector in sectors:
+        if _normalize_search_text(sector.name) == target:
+            return sector
+    # 2) o modelo pode devolver o nome dentro de uma frase curta; aceita conter.
+    for sector in sectors:
+        sector_name = _normalize_search_text(sector.name)
+        if sector_name and (sector_name in target or target in sector_name):
+            return sector
+    return None
+
+
+def _keyword_sector(message):
+    """1a camada (deterministica): casa a mensagem com as palavras-chave das regras
+    de atendimento que TEM setor. Retorna o Sector da regra com mais palavras-chave
+    presentes na mensagem, ou None. (Nao usa get_relevant_rules porque aquele, sem
+    setor informado, so considera regras sem setor.)"""
+    from accounts.models import AutomationRule
+
+    normalized = _normalize_search_text(message)
+    if not normalized:
+        return None
+    best_sector = None
+    best_score = 0
+    rules = AutomationRule.objects.filter(is_active=True, sector__isnull=False).select_related('sector')
+    for rule in rules:
+        score = sum(1 for keyword in rule.keyword_list if keyword and keyword in normalized)
+        if score > best_score:
+            best_score = score
+            best_sector = rule.sector
+    return best_sector
+
+
+def classify_intent(message, sectors, model=None, base_url=None, timeout=None):
+    """Decide para qual Setor a mensagem do cliente deve ir.
+
+    Estrategia em camadas (torna o modelo pequeno suficiente):
+      1) palavras-chave das regras de atendimento (deterministico, prioridade);
+      2) classificacao pela IA local (escolhe 1 setor da lista ou INDEFINIDO);
+      3) INDEFINIDO se nada decidir.
+    Nunca levanta excecao de rede: em falha da IA, cai em INDEFINIDO.
+    """
+    cleaned_message = _clean_text(message, MAX_MESSAGE_LENGTH)
+    sectors = list(sectors)
+    if not cleaned_message or not sectors:
+        return IntentResult(sector=None, source='undefined')
+
+    # 1) Camada deterministica por palavras-chave.
+    keyword_sector = _keyword_sector(cleaned_message)
+    if keyword_sector is not None:
+        return IntentResult(sector=keyword_sector, source='keyword')
+
+    # 2) Camada LLM (classificacao simples: nome do setor ou INDEFINIDO).
+    result = chat_with_ollama(
+        base_url=base_url or settings.OLLAMA_BASE_URL,
+        model=model or settings.OLLAMA_MODEL,
+        messages=build_intent_classification_messages(cleaned_message, _sectors_block(sectors)),
+        timeout=timeout or settings.OLLAMA_TIMEOUT,
+        temperature=settings.OLLAMA_TEMPERATURE,
+        num_predict=40,
+        num_gpu=settings.OLLAMA_NUM_GPU,
+    )
+    if result.success:
+        matched = _match_sector_by_name(sectors, result.content)
+        if matched is not None:
+            return IntentResult(sector=matched, source='llm', raw=result.content)
+        return IntentResult(sector=None, source='undefined', raw=result.content)
+
+    # 3) IA indisponivel/erro: indefinido (o orquestrador cuida do fallback).
+    return IntentResult(sector=None, source='undefined')
 
 
 def build_rules_context(message, sector=None):
