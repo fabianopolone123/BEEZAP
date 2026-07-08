@@ -24,7 +24,7 @@ config/            settings.py (env-driven), urls.py, wsgi.py
 accounts/          app principal: models, views, urls, forms, admin, middleware,
                    backends, management/commands/, templates de accounts
 ai_engine/         integração Ollama (tela de teste de IA)
-wapi/              MÓDULO (não é app instalado): client.py, parser.py, services.py
+wapi/              MÓDULO (não é app instalado): client.py, parser.py, services.py, formatting.py
 static/css/        CSS por página (dashboard.css, conversations.css, wapi_settings.css, ...)
 templates/         base.html + accounts/*.html
 docs/              documentação (este arquivo, DEPLOY.md, etc.)
@@ -191,6 +191,13 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
   falharam na conversa aberta.
 - **Composer**: 📎 anexo (imagem/áudio/vídeo/documento), 🎤 microfone (grava com
   `MediaRecorder`, converte p/ ogg no backend), campo de texto, enviar.
+- **Campo de texto = `<textarea>`** (não `<input>`, que perdia quebras de linha):
+  cresce sozinho até ~140px, **Enter envia / Shift+Enter quebra linha** (estilo
+  WhatsApp Web). Ao enviar, `conversation_send_view` passa o texto por
+  `markdown_to_whatsapp()` (`wapi/formatting.py`): converte Markdown → formatação
+  nativa do WhatsApp (`**negrito**`→`*negrito*`, títulos `#`→linha em negrito,
+  listas `*/-/+`→`•`, `[texto](url)`→`texto (url)`; citação `>` e lista numerada
+  mantidas) preservando as quebras. O histórico guarda a **mesma** versão enviada.
 - **Transferência** (setor/atendente) por selects na coluna de info.
 - **URLs AJAX** montadas a partir de `window.location.pathname` (até `/conversas/`)
   para respeitar o prefixo `/beezap/` mesmo se o `{% url %}` vier sem prefixo.

@@ -822,7 +822,7 @@
 .conv-chat-footer {
   flex-shrink: 0;
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   gap: 7px;
   padding: 10px 14px;
   background: #f0f2f5;
@@ -837,10 +837,15 @@
   background: #fff;
   font-family: inherit;
   font-size: 0.9rem;
+  line-height: 1.4;
   outline: none;
   color: #15213d;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
   min-width: 0;
+  /* textarea: cresce via JS ate ~140px, sem alca de resize, rolando depois disso */
+  resize: none;
+  max-height: 140px;
+  overflow-y: auto;
 }
 
 .conv-input::placeholder {

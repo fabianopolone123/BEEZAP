@@ -5,7 +5,7 @@
 
 {% block extra_head %}
 <link rel="stylesheet" href="{% static 'css/dashboard.css' %}?v=5">
-<link rel="stylesheet" href="{% static 'css/conversations.css' %}?v=14">
+<link rel="stylesheet" href="{% static 'css/conversations.css' %}?v=15">
 {% endblock %}
 
 {% block content %}
@@ -174,7 +174,7 @@
               </div>
               <input type="file" data-attach-file hidden>
             </div>
-            <input type="text" class="conv-input" placeholder="Digite sua mensagem..." aria-label="Campo de mensagem" data-conv-input>
+            <textarea class="conv-input" placeholder="Digite sua mensagem... (Enter envia, Shift+Enter quebra linha)" aria-label="Campo de mensagem" data-conv-input rows="1"></textarea>
             <span class="conv-rec-indicator" data-rec-indicator hidden>
               <span class="conv-rec-dot" aria-hidden="true"></span>
               <span data-rec-time>00:00</span>
@@ -1032,6 +1032,25 @@
   }
 
   /* ---------- Envio de mensagem ---------- */
+  // O campo agora e um textarea (preserva quebras de linha do texto colado). Ele
+  // cresce conforme o conteudo e reproduz o WhatsApp Web: Enter envia, Shift+Enter
+  // quebra linha.
+  function autoGrowInput() {
+    if (!inputEl) return;
+    inputEl.style.height = 'auto';
+    inputEl.style.height = Math.min(inputEl.scrollHeight, 140) + 'px';
+  }
+  if (inputEl) {
+    inputEl.addEventListener('input', autoGrowInput);
+    inputEl.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        if (sendForm.requestSubmit) sendForm.requestSubmit();
+        else sendForm.dispatchEvent(new Event('submit', {cancelable: true}));
+      }
+    });
+  }
+
   sendForm.addEventListener('submit', function (e) {
     e.preventDefault();
     if (!currentId) return;
@@ -1058,6 +1077,7 @@
           return;
         }
         inputEl.value = '';
+        autoGrowInput();
         refreshOpenMessages();
       })
       .catch(function () {

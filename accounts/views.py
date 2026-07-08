@@ -56,6 +56,7 @@ from wapi.client import (
     send_text_message,
     send_video_message,
 )
+from wapi.formatting import markdown_to_whatsapp
 from wapi.parser import parse_wapi_webhook_payload
 from wapi.services import (
     convert_audio_to_ogg,
@@ -1084,6 +1085,10 @@ def conversation_send_view(request, conversation_id):
     text = (request.POST.get('text') or '').strip()
     if not text:
         return JsonResponse({'ok': False, 'error': 'Digite uma mensagem para enviar.'}, status=400)
+    # O atendente cola texto em Markdown; converte para a formatacao nativa do WhatsApp
+    # (negrito/italico/listas/citacao) preservando as quebras de linha. Guardamos e
+    # enviamos a MESMA versao convertida, para o historico refletir o que foi enviado.
+    text = markdown_to_whatsapp(text)
 
     if not (conversation.recipient or '').strip():
         return JsonResponse(
