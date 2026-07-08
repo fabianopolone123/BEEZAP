@@ -221,3 +221,5 @@ Teste direto da classificacao usada pelo atendente virtual:
 cd /var/www/beezap
 venv/bin/python manage.py shell -c "from ai_engine.services import classify_intent; from accounts.models import Sector; r=classify_intent('preciso da segunda via do boleto', Sector.objects.all()); print(r.sector.name if r.sector else '-', r.source)"
 ```
+
+Observacao: o comando `seed_ai_sector_rules --overwrite` tambem preenche descricoes vazias dos setores conhecidos. Essas descricoes entram no prompt do Ollama e ajudam a IA a escolher o setor certo quando nao houver palavra-chave exata.

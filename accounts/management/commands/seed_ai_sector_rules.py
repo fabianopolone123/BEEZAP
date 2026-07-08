@@ -6,14 +6,26 @@ from accounts.models import AutomationRule, Sector
 DEFAULT_RULES = [
     {
         'sector_names': ('Compras', 'Vendas'),
+        'sector_description': (
+            'Atende clientes interessados em compras, produtos, servicos, '
+            'orcamentos, cotacoes, propostas comerciais e fornecimento.'
+        ),
         'title': 'IA - Direcionamento para Compras',
-        'keywords': 'comprar, compra, compras, orcamento, orçamento, cotacao, cotação, pedido, produto, produtos, preco, preço, valor',
+        'keywords': (
+            'comprar, compra, compras, orcamento, orçamento, cotacao, cotação, '
+            'pedido, produto, produtos, preco, preço, valor, proposta, comercial, '
+            'servico, serviço, fornecimento, fornecedor'
+        ),
         'customer_example': 'Quero comprar um produto ou pedir um orcamento.',
         'response_text': 'Encaminhar para o setor de Compras.',
-        'internal_instruction': 'Use esta regra quando o cliente demonstrar interesse em compra, orcamento, cotacao, pedido, produto ou preco.',
+        'internal_instruction': 'Use esta regra quando o cliente demonstrar interesse em compra, orcamento, cotacao, pedido, produto, preco, proposta comercial ou fornecimento.',
     },
     {
         'sector_names': ('Financeiro',),
+        'sector_description': (
+            'Atende assuntos financeiros como boletos, pagamentos, faturas, '
+            'notas fiscais, cobrancas, vencimentos, pix e recibos.'
+        ),
         'title': 'IA - Direcionamento para Financeiro',
         'keywords': 'boleto, pagamento, pagar, fatura, nota fiscal, nf, financeiro, cobranca, cobrança, segunda via, vencimento, pix, recibo',
         'customer_example': 'Preciso de boleto, fatura, nota fiscal ou falar sobre pagamento.',
@@ -37,6 +49,7 @@ class Command(BaseCommand):
         overwrite = options['overwrite']
         created = 0
         updated = 0
+        sectors_updated = 0
         skipped = []
 
         for rule_data in DEFAULT_RULES:
@@ -44,6 +57,10 @@ class Command(BaseCommand):
             if sector is None:
                 skipped.append('/'.join(rule_data['sector_names']))
                 continue
+            if not (sector.description or '').strip():
+                sector.description = rule_data['sector_description']
+                sector.save(update_fields=['description', 'updated_at'])
+                sectors_updated += 1
 
             defaults = {
                 'sector': sector,
@@ -67,7 +84,8 @@ class Command(BaseCommand):
                 updated += 1
 
         self.stdout.write(self.style.SUCCESS(
-            f'Regras processadas. Criadas: {created}. Atualizadas: {updated}.'
+            f'Regras processadas. Criadas: {created}. Atualizadas: {updated}. '
+            f'Setores descritos: {sectors_updated}.'
         ))
         if skipped:
             self.stdout.write(self.style.WARNING(
