@@ -389,6 +389,7 @@ intenção do cliente e **transfere para o setor certo** (deixa `status='pending
 
 - Enquanto uma conversa esta aberta/pendente com setor ou atendente, novas mensagens continuam no mesmo atendimento e a IA nao entra.
 - Encerrar atendimento marca a conversa como `closed`; a proxima mensagem do mesmo contato cria uma nova `Conversation` aberta, sem setor/atendente, pronta para a recepcao da IA.
+- Se uma conversa antiga ficar `ai_state='off'` mas sem setor e sem atendente, a proxima mensagem recebida reativa a IA, exceto quando houver resposta humana posterior a uma fala da IA.
 - Na tela Conversas existem acoes de atendimento: `Assumir` (para usuario com perfil de atendente) e `Encerrar`. O admin sem perfil ainda pode atribuir atendente pelo select.
 
 

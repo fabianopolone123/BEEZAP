@@ -966,6 +966,21 @@ class AiAttendantFlowTests(TestCase):
         self.assertEqual(self.conversation.ai_turns, 1)
         mock_send.assert_called_once()
 
+    def test_off_without_current_human_takeover_reactivates_even_with_previous_turns(self):
+        self.conversation.ai_state = 'off'
+        self.conversation.ai_turns = 1
+        self.conversation.save(update_fields=['ai_state', 'ai_turns'])
+
+        with patch('ai_engine.attendant.classify_intent') as mock_intent:
+            from ai_engine.services import IntentResult
+            mock_intent.return_value = IntentResult(sector=None, source='undefined')
+            mock_send = self._handle(self._incoming('bom dia'))
+
+        self.conversation.refresh_from_db()
+        self.assertEqual(self.conversation.ai_state, 'active')
+        self.assertEqual(self.conversation.ai_turns, 2)
+        mock_send.assert_called_once()
+
     def test_skips_group_conversations(self):
         self.conversation.chat_type = 'group'
         self.conversation.save(update_fields=['chat_type'])

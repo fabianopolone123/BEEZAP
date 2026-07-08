@@ -382,6 +382,7 @@ venv/bin/python manage.py seed_ai_sector_rules --overwrite
 - Enquanto a conversa estiver aberta/pendente com setor ou atendente, novas mensagens seguem no atendimento atual e nao passam pela IA.
 - A tela Conversas tem acoes `Assumir` e `Encerrar`.
 - Encerrar marca a conversa como `closed`; a proxima mensagem do mesmo contato cria nova conversa aberta sem setor/atendente e volta para a IA.
+- Conversas antigas que ficaram `ai_state=off` sem setor/atendente voltam para a IA na proxima mensagem, desde que nao exista resposta humana depois da ultima fala da IA.
 
 ### Comandos de verificacao rapida
 

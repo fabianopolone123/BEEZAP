@@ -141,7 +141,7 @@ def handle_incoming_for_ai(conversation, message):
         return
     if message.direction != 'in':
         return
-    if conversation.ai_state == 'off' and conversation.ai_turns == 0:
+    if conversation.ai_state == 'off' and not _human_took_over(conversation):
         conversation.ai_state = 'active'
         conversation.save(update_fields=['ai_state', 'updated_at'])
     if conversation.ai_state != 'active':
