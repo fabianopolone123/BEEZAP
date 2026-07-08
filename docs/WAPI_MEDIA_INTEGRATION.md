@@ -46,8 +46,9 @@ Esse id é a base para reações no futuro (PRO).
 ## 3. Tipos de mensagem
 
 `Message.message_type`: `text, image, audio, video, document, sticker, gif,
-reaction, location, contact, unknown`. Mensagens antigas continuam como `text`
-(default da migration — histórico preservado).
+reaction, location, contact, unknown, system`. Mensagens antigas continuam como
+`text` (default da migration — histórico preservado). O tipo `system` é a
+**divisória de atendimento** exibida no meio do chat (não é mídia da W-API).
 
 Campos de mídia no model: `media_file` (arquivo salvo localmente), `media_url`
 (link remoto, pode expirar), `media_mimetype`, `media_status`

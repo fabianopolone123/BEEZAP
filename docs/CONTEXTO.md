@@ -218,8 +218,10 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
   para respeitar o prefixo `/beezap/` mesmo se o `{% url %}` vier sem prefixo.
 - Endpoints: `conversation-list` (`/conversas/lista/`), `conversation-messages`
   (aceita `?retry=1` para rebaixar mídias falhas), `conversation-send`,
-  `conversation-send-media`, `conversation-transfer`, `conversation-sync-groups`,
-  `conversation-name-contact` (`/conversas/nomear-contato/`), `wapi-webhook-events`.
+  `conversation-send-media`, `conversation-transfer`, `conversation-take`
+  (`/conversas/<id>/assumir/`), `conversation-close` (`/conversas/<id>/encerrar/`),
+  `conversation-sync-groups`, `conversation-name-contact` (`/conversas/nomear-contato/`),
+  `wapi-webhook-events`.
 
 ## 5.1. Tela Contatos (`templates/accounts/contacts.html` + `contacts.css`)
 
@@ -249,7 +251,7 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
 - **Estáticos**: como o Nginx serve `static/` (a fonte) direto, **um `git pull`
   já publica CSS/JS** — sem `collectstatic`/`cp`. O admin do Django vem de
   `staticfiles/admin/` (rodar `collectstatic` uma vez). Cache-busting: `?v=N` nos
-  links de CSS em `conversations.html` (hoje `conversations.css?v=16`) — **incrementar
+  links de CSS em `conversations.html` (hoje `conversations.css?v=19`) — **incrementar
   ao editar o CSS**. O JS fica inline no template (publica com o `git pull`).
 - **Histórico do bug de estáticos**: o `settings.py` do servidor já foi editado à
   mão com `STATICFILES_DIRS=[]`, o que impedia o `collectstatic` de publicar o
@@ -340,6 +342,11 @@ merge_contact_conversations [--apply]   # unifica conversas picotadas em 1 chat 
 - **Notificações** (pop-up + som + botões de estado) e **poll incremental** (não corta play).
 - **Grupo vs direta/canal/status** robustos; Status/canal/sistema ignorados.
 - **Menções** e **nomes de participantes** resolvidos; tela **Contatos** e nomear pelo chat.
+- **Ciclo de atendimento**: ações **Assumir** e **Encerrar** na tela Conversas (ver seção 12).
+- **Um único chat por pessoa/grupo** (padrão WhatsApp) com **divisórias** de atendimento
+  (ver seção 12); comando `merge_contact_conversations` unifica chats antigos picotados.
+- **Atendente virtual (IA) removido** por completo (módulo `ai_engine`, telas, models,
+  Ollama) — ver nota na seção 12.
 
 ## 11. Segurança
 
