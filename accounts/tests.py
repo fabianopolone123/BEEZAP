@@ -1220,6 +1220,21 @@ class AiAttendantFlowTests(TestCase):
         self.assertEqual(self.conversation.sector, self.geral)  # fallback
         mock_send.assert_called_once()  # a fala de transferencia, nao o silencio
 
+    def test_generative_continue_empty_reply_never_silent(self):
+        # Modelo respondeu mas sem texto ao cliente (so o marcador) -> manda fallback.
+        from ai_engine import attendant
+        from ai_engine.services import GenerativeResult
+        self.config.generative_replies = True
+        self.config.save(update_fields=['generative_replies'])
+        with patch.object(attendant, '_send_bot_message') as mock_send, \
+                patch.object(attendant, 'generate_reply_and_route') as mock_gen:
+            mock_gen.return_value = GenerativeResult(
+                reply='', sector=None, action='continue', available=True,
+            )
+            attendant.handle_incoming_for_ai(self.conversation, self._incoming('oi'))
+        mock_send.assert_called_once()
+        self.assertEqual(mock_send.call_args.args[1], attendant.GENERATIVE_EMPTY_FALLBACK)
+
     def test_generative_route_without_reply_still_announces(self):
         # IA decidiu o setor mas nao escreveu nada -> transfere com aviso pronto.
         from ai_engine import attendant

@@ -20,6 +20,10 @@ ai_logger = logging.getLogger('beezap.ai')
 # ar), para o cliente nao ficar sem resposta. Nao e uma "mensagem padrao" de fluxo.
 GENERATIVE_SAFETY_REPLY = 'So um momento, ja vou te ajudar.'
 
+# Usada quando o modelo respondeu mas nao escreveu texto ao cliente (ex.: mandou
+# so o marcador [SETOR: ...]). Evita o bot ficar mudo no modo generativo.
+GENERATIVE_EMPTY_FALLBACK = 'Pode me contar, em poucas palavras, o que voce precisa?'
+
 
 # --- Falas do bot (modelos de texto fixos) --------------------------------
 
@@ -252,6 +256,14 @@ def _handle_generative_turn(conversation, config, message, sectors):
         fallback_sector=config.fallback_sector,
     )
 
+    # Log de diagnostico: mostra o que o modelo respondeu e a decisao tomada.
+    ai_logger.info(
+        'atendente IA (generativo) conv=%s: action=%s setor=%s available=%s reply=%r raw=%r',
+        conversation.id, result.action,
+        result.sector.name if result.sector else '-', result.available,
+        (result.reply or '')[:120], (result.raw or '')[:200],
+    )
+
     # A IA decidiu o setor: fala (se escreveu algo) e transfere sem template extra.
     # Se nao escreveu nada, transfere AVISANDO com a fala pronta (nunca mudo).
     if result.action == 'route':
@@ -272,11 +284,13 @@ def _handle_generative_turn(conversation, config, message, sectors):
         _route_to_sector(conversation, config.fallback_sector, announce=True)
         return
 
-    # Ainda dentro do limite: envia a fala da IA (ou a fala de seguranca se o
-    # modelo local nao respondeu), para nunca deixar o cliente sem resposta.
-    reply = result.reply or (GENERATIVE_SAFETY_REPLY if not result.available else '')
-    if reply:
-        _send_bot_message(conversation, reply)
+    # Ainda dentro do limite: envia a fala da IA. Se o modelo nao escreveu texto
+    # (so o marcador) usa o fallback de esclarecimento; se estava fora do ar, a
+    # fala de seguranca. NUNCA fica mudo.
+    reply = result.reply
+    if not reply:
+        reply = GENERATIVE_SAFETY_REPLY if not result.available else GENERATIVE_EMPTY_FALLBACK
+    _send_bot_message(conversation, reply)
 
 
 def _clarify_text_for_turn(conversation, message):
@@ -314,8 +328,10 @@ def handle_incoming_for_ai(conversation, message):
     if conversation.status == 'closed':
         return
     if conversation.assigned_attendant_id is not None:
+        ai_logger.info('atendente IA: conv=%s ignorada (ja tem atendente).', conversation.id)
         return
     if conversation.sector_id is not None:
+        ai_logger.info('atendente IA: conv=%s ignorada (ja roteada para um setor).', conversation.id)
         return
     if message.direction != 'in':
         return
@@ -323,6 +339,7 @@ def handle_incoming_for_ai(conversation, message):
         conversation.ai_state = 'active'
         conversation.save(update_fields=['ai_state', 'updated_at'])
     if conversation.ai_state != 'active':
+        ai_logger.info('atendente IA: conv=%s ignorada (ai_state=%s).', conversation.id, conversation.ai_state)
         return
 
     if _human_took_over(conversation):
