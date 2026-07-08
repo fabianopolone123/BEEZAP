@@ -1051,12 +1051,15 @@
     });
   }
 
+  var sendingMessage = false;
   sendForm.addEventListener('submit', function (e) {
     e.preventDefault();
+    if (sendingMessage) return;         // evita reenvio ao apertar Enter varias vezes
     if (!currentId) return;
     var text = inputEl.value.trim();
     if (!text) return;
 
+    sendingMessage = true;
     sendBtn.disabled = true;
     var payload = new URLSearchParams();
     payload.append('text', text);
@@ -1084,6 +1087,7 @@
         showToast('Nao foi possivel enviar a mensagem. Verifique a conexao do WhatsApp e tente novamente.', 'error');
       })
       .finally(function () {
+        sendingMessage = false;
         sendBtn.disabled = false;
         inputEl.focus();
       });

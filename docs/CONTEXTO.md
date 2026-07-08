@@ -201,7 +201,9 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
   `MediaRecorder`, converte p/ ogg no backend), campo de texto, enviar.
 - **Campo de texto = `<textarea>`** (não `<input>`, que perdia quebras de linha):
   cresce sozinho até ~140px, **Enter envia / Shift+Enter quebra linha** (estilo
-  WhatsApp Web). Ao enviar, `conversation_send_view` passa o texto por
+  WhatsApp Web). Uma trava `sendingMessage` impede **reenvio duplicado** ao apertar
+  Enter várias vezes seguidas (o campo só limpa quando o envio termina). Ao enviar,
+  `conversation_send_view` passa o texto por
   `markdown_to_whatsapp()` (`wapi/formatting.py`): converte Markdown → formatação
   nativa do WhatsApp (`**negrito**`→`*negrito*`, títulos `#`→linha em negrito,
   listas `*/-/+`→`•`, `[texto](url)`→`texto (url)`; citação `>` e lista numerada
