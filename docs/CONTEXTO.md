@@ -331,8 +331,6 @@ cleanup_nonpersonal_conversations [--delete]  # remove conversas de canal/transm
 ## 10. Pendências / próximas etapas
 
 - Legenda (caption) ao enviar imagem/vídeo/documento pelo composer.
-- Ações de **assumir atendimento** / **encerrar conversa** (para os filtros
-  "Em atendimento"/"Finalizadas" ganharem vida completa).
 - Recursos **PRO** (reação/sticker/GIF nativo/botões/listas) quando a instância for PRO.
 - `DEBUG=False` em produção (segurança).
 - Upload múltiplo, arrastar-e-soltar.
@@ -392,3 +390,4 @@ intenção do cliente e **transfere para o setor certo** (deixa `status='pending
 - Enquanto uma conversa esta aberta/pendente com setor ou atendente, novas mensagens continuam no mesmo atendimento e a IA nao entra.
 - Encerrar atendimento marca a conversa como `closed`; a proxima mensagem do mesmo contato cria uma nova `Conversation` aberta, sem setor/atendente, pronta para a recepcao da IA.
 - Na tela Conversas existem acoes de atendimento: `Assumir` (para usuario com perfil de atendente) e `Encerrar`. O admin sem perfil ainda pode atribuir atendente pelo select.
+

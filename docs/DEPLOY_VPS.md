@@ -329,3 +329,86 @@ sudo nginx -t
 curl -I https://beezap.seudominio.com/
 curl -X POST https://beezap.seudominio.com/webhook/wapi/ -H "Content-Type: application/json" -d '{"event":"message.received"}'
 ```
+
+## 17. Estado atual do VPS BEEZAP (ambiente real)
+
+Atualizado em 2026-07-08.
+
+- Host: `145.223.93.162`.
+- Aplicacao: `/var/www/beezap/`.
+- Branch de deploy: `main`.
+- Deploy padrao: sempre via Git + `bash deploy/deploy.sh` dentro de `/var/www/beezap`.
+- Servico Django/Gunicorn: `beezap`.
+- Porta interna real: `127.0.0.1:8103`.
+- URL publica: `https://fabianopolone.com.br/beezap/`.
+- Nginx do dominio: `/etc/nginx/sites-available/site_idiomas`.
+- Prefixo Django: `FORCE_SCRIPT_NAME=/beezap` no `.env`.
+- Banco atual: SQLite em `/var/www/beezap/db.sqlite3`.
+- Static/media esperados no `.env`: `STATIC_URL=/beezap/static/` e `MEDIA_URL=/beezap/media/`.
+- `ffmpeg` instalado e `manage.py check` sem avisos no VPS.
+- `DEBUG=True` ainda aparece como pendencia de seguranca se estiver assim no `.env`.
+
+### Estado atual da IA/Ollama
+
+- Ollama instalado no sistema por `curl -fsSL https://ollama.com/install.sh | sh`.
+- Servico systemd: `ollama`, ativo.
+- API local: `http://127.0.0.1:11434`.
+- Modelo baixado: `qwen2.5:1.5b`.
+- Modo: CPU-only (`OLLAMA_NUM_GPU=0`).
+- Override systemd leve em `/etc/systemd/system/ollama.service.d/beezap-light.conf`:
+
+```ini
+[Service]
+Environment=OLLAMA_KEEP_ALIVE=30s
+Environment=OLLAMA_MAX_LOADED_MODELS=1
+Environment=OLLAMA_NUM_PARALLEL=1
+```
+
+- O modelo carrega para classificar e descarrega apos o keep-alive, liberando RAM.
+- Atendente Virtual esta ativado no banco (`AiAttendantConfig.enabled=True`) com empresa `BEEZAP`, `max_turns=3` e fallback sem setor.
+- Regras iniciais de IA aplicadas com:
+
+```bash
+cd /var/www/beezap
+venv/bin/python manage.py seed_ai_sector_rules --overwrite
+```
+
+- Regras criadas/atualizadas: Compras/Vendas e Financeiro. As descricoes vazias desses setores tambem sao preenchidas pelo comando.
+
+### Ciclo atual de atendimento
+
+- Nova conversa direta sem setor/atendente cai na recepcao da IA.
+- A IA envia boas-vindas, tenta classificar a intencao e, ao identificar setor, marca a conversa como `pending` no setor correto, sem escolher atendente.
+- Enquanto a conversa estiver aberta/pendente com setor ou atendente, novas mensagens seguem no atendimento atual e nao passam pela IA.
+- A tela Conversas tem acoes `Assumir` e `Encerrar`.
+- Encerrar marca a conversa como `closed`; a proxima mensagem do mesmo contato cria nova conversa aberta sem setor/atendente e volta para a IA.
+
+### Comandos de verificacao rapida
+
+```bash
+cd /var/www/beezap
+git status --short
+git rev-parse --short HEAD
+venv/bin/python manage.py check
+systemctl is-active beezap
+systemctl is-active ollama
+curl -s http://127.0.0.1:11434/api/tags | head
+ollama ps
+free -h
+```
+
+Teste de classificacao por regras/IA:
+
+```bash
+cd /var/www/beezap
+venv/bin/python manage.py shell -c "from ai_engine.services import classify_intent; from accounts.models import Sector; r=classify_intent('preciso da segunda via do boleto', Sector.objects.all()); print(r.sector.name if r.sector else '-', r.source)"
+```
+
+Resultado esperado para a frase acima: `Financeiro keyword`.
+
+### Regras operacionais
+
+- Nao copiar arquivos locais direto para o VPS.
+- Toda alteracao deve seguir: editar localmente, atualizar documentacao, `manage.py check`, testes quando aplicavel, commit pt-BR, `git push`, e no VPS `bash deploy/deploy.sh`.
+- Nao commitar `.env`, banco, tokens, senhas ou payloads sensiveis.
+- Rotacionar credenciais expostas em chat e preferir SSH key/usuario nao-root.
