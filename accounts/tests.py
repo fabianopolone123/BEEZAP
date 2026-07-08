@@ -937,6 +937,39 @@ class AiAttendantFlowTests(TestCase):
         self.assertEqual(self.conversation.status, 'pending')
         self.assertEqual(self.conversation.ai_state, 'handed_off')
 
+    def test_reception_uses_recent_customer_context_to_classify(self):
+        self.conversation.ai_turns = 1
+        self.conversation.save(update_fields=['ai_turns'])
+        self._incoming('nao tenho certeza')
+        message = self._incoming('preciso de boleto')
+
+        with patch('ai_engine.attendant.classify_intent') as mock_intent:
+            from ai_engine.services import IntentResult
+            mock_intent.return_value = IntentResult(sector=self.vendas, source='llm')
+            self._handle(message)
+
+        context_used = mock_intent.call_args.args[0]
+        self.assertIn('nao tenho certeza', context_used)
+        self.assertIn('preciso de boleto', context_used)
+
+    def test_greeting_after_clarification_gets_contextual_prompt(self):
+        from ai_engine import attendant
+        from ai_engine.services import IntentResult
+
+        self.config.max_turns = 4
+        self.config.save(update_fields=['max_turns'])
+        self.conversation.ai_turns = 2
+        self.conversation.save(update_fields=['ai_turns'])
+        with patch('ai_engine.attendant.classify_intent') as mock_intent:
+            mock_intent.return_value = IntentResult(sector=None, source='undefined')
+            mock_send = self._handle(self._incoming('oi'))
+
+        self.conversation.refresh_from_db()
+        self.assertEqual(self.conversation.ai_turns, 3)
+        mock_send.assert_called_once_with(
+            self.conversation, attendant.CLARIFY_AFTER_GREETING_TEMPLATE,
+        )
+
     def test_stops_when_human_took_over(self):
         from .models import Message
         self.conversation.ai_turns = 1

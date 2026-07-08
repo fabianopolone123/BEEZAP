@@ -24,6 +24,16 @@ CLARIFY_TEMPLATE = (
     'Pode me contar com um pouco mais de detalhe como posso ajudar?'
 )
 
+CLARIFY_AFTER_GREETING_TEMPLATE = (
+    'Estou por aqui. Para te direcionar ao setor certo, me diga em poucas palavras '
+    'o assunto do atendimento: financeiro, compras, suporte ou outro.'
+)
+
+CLARIFY_REPEAT_TEMPLATE = (
+    'Ainda preciso entender o assunto para chamar o setor correto. '
+    'Por exemplo: boleto, pagamento, compra, cotacao, produto ou suporte.'
+)
+
 NON_TEXT_TEMPLATE = (
     'Recebi seu envio! Para eu te direcionar certinho, '
     'pode me dizer em poucas palavras o que voce precisa?'
@@ -38,6 +48,10 @@ TRANSFER_GENERIC_TEMPLATE = (
     'Obrigado! Ja estou te encaminhando para um de nossos atendentes. '
     'Em instantes alguem continua o seu atendimento. \U0001F60A'
 )
+
+GREETING_TERMS = {
+    'oi', 'ola', 'olá', 'bom dia', 'boa tarde', 'boa noite', 'e ai', 'e aí',
+}
 
 
 # --- Envio das falas -------------------------------------------------------
@@ -88,7 +102,13 @@ def _human_took_over(conversation):
     if latest_ai is None:
         return False
     return conversation.messages.filter(
-        direction='out', is_ai=False, created_at__gt=latest_ai.created_at
+        direction='out', is_ai=False,
+    ).filter(
+        created_at__gt=latest_ai.created_at,
+    ).exists() or conversation.messages.filter(
+        direction='out', is_ai=False,
+        created_at=latest_ai.created_at,
+        id__gt=latest_ai.id,
     ).exists()
 
 
@@ -107,6 +127,45 @@ def _route_to_sector(conversation, sector):
         'atendente IA: conversa %s transferida (setor=%s).',
         conversation.id, sector.name if sector else '-',
     )
+
+
+def _is_greeting(text):
+    normalized = ' '.join((text or '').lower().split())
+    return normalized in GREETING_TERMS
+
+
+def _recent_customer_context(conversation, current_message, limit=5):
+    """Monta uma janela curta do que o cliente disse durante a recepcao atual.
+
+    A classificacao usa esse bloco para nao decidir olhando so a ultima mensagem
+    solta. Mantemos apenas mensagens recebidas de texto e ignoramos falas da IA.
+    """
+    messages = list(
+        conversation.messages
+        .filter(direction='in', message_type='text')
+        .order_by('-created_at')[:limit]
+    )
+    messages.reverse()
+    parts = []
+    seen_ids = set()
+    for item in messages:
+        seen_ids.add(item.id)
+        text = (item.text or '').strip()
+        if text:
+            parts.append(text)
+    if current_message.id not in seen_ids:
+        text = (current_message.text or '').strip()
+        if text:
+            parts.append(text)
+    return '\n'.join(parts[-limit:])
+
+
+def _clarify_text_for_turn(conversation, message):
+    if _is_greeting(message.text):
+        return CLARIFY_AFTER_GREETING_TEMPLATE
+    if conversation.ai_turns > 1:
+        return CLARIFY_REPEAT_TEMPLATE
+    return CLARIFY_TEMPLATE
 
 
 def _handle_undefined_turn(conversation, config, clarify_text):
@@ -165,11 +224,11 @@ def handle_incoming_for_ai(conversation, message):
         return
 
     sectors = list(Sector.objects.all())
-    intent = classify_intent(message.text, sectors)
+    intent = classify_intent(_recent_customer_context(conversation, message), sectors)
     if intent.decided:
         _route_to_sector(conversation, intent.sector)
         return
-    _handle_undefined_turn(conversation, config, CLARIFY_TEMPLATE)
+    _handle_undefined_turn(conversation, config, _clarify_text_for_turn(conversation, message))
 
 
 # --- Disparo em background -------------------------------------------------

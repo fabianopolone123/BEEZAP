@@ -383,6 +383,7 @@ venv/bin/python manage.py seed_ai_sector_rules --overwrite
 - A tela Conversas tem acoes `Assumir` e `Encerrar`.
 - Encerrar marca a conversa como `closed`; a proxima mensagem do mesmo contato cria nova conversa aberta sem setor/atendente e volta para a IA.
 - Conversas antigas que ficaram `ai_state=off` sem setor/atendente voltam para a IA na proxima mensagem, desde que nao exista resposta humana depois da ultima fala da IA.
+- Antes do handoff, a IA usa as ultimas mensagens recebidas como contexto curto para classificar o setor e varia a resposta quando o cliente manda apenas cumprimento ou texto vago.
 
 ### Comandos de verificacao rapida
 
