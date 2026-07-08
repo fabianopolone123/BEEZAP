@@ -73,9 +73,23 @@ def _send_bot_message(conversation, text):
 # --- Maquina de estados ----------------------------------------------------
 
 def _human_took_over(conversation):
-    """True se existe qualquer mensagem enviada que NAO foi do bot (humano assumiu,
-    inclusive respondendo pelo proprio celular -> chega como from_me/out)."""
-    return conversation.messages.filter(direction='out', is_ai=False).exists()
+    """True se um humano respondeu depois que a IA iniciou este atendimento.
+
+    Mensagens antigas enviadas antes da IA existir/atuar nao podem bloquear uma
+    nova recepcao. So consideramos "humano assumiu" quando ha fala humana
+    posterior a uma fala da propria IA.
+    """
+    latest_ai = (
+        conversation.messages
+        .filter(direction='out', is_ai=True)
+        .order_by('-created_at')
+        .first()
+    )
+    if latest_ai is None:
+        return False
+    return conversation.messages.filter(
+        direction='out', is_ai=False, created_at__gt=latest_ai.created_at
+    ).exists()
 
 
 def _route_to_sector(conversation, sector):
@@ -125,9 +139,12 @@ def handle_incoming_for_ai(conversation, message):
         return
     if conversation.sector_id is not None:
         return
-    if conversation.ai_state != 'active':
-        return
     if message.direction != 'in':
+        return
+    if conversation.ai_state == 'off' and conversation.ai_turns == 0:
+        conversation.ai_state = 'active'
+        conversation.save(update_fields=['ai_state', 'updated_at'])
+    if conversation.ai_state != 'active':
         return
 
     if _human_took_over(conversation):

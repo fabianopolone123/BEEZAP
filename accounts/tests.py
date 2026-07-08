@@ -933,13 +933,30 @@ class AiAttendantFlowTests(TestCase):
         from .models import Message
         self.conversation.ai_turns = 1
         self.conversation.save(update_fields=['ai_turns'])
-        # atendente respondeu (mensagem out nao-IA)
+        Message.objects.create(conversation=self.conversation, direction='out',
+                               message_type='text', text='boas-vindas da IA', is_ai=True)
+        # atendente respondeu depois da IA (mensagem out nao-IA)
         Message.objects.create(conversation=self.conversation, direction='out',
                                message_type='text', text='oi, eu assumo', is_ai=False)
         mock_send = self._handle(self._incoming('ainda ai?'))
         self.conversation.refresh_from_db()
         self.assertEqual(self.conversation.ai_state, 'off')
         mock_send.assert_not_called()
+
+    def test_old_human_history_does_not_block_new_reception(self):
+        from .models import Message
+        Message.objects.create(conversation=self.conversation, direction='out',
+                               message_type='text', text='mensagem antiga humana', is_ai=False)
+        self.conversation.ai_state = 'off'
+        self.conversation.ai_turns = 0
+        self.conversation.save(update_fields=['ai_state', 'ai_turns'])
+
+        mock_send = self._handle(self._incoming('oi'))
+
+        self.conversation.refresh_from_db()
+        self.assertEqual(self.conversation.ai_state, 'active')
+        self.assertEqual(self.conversation.ai_turns, 1)
+        mock_send.assert_called_once()
 
     def test_skips_group_conversations(self):
         self.conversation.chat_type = 'group'
