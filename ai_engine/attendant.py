@@ -271,6 +271,7 @@ def handle_incoming_for_ai(conversation, message):
         sectors,
         llm_only=config.llm_only,
         history=_contact_history_context(conversation),
+        instructions=config.render_instructions(),
     )
     if intent.decided:
         _route_to_sector(conversation, intent.sector)

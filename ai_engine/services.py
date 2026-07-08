@@ -173,7 +173,7 @@ def _looks_ambiguous_without_sector_hint(message):
 
 
 def classify_intent(message, sectors, model=None, base_url=None, timeout=None,
-                    llm_only=False, history=''):
+                    llm_only=False, history='', instructions=''):
     """Decide para qual Setor a mensagem do cliente deve ir.
 
     Estrategia em camadas (torna o modelo pequeno suficiente):
@@ -206,7 +206,7 @@ def classify_intent(message, sectors, model=None, base_url=None, timeout=None,
         base_url=base_url or settings.OLLAMA_BASE_URL,
         model=model or settings.OLLAMA_MODEL,
         messages=build_intent_classification_messages(
-            cleaned_message, _sectors_block(sectors), history=history,
+            cleaned_message, _sectors_block(sectors), history=history, instructions=instructions,
         ),
         timeout=timeout or settings.OLLAMA_TIMEOUT,
         temperature=settings.OLLAMA_TEMPERATURE,

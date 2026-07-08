@@ -486,6 +486,22 @@ class AiAttendantConfig(models.Model):
         'IA decide sozinha (sem palavras-chave)', default=False,
         help_text='Modo de teste: ignora as regras de palavras-chave e deixa o modelo decidir o setor.',
     )
+    # Prompt/diretrizes que orientam a DECISAO da IA (persona + como escolher o setor).
+    # O formato de saida (so o nome do setor / INDEFINIDO) e garantido pelo codigo,
+    # entao estas instrucoes nao quebram o roteamento.
+    instructions = models.TextField(
+        'Instrucoes da IA (como decidir o setor)',
+        default=(
+            'Voce e o atendimento inicial da empresa {empresa} no WhatsApp.\n'
+            'Sua funcao e entender o que o cliente precisa e encaminha-lo ao setor certo.\n'
+            'Analise a mensagem do cliente e escolha o setor mais adequado entre os disponiveis.\n'
+            'Seja educado, cordial e objetivo. Use portugues do Brasil.\n'
+            'Nao invente precos, prazos, politicas ou informacoes que voce nao tem.\n'
+            'Nao peca dados sensiveis (senha, cartao, documentos).\n'
+            'Se a mensagem nao deixar claro o assunto, responda INDEFINIDO para pedir mais detalhes.'
+        ),
+        help_text='Orienta como a IA escolhe o setor. Use {empresa} para inserir o nome da empresa.',
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -500,6 +516,9 @@ class AiAttendantConfig(models.Model):
 
     def render_welcome(self):
         return (self.welcome_message or '').replace('{empresa}', self.company_name or '').strip()
+
+    def render_instructions(self):
+        return (self.instructions or '').replace('{empresa}', self.company_name or '').strip()
 
     def __str__(self):
         return f'Atendente virtual ({"ativo" if self.enabled else "desligado"})'

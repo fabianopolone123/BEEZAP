@@ -43,27 +43,39 @@ def build_messages(message, context=None):
     ]
 
 
+# Diretrizes padrao quando o admin nao definiu instrucoes proprias no painel.
 INTENT_CLASSIFICATION_PROMPT = """
 Voce classifica a intencao de um cliente no atendimento do BEEzap.
 Sua unica tarefa e escolher para qual SETOR a mensagem do cliente deve ir.
 Voce recebe a lista de setores possiveis (nome e descricao).
-Responda APENAS com o NOME EXATO de um setor da lista, sem mais nada.
-Se a mensagem nao permitir decidir com seguranca, responda exatamente: INDEFINIDO
-Nao explique, nao cumprimente, nao escreva frases. Responda so o nome do setor ou INDEFINIDO.
+Se a mensagem nao permitir decidir com seguranca, responda INDEFINIDO.
 """.strip()
 
+# Regra de formato SEMPRE anexada ao final do system prompt. Garante que a saida
+# seja lida pelo codigo (so o nome do setor / INDEFINIDO), mesmo que o admin
+# escreva instrucoes livres no painel.
+_OUTPUT_FORMAT_RULE = (
+    'FORMATO DA RESPOSTA (obrigatorio): responda com o NOME EXATO de um setor da '
+    'lista de setores disponiveis, ou a palavra INDEFINIDO. Nao escreva mais nada — '
+    'sem cumprimento, sem explicacao, sem frases.'
+)
 
-def build_intent_classification_messages(message, sectors_block, history=''):
+
+def build_intent_classification_messages(message, sectors_block, history='', instructions=''):
     """Monta as mensagens para o modelo CLASSIFICAR a intencao em um setor.
 
     `sectors_block` e um texto com os setores disponiveis (nome + descricao).
     `history` (opcional) e um resumo curto de conversas anteriores com o MESMO
-    contato, para a IA se inteirar do contexto. A saida esperada e apenas o nome
-    de um setor ou 'INDEFINIDO'.
+    contato, para a IA se inteirar do contexto. `instructions` (opcional) sao as
+    diretrizes/persona definidas pelo admin no painel; se vazias, usa o padrao.
+    A saida esperada e sempre apenas o nome de um setor ou 'INDEFINIDO' (garantido
+    pela regra de formato anexada ao system prompt).
     """
     user_message = (message or '').strip()
     safe_sectors = (sectors_block or '').strip()
     safe_history = (history or '').strip()
+    base_instructions = (instructions or '').strip() or INTENT_CLASSIFICATION_PROMPT
+    system_prompt = f'{base_instructions}\n\n{_OUTPUT_FORMAT_RULE}'
 
     parts = [f'Setores disponiveis:\n{safe_sectors}']
     if safe_history:
@@ -75,7 +87,7 @@ def build_intent_classification_messages(message, sectors_block, history=''):
     parts.append('Responda so o nome do setor ou INDEFINIDO.')
 
     return [
-        {'role': 'system', 'content': INTENT_CLASSIFICATION_PROMPT},
+        {'role': 'system', 'content': system_prompt},
         {'role': 'user', 'content': '\n\n'.join(parts)},
     ]
 

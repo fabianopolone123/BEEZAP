@@ -396,17 +396,23 @@ class AiAttendantConfigForm(forms.ModelForm):
 
     class Meta:
         model = AiAttendantConfig
-        fields = ['enabled', 'llm_only', 'company_name', 'welcome_message', 'fallback_sector', 'max_turns']
+        fields = ['enabled', 'llm_only', 'company_name', 'instructions',
+                  'welcome_message', 'fallback_sector', 'max_turns']
         labels = {
             'enabled': 'Ativar atendente virtual',
             'llm_only': 'IA decide o setor sozinha (modo de teste)',
             'company_name': 'Nome da empresa',
+            'instructions': 'Instrucoes da IA (como decidir o setor)',
             'welcome_message': 'Mensagem de boas-vindas',
             'fallback_sector': 'Setor padrao (quando nao entender)',
             'max_turns': 'Tentativas de entender antes de transferir',
         }
         widgets = {
             'company_name': forms.TextInput(attrs={'placeholder': 'Ex.: BEEZAP', 'autocomplete': 'off'}),
+            'instructions': forms.Textarea(attrs={
+                'rows': 8,
+                'placeholder': 'Ex.: Voce e o atendente da empresa {empresa}. Escolha o setor certo conforme o assunto...',
+            }),
             'welcome_message': forms.Textarea(attrs={
                 'rows': 3,
                 'placeholder': 'Use {empresa} para inserir o nome da empresa.',

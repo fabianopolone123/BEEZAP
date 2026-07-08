@@ -897,6 +897,18 @@ class AiIntentClassificationTests(TestCase):
         self.assertIn('boleto ontem', sent)
         self.assertIn('Historico recente', sent)
 
+    def test_custom_instructions_go_to_system_prompt_with_format_rule(self):
+        from ai_engine.services import classify_intent
+        from .models import Sector
+        sectors = list(Sector.objects.all())
+        with patch('ai_engine.services.chat_with_ollama') as mock_llm:
+            mock_llm.return_value = SimpleNamespace(success=True, content='Vendas')
+            classify_intent('quero um orcamento', sectors, llm_only=True,
+                            instructions='Voce e o atendente da Loja XPTO. Seja simpatico.')
+        system = mock_llm.call_args.kwargs['messages'][0]['content']
+        self.assertIn('Loja XPTO', system)          # instrucoes do admin
+        self.assertIn('FORMATO DA RESPOSTA', system)  # regra de formato blindada
+
 
 class AiAttendantFlowTests(TestCase):
     """Maquina de estados do atendente virtual (falas mockadas, sem rede)."""
@@ -1247,6 +1259,7 @@ class AiAttendantSettingsViewTests(TestCase):
         response = self.client.post(reverse('ai-attendant-settings'), {
             'enabled': 'on',
             'company_name': 'Minha Empresa',
+            'instructions': 'Voce e o atendente da {empresa}. Encaminhe ao setor certo.',
             'welcome_message': 'Ola, bem-vindo a {empresa}!',
             'fallback_sector': sector.id,
             'max_turns': 4,
@@ -1258,3 +1271,4 @@ class AiAttendantSettingsViewTests(TestCase):
         self.assertEqual(config.fallback_sector, sector)
         self.assertEqual(config.max_turns, 4)
         self.assertIn('Minha Empresa', config.render_welcome())
+        self.assertIn('Minha Empresa', config.render_instructions())

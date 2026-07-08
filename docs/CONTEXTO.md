@@ -34,7 +34,7 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
 > `wapi/` é um módulo Python comum (importa `accounts.models`); **não** está em
 > `INSTALLED_APPS`, por isso os models ficam em `accounts/models.py`.
 
-## 3. Modelos (`accounts/models.py`) — migração atual: `0015`
+## 3. Modelos (`accounts/models.py`) — migração atual: `0016`
 
 - **User** (AbstractUser, login por e-mail; `role`: `leitor`/`usuario`/`adm`).
 - **Attendant** (perfil de atendente, vínculo com User, troca de senha inicial).
@@ -66,7 +66,8 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
   virtual), `raw_payload`.
 - **AiAttendantConfig** (singleton `get_solo()`): configura o **atendente virtual (IA)**
   — `enabled` (padrão **False**), `llm_only` (modo de teste: IA decide o setor só
-  pelo modelo, sem palavras-chave), `company_name`, `welcome_message` (usa `{empresa}`),
+  pelo modelo, sem palavras-chave), `company_name`, `instructions` (prompt/diretrizes
+  editáveis que guiam a DECISÃO da IA; usa `{empresa}`), `welcome_message` (usa `{empresa}`),
   `fallback_sector`, `max_turns`. Editado na tela **Atendente Virtual** (ADM).
 - **Conversation** ganhou `ai_state` (`active`/`handed_off`/`off`) e `ai_turns` para o
   atendente virtual (ver seção 12).
@@ -370,7 +371,12 @@ intenção do cliente e **transfere para o setor certo** (deixa `status='pending
   **`llm_only=True`** (config `AiAttendantConfig.llm_only`, modo de teste): pula a camada
   (1) inteira e deixa o modelo decidir sozinho. **`history`**: resumo curto de conversas
   ANTERIORES com o mesmo contato (montado por `_contact_history_context` no orquestrador,
-  via `_sibling_conversation_ids`), passado ao modelo como contexto.
+  via `_sibling_conversation_ids`), passado ao modelo como contexto. **`instructions`**
+  (`AiAttendantConfig.instructions`, editável no painel): vira o **system prompt** da
+  classificação — persona + diretrizes de como escolher o setor. O código sempre anexa
+  uma **regra de formato** (`_OUTPUT_FORMAT_RULE`) garantindo a saída "só o nome do setor
+  / INDEFINIDO", então instruções livres não quebram o roteamento. As **falas** ao cliente
+  continuam vindo dos templates (`welcome_message` + avisos de transferência).
 - **`handle_incoming_for_ai(conversation, message)`** (máquina de estados): guardas
   (`AiAttendantConfig.enabled`, só `private`, não fechada/atribuída, `ai_state='active'`,
   `direction='in'`); 1º contato → boas-vindas (`ai_turns=1`); intenção clara → define

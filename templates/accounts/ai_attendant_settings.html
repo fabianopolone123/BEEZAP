@@ -96,6 +96,26 @@
         <section class="ai-card">
           <div class="ai-card-head">
             <div>
+              <h2>Instrucoes da IA</h2>
+              <p>Diretrizes que a IA segue para decidir o setor: persona, o que fazer e o que nao fazer.</p>
+            </div>
+          </div>
+
+          <div class="ai-field">
+            <label for="{{ form.instructions.id_for_label }}">Instrucoes / prompt do atendimento</label>
+            {{ form.instructions }}
+            <small class="field-hint">
+              Orienta a <strong>decisao</strong> da IA (para qual setor encaminhar). Use <code>{empresa}</code>
+              para o nome da empresa. As falas enviadas ao cliente continuam vindo da mensagem de boas-vindas
+              e dos avisos de transferencia.
+            </small>
+            {% if form.instructions.errors %}<small class="field-error">{{ form.instructions.errors|striptags }}</small>{% endif %}
+          </div>
+        </section>
+
+        <section class="ai-card">
+          <div class="ai-card-head">
+            <div>
               <h2>Mensagens e direcionamento</h2>
               <p>Personalize as boas-vindas e defina para onde enviar quando nao entender.</p>
             </div>
