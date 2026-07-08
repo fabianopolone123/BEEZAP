@@ -100,7 +100,6 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'accounts',
-    'ai_engine',
 ]
 
 MIDDLEWARE = [
@@ -206,24 +205,6 @@ WAPI_WEBHOOK_TOKEN = os.getenv('WAPI_WEBHOOK_TOKEN', '')
 
 # Tamanho maximo (MB) de arquivo enviado como midia pela conversa (LITE).
 WAPI_MEDIA_MAX_MB = int(os.getenv('WAPI_MEDIA_MAX_MB', '16'))
-
-OLLAMA_BASE_URL = os.getenv('OLLAMA_BASE_URL', 'http://localhost:11434')
-OLLAMA_MODEL = os.getenv('OLLAMA_MODEL', 'qwen2.5:1.5b')
-OLLAMA_TIMEOUT = int(os.getenv('OLLAMA_TIMEOUT', '20'))
-OLLAMA_TEMPERATURE = float(os.getenv('OLLAMA_TEMPERATURE', '0.2'))
-OLLAMA_NUM_PREDICT = int(os.getenv('OLLAMA_NUM_PREDICT', '180'))
-OLLAMA_NUM_GPU = int(os.getenv('OLLAMA_NUM_GPU', '0'))
-# Quanto tempo o Ollama mantem o modelo carregado em RAM apos o ultimo uso. Num
-# VPS pequeno/compartilhado, um valor curto libera a memoria quando ocioso
-# (ex.: '30s', '0' = descarrega logo apos responder, '5m' = mantem 5 min).
-OLLAMA_KEEP_ALIVE = os.getenv('OLLAMA_KEEP_ALIVE', '30s')
-# Timeout do MODO GENERATIVO (a IA escreve a resposta). Maior que o de
-# classificacao porque gera texto e porque a 1a mensagem pode precisar carregar o
-# modelo na RAM (partida a frio no CPU). Evita cair na fala de seguranca a toa.
-OLLAMA_GENERATIVE_TIMEOUT = int(os.getenv('OLLAMA_GENERATIVE_TIMEOUT', '90'))
-# Limite de tokens da resposta gerada. Resposta de recepcao e curta; um limite
-# baixo deixa o modelo MUITO mais rapido no CPU (o gargalo e gerar token a token).
-OLLAMA_GENERATIVE_NUM_PREDICT = int(os.getenv('OLLAMA_GENERATIVE_NUM_PREDICT', '120'))
 
 # Logging
 # Sem esta config, os logs INFO da aplicacao (beezap.*) nao apareciam no journal

@@ -597,17 +597,6 @@ def save_incoming_message(conversation, ctx, message_type='text', text='',
     if is_media:
         _try_download_media(message, media)
     update_conversation_summary(conversation, _summary_text(message_type, text), direction)
-
-    # Atendente virtual (IA): processa a mensagem recebida em background. As guardas
-    # (ligado? conversa direta? etc.) ficam no proprio orquestrador; aqui so
-    # disparamos sem nunca bloquear o webhook nem quebrar o recebimento.
-    if direction == 'in':
-        try:
-            from ai_engine.attendant import handle_incoming_for_ai_async
-            handle_incoming_for_ai_async(conversation, message)
-        except Exception:
-            ingest_logger.exception('Falha ao acionar atendente virtual (conv=%s).', conversation.id)
-
     return message
 
 
@@ -691,9 +680,9 @@ def ingest_wapi_payload(payload):
     )
 
 
-def save_outgoing_text_message(conversation, text, external_message_id='', status='sent', is_ai=False):
+def save_outgoing_text_message(conversation, text, external_message_id='', status='sent'):
     return save_outgoing_message(conversation, 'text', text=text, external_message_id=external_message_id,
-                                 status=status, is_ai=is_ai)
+                                 status=status)
 
 
 def _convert_image_to_jpeg(uploaded_file):
@@ -808,10 +797,8 @@ def save_outgoing_media_message(conversation, message_type, uploaded_file, capti
 
 
 def save_outgoing_message(conversation, message_type='text', text='', external_message_id='',
-                          status='sent', media_url='', media_mimetype='', is_ai=False):
-    """Registra a mensagem enviada pelo atendente na conversa.
-
-    `is_ai=True` marca mensagens enviadas pelo atendente virtual (IA)."""
+                          status='sent', media_url='', media_mimetype=''):
+    """Registra a mensagem enviada pelo atendente na conversa."""
     message = Message.objects.create(
         conversation=conversation,
         direction='out',
@@ -824,7 +811,6 @@ def save_outgoing_message(conversation, message_type='text', text='', external_m
         media_url=media_url or '',
         media_mimetype=media_mimetype or '',
         media_status='ok' if message_type in MEDIA_TYPES else 'none',
-        is_ai=is_ai,
     )
     update_conversation_summary(conversation, _summary_text(message_type, text), 'out')
     return message

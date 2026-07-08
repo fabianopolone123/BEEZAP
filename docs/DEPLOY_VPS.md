@@ -281,22 +281,11 @@ X-BEEZAP-WEBHOOK-TOKEN: TOKEN_DO_WEBHOOK
 
 Nao usar o token da W-API como token do webhook.
 
-## 14. Ollama/IA
+## 14. IA (removida)
 
-A VPS informada tem 4 GB e ja roda outros projetos. Nao instalar Ollama nesta etapa sem medir RAM/CPU.
-
-Configuracoes disponiveis por `.env`:
-
-```env
-OLLAMA_BASE_URL=http://127.0.0.1:11434
-OLLAMA_MODEL=qwen2.5:1.5b
-OLLAMA_TIMEOUT=30
-OLLAMA_TEMPERATURE=0.2
-OLLAMA_NUM_PREDICT=180
-OLLAMA_NUM_GPU=0
-```
-
-Ativar IA local no VPS apenas depois de avaliar consumo.
+O atendente virtual (IA) e a integracao com Ollama foram **removidos** do sistema.
+Se o Ollama tiver sido instalado no VPS, pode ser parado/removido — ver os comandos
+no fim de `docs/DEPLOY.md`/`HISTORICO.md`. Nao ha mais dependencia de IA no BEEZAP.
 
 ## 15. Checklist final
 
@@ -348,46 +337,15 @@ Atualizado em 2026-07-08.
 - `ffmpeg` instalado e `manage.py check` sem avisos no VPS.
 - `DEBUG=True` ainda aparece como pendencia de seguranca se estiver assim no `.env`.
 
-### Estado atual da IA/Ollama
+### IA (removida) e ciclo de atendimento
 
-- Ollama instalado no sistema por `curl -fsSL https://ollama.com/install.sh | sh`.
-- Servico systemd: `ollama`, ativo.
-- API local: `http://127.0.0.1:11434`.
-- Modelo baixado: `qwen2.5:1.5b`.
-- Modo: CPU-only (`OLLAMA_NUM_GPU=0`).
-- Override systemd leve em `/etc/systemd/system/ollama.service.d/beezap-light.conf`:
-
-```ini
-[Service]
-Environment=OLLAMA_KEEP_ALIVE=30s
-Environment=OLLAMA_MAX_LOADED_MODELS=1
-Environment=OLLAMA_NUM_PARALLEL=1
-```
-
-- O modelo carrega para classificar e descarrega apos o keep-alive, liberando RAM.
-- Atendente Virtual esta ativado no banco (`AiAttendantConfig.enabled=True`) com empresa `BEEZAP`, `max_turns=3` e fallback sem setor.
-- Regras iniciais de IA aplicadas com:
-
-```bash
-cd /var/www/beezap
-venv/bin/python manage.py seed_ai_sector_rules --overwrite
-```
-
-- Regras criadas/atualizadas: Compras/Vendas e Financeiro. As descricoes vazias desses setores tambem sao preenchidas pelo comando.
-
-### Ciclo atual de atendimento
-
-- Nova conversa direta sem setor/atendente cai na recepcao da IA.
-- A IA envia boas-vindas, tenta classificar a intencao e, ao identificar setor, marca a conversa como `pending` no setor correto, sem escolher atendente.
-- Enquanto a conversa estiver aberta/pendente com setor ou atendente, novas mensagens seguem no atendimento atual e nao passam pela IA.
-- A tela Conversas tem acoes `Assumir` e `Encerrar`.
-- Encerrar marca a conversa como `closed`; a proxima mensagem do mesmo contato cria nova conversa aberta sem setor/atendente e volta para a IA.
-- Conversas antigas que ficaram `ai_state=off` sem setor/atendente voltam para a IA na proxima mensagem, desde que nao exista resposta humana depois da ultima fala da IA.
-- Antes do handoff, a IA usa as ultimas mensagens recebidas como contexto curto para classificar o setor e varia a resposta quando o cliente manda apenas cumprimento ou texto vago.
-- A classificacao tambem recebe um resumo de conversas ANTERIORES com o mesmo contato (contexto historico), para a IA se inteirar do que ja foi tratado.
-- Modo de teste "IA decide sozinha" (`AiAttendantConfig.llm_only`, checkbox no painel Atendente Virtual): quando ligado, a IA ignora as regras de palavras-chave e a trava anti-ambiguidade e deixa o modelo local decidir o setor. Serve para avaliar o modelo por conta propria; desligado, mantem a camada deterministica na frente.
-- Instrucoes da IA (`AiAttendantConfig.instructions`, textarea no painel Atendente Virtual): prompt/diretrizes que orientam a IA (persona, o que fazer / nao fazer). Editavel; o formato de saida e blindado pelo codigo. Os setores cadastrados sao injetados automaticamente.
-- Modo generativo (`AiAttendantConfig.generative_replies`, checkbox no painel): quando ligado, a IA ESCREVE as respostas ao cliente a partir das instrucoes (nao usa as mensagens prontas) e decide o roteamento por um marcador interno `[SETOR: ...]`. Requer o Ollama; com o `qwen2.5:1.5b` e mais instavel. Desligado, usa as mensagens prontas (boas-vindas + avisos de transferencia).
+- O atendente virtual (IA) e o Ollama foram **removidos** do sistema. Se o Ollama estiver
+  instalado no VPS, pode ser parado/desabilitado (ver `HISTORICO.md`).
+- Nova conversa direta chega e fica em atendimento manual (sem recepcao automatica).
+- A tela Conversas tem acoes `Assumir` (atendente) e `Encerrar`; o admin transfere
+  setor/atendente pelos selects. Setor sem atendente -> `pending`; com atendente -> `open`.
+- Encerrar marca `closed`; a proxima mensagem do mesmo contato cria nova conversa aberta,
+  sem setor/atendente.
 
 ### Comandos de verificacao rapida
 
@@ -397,20 +355,8 @@ git status --short
 git rev-parse --short HEAD
 venv/bin/python manage.py check
 systemctl is-active beezap
-systemctl is-active ollama
-curl -s http://127.0.0.1:11434/api/tags | head
-ollama ps
 free -h
 ```
-
-Teste de classificacao por regras/IA:
-
-```bash
-cd /var/www/beezap
-venv/bin/python manage.py shell -c "from ai_engine.services import classify_intent; from accounts.models import Sector; r=classify_intent('preciso da segunda via do boleto', Sector.objects.all()); print(r.sector.name if r.sector else '-', r.source)"
-```
-
-Resultado esperado para a frase acima: `Financeiro keyword`.
 
 ### Regras operacionais
 

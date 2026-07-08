@@ -10,7 +10,7 @@ Leia também: `CODEX_PADROES.md`, `GIT.md`, `HISTORICO.md`, `DEPLOY.md`,
 
 - **BEEZAP**: sistema Django de atendimento/automação de WhatsApp via **W-API**.
 - **Stack**: Django 5.2, Python 3.12, gunicorn, Nginx, SQLite (padrão) ou
-  PostgreSQL (via `DATABASE_URL`). IA local opcional via Ollama (`ai_engine`).
+  PostgreSQL (via `DATABASE_URL`).
 - **Hospedagem**: VPS Linux, servido sob o prefixo de caminho **`/beezap/`**
   em `https://fabianopolone.com.br/beezap/`.
 - **Idioma/UX**: interface em português, simples e didática; notificações via
@@ -23,7 +23,6 @@ Leia também: `CODEX_PADROES.md`, `GIT.md`, `HISTORICO.md`, `DEPLOY.md`,
 config/            settings.py (env-driven), urls.py, wsgi.py
 accounts/          app principal: models, views, urls, forms, admin, middleware,
                    backends, management/commands/, templates de accounts
-ai_engine/         integração Ollama (tela de teste de IA)
 wapi/              MÓDULO (não é app instalado): client.py, parser.py, services.py, formatting.py
 static/css/        CSS por página (dashboard.css, conversations.css, wapi_settings.css, ...)
 templates/         base.html + accounts/*.html
@@ -34,12 +33,11 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
 > `wapi/` é um módulo Python comum (importa `accounts.models`); **não** está em
 > `INSTALLED_APPS`, por isso os models ficam em `accounts/models.py`.
 
-## 3. Modelos (`accounts/models.py`) — migração atual: `0017`
+## 3. Modelos (`accounts/models.py`) — migração atual: `0018`
 
 - **User** (AbstractUser, login por e-mail; `role`: `leitor`/`usuario`/`adm`).
 - **Attendant** (perfil de atendente, vínculo com User, troca de senha inicial).
-- **Sector** (setores; M2M com Attendant).
-- **AutomationRule** (regras para orientar a IA).
+- **Sector** (setores; M2M com Attendant; usado em transferência/roteamento manual).
 - **PasswordResetCode** (recuperação de senha por código no WhatsApp).
 - **WapiConfiguration** (singleton `get_solo()`): `instance_id`, `token`,
   `webhook_token`. Credenciais reais ficam **aqui (no banco)**, editadas na tela
@@ -62,16 +60,7 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
   `text`, `sender_name`, `sender_id`/`participant_id` (quem enviou; em grupo é o
   participante), `is_group`, `from_me`, `external_message_id` (id real da W-API,
   serve de `wapi_message_id`), `media_file`, `media_url`, `media_mimetype`,
-  `media_status` (`none/pending/ok/unavailable`), `is_ai` (fala do atendente
-  virtual), `raw_payload`.
-- **AiAttendantConfig** (singleton `get_solo()`): configura o **atendente virtual (IA)**
-  — `enabled` (padrão **False**), `llm_only` (modo de teste: IA decide o setor só
-  pelo modelo, sem palavras-chave), `generative_replies` (a IA **escreve** as respostas
-  em vez de usar mensagens prontas), `company_name`, `instructions` (prompt/diretrizes
-  editáveis; usa `{empresa}`), `welcome_message` (usa `{empresa}`), `fallback_sector`,
-  `max_turns`. Editado na tela **Atendente Virtual** (ADM).
-- **Conversation** ganhou `ai_state` (`active`/`handed_off`/`off`) e `ai_turns` para o
-  atendente virtual (ver seção 12).
+  `media_status` (`none/pending/ok/unavailable`), `raw_payload`.
 
 ## 4. Integração W-API
 
@@ -355,71 +344,17 @@ cleanup_nonpersonal_conversations [--delete]  # remove conversas de canal/transm
   credencial que tenha sido exposta. Nunca colar senha/token em chat ou commit.
 - Nunca expor token/payload/traceback ao usuário final (padrão já seguido).
 
-## 12. Atendente virtual (IA) — `ai_engine/`
+## 12. Ciclo de atendimento (assumir / encerrar)
 
-Recepcionista automático: numa conversa **direta**, a IA dá boas-vindas, entende a
-intenção do cliente e **transfere para o setor certo** (deixa `status='pending'` /
-"Aguardando"). Para de agir ao transferir ou quando um humano assume.
+> O **atendente virtual (IA)** foi **removido** do sistema (módulo `ai_engine`, telas de
+> Automação/Atendente Virtual, models `AiAttendantConfig`/`AutomationRule`, campos
+> `Conversation.ai_state/ai_turns` e `Message.is_ai`, integração Ollama). Migração `0018`.
+> O recebimento/webhook, Conversas, Contatos, Setores e envio seguem intactos.
 
-- **Motor**: Ollama local (`qwen2.5:1.5b`), **plugável** (trocar p/ Claude depois só mexe
-  no seam do `ai_engine`). As **falas do bot são templates fixos** (`ai_engine/attendant.py`),
-  não geradas pela IA — o modelo só é usado para **classificar** a intenção.
-- **`classify_intent(message, sectors, llm_only=False, history='')`** (`ai_engine/services.py`):
-  2 camadas — (1) palavras-chave das `AutomationRule` que têm setor (determinístico,
-  prioridade) + trava anti-ambiguidade; (2) IA local escolhe **1 setor da lista ou
-  `INDEFINIDO`** (prompt `build_intent_classification_messages`). Retorna
-  `IntentResult(sector, source)`. Nunca quebra por rede (cai em indefinido).
-  **`llm_only=True`** (config `AiAttendantConfig.llm_only`, modo de teste): pula a camada
-  (1) inteira e deixa o modelo decidir sozinho. **`history`**: resumo das
-  **últimas ~10 trocas** (≈20 mensagens, `CONTACT_HISTORY_MAX_MESSAGES`) de conversas
-  ANTERIORES com o mesmo contato (montado por `_contact_history_context` no orquestrador,
-  via `_sibling_conversation_ids`), passado ao modelo como contexto. **`instructions`**
-  (`AiAttendantConfig.instructions`, editável no painel): vira o **system prompt** da
-  classificação — persona + diretrizes de como escolher o setor. O código sempre anexa
-  uma **regra de formato** (`_OUTPUT_FORMAT_RULE`) garantindo a saída "só o nome do setor
-  / INDEFINIDO", então instruções livres não quebram o roteamento. As **falas** ao cliente
-  continuam vindo dos templates (`welcome_message` + avisos de transferência).
-- **`handle_incoming_for_ai(conversation, message)`** (máquina de estados): guardas
-  (`AiAttendantConfig.enabled`, só `private`, não fechada/atribuída, `ai_state='active'`,
-  `direction='in'`); 1º contato → boas-vindas (`ai_turns=1`); intenção clara → define
-  `sector`+`status=pending`+`ai_state=handed_off` e avisa; indefinido → pede esclarecer até
-  `max_turns`, depois transfere ao `fallback_sector`; **humano assumiu** (mensagem `out` com
-  `is_ai=False`, inclui resposta pelo celular) → `ai_state='off'`, para.
-- **Modo generativo** (`AiAttendantConfig.generative_replies`): quando ligado, a IA **gera**
-  a resposta ao cliente a partir das `instructions` (não usa os templates de boas-vindas/
-  transferência) e decide o roteamento por um marcador `[SETOR: X | GERAL | CONTINUAR]` que
-  o código extrai e o cliente não vê (`ai_engine/services.py` `generate_reply_and_route` +
-  prompt `build_generative_reply_messages`; parsing tolerante em `_extract_marker`/
-  `_resolve_marker`). Roteia sem template quando a IA já escreveu o aviso (`announce=False`);
-  mas **nunca fica mudo**: se a IA decide o setor sem escrever nada, ou atinge `max_turns` sem
-  decidir, o handoff é feito **com** a fala de transferência (`announce=True`). Se a IA local
-  estiver fora do ar, envia a fala mínima de segurança (`GENERATIVE_SAFETY_REPLY`). Usa timeout
-  maior (`OLLAMA_GENERATIVE_TIMEOUT`, padrão 60s) por gerar texto / carregar o modelo na 1ª
-  mensagem. Mais sujeito a erro com modelo pequeno (`qwen2.5:1.5b`).
-- **Disparo**: `handle_incoming_for_ai_async` roda em **thread daemon** (lock por conversa),
-  chamado por `wapi/services.py` após salvar uma mensagem recebida — nunca bloqueia o webhook.
-- **Config** (`AiAttendantConfig.get_solo()`): master switch **default OFF**; `llm_only`
-  (IA decide sozinha, modo de teste); editável na tela **Atendente Virtual** (ADM). Falas
-  do bot salvas com `Message.is_ai=True`.
-- Logs no logger `beezap.ai` (sem token/dado sensível).
-
-### Complemento IA/recepcao - regras basicas
-
-- Em producao, o Ollama deve rodar localmente em `127.0.0.1:11434` com o modelo `qwen2.5:1.5b`, CPU (`OLLAMA_NUM_GPU=0`) e `OLLAMA_KEEP_ALIVE=30s` para liberar RAM quando ocioso.
-- As regras de atendimento por setor devem existir mesmo com Ollama ativo, pois a camada deterministica por palavra-chave tem prioridade e reduz uso de CPU/RAM.
-- Comando idempotente para criar/atualizar regras iniciais de Compras/Vendas e Financeiro:
-  `venv/bin/python manage.py seed_ai_sector_rules --overwrite`.
-- A tela Atendente Virtual continua sendo o interruptor de producao (`AiAttendantConfig.enabled`). Sem ligar essa tela, o webhook salva mensagens, mas a IA nao recepciona.
-
-### Complemento ciclo de atendimento
-
-- Enquanto uma conversa esta aberta/pendente com setor ou atendente, novas mensagens continuam no mesmo atendimento e a IA nao entra.
-- Encerrar atendimento marca a conversa como `closed`; a proxima mensagem do mesmo contato cria uma nova `Conversation` aberta, sem setor/atendente, pronta para a recepcao da IA.
-- Se uma conversa antiga ficar `ai_state='off'` mas sem setor e sem atendente, a proxima mensagem recebida reativa a IA, exceto quando houver resposta humana posterior a uma fala da IA.
-- Na tela Conversas existem acoes de atendimento: `Assumir` (para usuario com perfil de atendente) e `Encerrar`. O admin sem perfil ainda pode atribuir atendente pelo select.
-
-
-### Complemento IA - mensagens ambiguas
-
-- A classificacao de setor tem uma trava antes do Ollama: se nao houver palavra-chave de setor e a mensagem for vaga/ambigua (ex.: "nao sei", "ta dando tudo errado", "preciso de ajuda" sem assunto), o resultado fica `INDEFINIDO` e a IA pede esclarecimento em vez de chutar Compras/Financeiro.
-- Enquanto ainda nao transferiu, a IA classifica usando uma janela curta das ultimas mensagens recebidas na conversa, nao apenas a ultima frase isolada. Cumprimentos soltos depois de uma pergunta de esclarecimento recebem uma resposta contextual curta, sem repetir sempre o mesmo texto.
+- Na tela Conversas há ações de atendimento: **Assumir** (usuário com perfil de atendente)
+  e **Encerrar**. O admin pode transferir setor/atendente pelos selects da coluna de info.
+- **Transferir** para um setor sem atendente deixa a conversa `pending` (Aguardando <Setor>);
+  atribuir atendente deixa `open`.
+- **Encerrar** marca a conversa como `closed`; a próxima mensagem do mesmo contato cria uma
+  **nova** `Conversation` aberta, sem setor/atendente (o ingest ignora conversas fechadas ao
+  resolver a conversa de uma nova mensagem).

@@ -1,9 +1,8 @@
 from django import forms
-from django.conf import settings
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
 
-from .models import AiAttendantConfig, Attendant, AutomationRule, Sector, User
+from .models import Attendant, Sector, User
 
 
 class LoginForm(forms.Form):
@@ -68,143 +67,6 @@ class WapiSendTextForm(forms.Form):
             'placeholder': 'Digite a mensagem de teste',
         }),
     )
-
-
-class AutomationAiTestForm(forms.Form):
-    MODEL_CHOICES = (
-        ('qwen2.5:1.5b', 'qwen2.5:1.5b'),
-        ('qwen2.5:0.5b', 'qwen2.5:0.5b'),
-        ('llama3.2:1b', 'llama3.2:1b'),
-    )
-
-    model = forms.ChoiceField(
-        label='Modelo local',
-        choices=MODEL_CHOICES,
-        initial=settings.OLLAMA_MODEL,
-        widget=forms.Select(attrs={'autocomplete': 'off'}),
-    )
-    ollama_url = forms.URLField(
-        label='URL do Ollama',
-        initial=settings.OLLAMA_BASE_URL,
-        widget=forms.URLInput(attrs={
-            'placeholder': 'http://localhost:11434',
-            'autocomplete': 'off',
-        }),
-    )
-    timeout = forms.IntegerField(
-        label='Tempo maximo de resposta',
-        min_value=5,
-        max_value=60,
-        initial=settings.OLLAMA_TIMEOUT,
-        widget=forms.NumberInput(attrs={
-            'placeholder': '20',
-            'autocomplete': 'off',
-        }),
-    )
-    sector = forms.ModelChoiceField(
-        label='Setor',
-        queryset=Sector.objects.none(),
-        required=False,
-        empty_label='Geral / sem setor',
-        widget=forms.Select(attrs={'autocomplete': 'off'}),
-    )
-    use_rules = forms.BooleanField(
-        label='Usar regras cadastradas',
-        required=False,
-        help_text='Quando ativado, a IA usara as regras cadastradas em Regras de atendimento para responder.',
-    )
-    message = forms.CharField(
-        label='Mensagem de teste',
-        max_length=1200,
-        widget=forms.Textarea(attrs={
-            'rows': 5,
-            'placeholder': 'Digite uma mensagem curta para testar a IA',
-        }),
-    )
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.fields['sector'].queryset = Sector.objects.all()
-
-    def clean_message(self):
-        message = self.cleaned_data['message'].strip()
-        if not message:
-            raise forms.ValidationError('Digite uma mensagem para testar a IA.')
-        return message
-
-
-class AutomationRuleForm(forms.ModelForm):
-    class Meta:
-        model = AutomationRule
-        fields = [
-            'title',
-            'sector',
-            'keywords',
-            'customer_example',
-            'response_text',
-            'internal_instruction',
-            'is_active',
-        ]
-        labels = {
-            'title': 'Titulo da regra',
-            'sector': 'Setor',
-            'keywords': 'Palavras-chave',
-            'customer_example': 'Pergunta/exemplo do cliente',
-            'response_text': 'Resposta orientada',
-            'internal_instruction': 'Instrucao interna',
-            'is_active': 'Regra ativa',
-        }
-        widgets = {
-            'title': forms.TextInput(attrs={
-                'placeholder': 'Ex: Horario de atendimento',
-                'autocomplete': 'off',
-            }),
-            'keywords': forms.TextInput(attrs={
-                'placeholder': 'horario, atendimento, aberto',
-                'autocomplete': 'off',
-            }),
-            'customer_example': forms.Textarea(attrs={
-                'placeholder': 'Ex: Qual o horario de atendimento?',
-                'rows': 3,
-            }),
-            'response_text': forms.Textarea(attrs={
-                'placeholder': 'Resposta curta e adequada para WhatsApp',
-                'rows': 4,
-            }),
-            'internal_instruction': forms.Textarea(attrs={
-                'placeholder': 'Ex: Se pedir desconto, encaminhar para atendente.',
-                'rows': 3,
-            }),
-        }
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.fields['sector'].required = False
-        self.fields['sector'].empty_label = 'Geral'
-
-    def clean_title(self):
-        title = ' '.join(self.cleaned_data.get('title', '').split())
-        if not title:
-            raise forms.ValidationError('Informe o titulo da regra.')
-        return title
-
-    def clean_keywords(self):
-        keywords = AutomationRule.normalize_keywords(self.cleaned_data.get('keywords', ''))
-        if not keywords:
-            raise forms.ValidationError('Informe ao menos uma palavra-chave.')
-        return keywords
-
-    def clean_response_text(self):
-        response_text = self.cleaned_data.get('response_text', '').strip()
-        if not response_text:
-            raise forms.ValidationError('Informe a resposta orientada.')
-        return response_text[:1200]
-
-    def clean_customer_example(self):
-        return self.cleaned_data.get('customer_example', '').strip()[:600]
-
-    def clean_internal_instruction(self):
-        return self.cleaned_data.get('internal_instruction', '').strip()[:600]
 
 
 class AttendantForm(forms.Form):
@@ -389,44 +251,3 @@ class PasswordRecoveryNewPasswordForm(forms.Form):
         if new_password and confirm_password and new_password != confirm_password:
             self.add_error('confirm_password', 'As senhas digitadas nao conferem.')
         return cleaned_data
-
-
-class AiAttendantConfigForm(forms.ModelForm):
-    """Configuracao do atendente virtual (IA) editada pelo ADM."""
-
-    class Meta:
-        model = AiAttendantConfig
-        fields = ['enabled', 'llm_only', 'generative_replies', 'company_name', 'instructions',
-                  'welcome_message', 'fallback_sector', 'max_turns']
-        labels = {
-            'enabled': 'Ativar atendente virtual',
-            'llm_only': 'IA decide o setor sozinha (modo de teste)',
-            'generative_replies': 'IA escreve as respostas (conversa livre)',
-            'company_name': 'Nome da empresa',
-            'instructions': 'Instrucoes da IA (prompt do atendimento)',
-            'welcome_message': 'Mensagem de boas-vindas',
-            'fallback_sector': 'Setor padrao (quando nao entender)',
-            'max_turns': 'Tentativas de entender antes de transferir',
-        }
-        widgets = {
-            'company_name': forms.TextInput(attrs={'placeholder': 'Ex.: BEEZAP', 'autocomplete': 'off'}),
-            'instructions': forms.Textarea(attrs={
-                'rows': 8,
-                'placeholder': 'Ex.: Voce e o atendente da empresa {empresa}. Escolha o setor certo conforme o assunto...',
-            }),
-            'welcome_message': forms.Textarea(attrs={
-                'rows': 3,
-                'placeholder': 'Use {empresa} para inserir o nome da empresa.',
-            }),
-            'max_turns': forms.NumberInput(attrs={'min': 1, 'max': 10}),
-        }
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.fields['fallback_sector'].required = False
-        self.fields['fallback_sector'].empty_label = 'Nenhum (encaminhar sem setor)'
-        self.fields['fallback_sector'].queryset = Sector.objects.all()
-
-    def clean_max_turns(self):
-        value = self.cleaned_data.get('max_turns') or 1
-        return max(1, min(int(value), 10))

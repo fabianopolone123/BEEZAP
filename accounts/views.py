@@ -25,9 +25,6 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 
 from .forms import (
-    AiAttendantConfigForm,
-    AutomationAiTestForm,
-    AutomationRuleForm,
     AttendantForm,
     InitialPasswordChangeForm,
     LoginForm,
@@ -39,9 +36,7 @@ from .forms import (
     WapiSendTextForm,
 )
 from .models import (
-    AiAttendantConfig,
     Attendant,
-    AutomationRule,
     Contact,
     Conversation,
     Message,
@@ -51,7 +46,6 @@ from .models import (
     WapiConfiguration,
     WapiWebhookEvent,
 )
-from ai_engine.services import generate_ai_reply, generate_ai_reply_with_rules
 from wapi.client import (
     send_audio_message,
     send_document_message,
@@ -104,8 +98,6 @@ NAV_ITEMS = [
     {'label': 'Setores', 'required': 'adm', 'url_name': 'sectors'},
     {'label': 'Campanhas', 'required': 'usuario', 'url_name': None},
     {'label': 'Relatorios', 'required': 'leitor', 'url_name': None},
-    {'label': 'Automacao', 'required': 'adm', 'url_name': 'automation-ai'},
-    {'label': 'Atendente Virtual', 'required': 'adm', 'url_name': 'ai-attendant-settings'},
     {'label': 'Configuracoes', 'required': 'adm', 'url_name': 'wapi-settings'},
 ]
 
@@ -505,200 +497,6 @@ def wapi_webhook_events_view(request):
         'ok': True,
         'events': [serialize_wapi_event(event) for event in events],
     })
-
-
-@login_required
-def automation_ai_view(request):
-    if request.user.role != 'adm':
-        return HttpResponseForbidden('Acesso restrito.')
-
-    form = AutomationAiTestForm(request.POST or None)
-    ai_reply = ''
-    rules_found = []
-    use_rules = False
-    rules_checked = False
-
-    if request.method == 'POST':
-        if form.is_valid():
-            use_rules = form.cleaned_data.get('use_rules', False)
-            if use_rules:
-                rules_checked = True
-                result = generate_ai_reply_with_rules(
-                    message=form.cleaned_data['message'],
-                    sector=form.cleaned_data.get('sector'),
-                    model=form.cleaned_data['model'],
-                    base_url=form.cleaned_data['ollama_url'],
-                    timeout=form.cleaned_data['timeout'],
-                )
-                rules_found = result.rules
-            else:
-                result = generate_ai_reply(
-                    message=form.cleaned_data['message'],
-                    model=form.cleaned_data['model'],
-                    base_url=form.cleaned_data['ollama_url'],
-                    timeout=form.cleaned_data['timeout'],
-                )
-            ai_reply = result.reply
-            if result.success:
-                if result.no_rules_found:
-                    messages.info(request, 'Nenhuma regra compativel foi encontrada.')
-                else:
-                    messages.success(request, 'Resposta gerada com sucesso.')
-            else:
-                messages.error(request, result.error)
-        else:
-            if form.errors.get('message'):
-                messages.error(request, 'Digite uma mensagem para testar a IA.')
-            else:
-                messages.error(request, 'Nao foi possivel gerar resposta agora. Tente novamente.')
-
-    return render(
-        request,
-        'accounts/automation_ai_settings.html',
-        {
-            'form': form,
-            'ai_reply': ai_reply,
-            'rules_found': rules_found,
-            'use_rules': use_rules,
-            'rules_checked': rules_checked,
-            'nav_items': build_nav_items(request.user.role, 'Automacao'),
-            'role_label': request.user.get_role_display(),
-            'user_initial': (request.user.first_name[:1] or request.user.email[:1]).upper(),
-        },
-    )
-
-
-@login_required
-def ai_attendant_settings_view(request):
-    if request.user.role != 'adm':
-        return HttpResponseForbidden('Acesso restrito.')
-
-    config = AiAttendantConfig.get_solo()
-    form = AiAttendantConfigForm(request.POST or None, instance=config)
-    if request.method == 'POST':
-        if form.is_valid():
-            form.save()
-            messages.success(request, 'Configuracao do atendente virtual salva.')
-            return redirect('ai-attendant-settings')
-        messages.error(request, 'Verifique os campos e tente novamente.')
-
-    return render(
-        request,
-        'accounts/ai_attendant_settings.html',
-        {
-            'form': form,
-            'config': config,
-            'has_sectors': Sector.objects.exists(),
-            'nav_items': build_nav_items(request.user.role, 'Atendente Virtual'),
-            'role_label': request.user.get_role_display(),
-            'user_initial': (request.user.first_name[:1] or request.user.email[:1]).upper(),
-        },
-    )
-
-
-@login_required
-def automation_rules_view(request):
-    if request.user.role != 'adm':
-        return HttpResponseForbidden('Acesso restrito.')
-
-    query = request.GET.get('q', '').strip()
-    sector_filter = request.GET.get('sector', '').strip()
-    status_filter = request.GET.get('status', '').strip()
-    sectors = Sector.objects.all()
-    rules = AutomationRule.objects.select_related('sector').all()
-
-    if query:
-        rules = rules.filter(
-            Q(title__icontains=query)
-            | Q(keywords__icontains=query)
-            | Q(customer_example__icontains=query)
-            | Q(response_text__icontains=query)
-        )
-
-    if sector_filter == 'general':
-        rules = rules.filter(sector__isnull=True)
-    elif sector_filter:
-        try:
-            rules = rules.filter(sector_id=int(sector_filter))
-        except ValueError:
-            sector_filter = ''
-
-    if status_filter == 'active':
-        rules = rules.filter(is_active=True)
-    elif status_filter == 'inactive':
-        rules = rules.filter(is_active=False)
-    else:
-        status_filter = ''
-
-    form = AutomationRuleForm()
-    show_modal = request.GET.get('new') == '1'
-    modal_mode = 'create'
-    editing_rule = None
-
-    edit_id = request.GET.get('edit', '').strip()
-    if edit_id:
-        editing_rule = AutomationRule.objects.filter(pk=edit_id).first()
-        if editing_rule:
-            form = AutomationRuleForm(instance=editing_rule)
-            show_modal = True
-            modal_mode = 'edit'
-        else:
-            messages.error(request, 'Regra nao encontrada.')
-            return redirect('automation-rules')
-
-    if request.method == 'POST':
-        action = request.POST.get('action', 'save')
-        rule_id = request.POST.get('rule_id', '').strip()
-
-        if action == 'deactivate':
-            rule = AutomationRule.objects.filter(pk=rule_id).first()
-            if rule:
-                rule.is_active = False
-                rule.save(update_fields=['is_active', 'updated_at'])
-                messages.success(request, 'Regra inativada com sucesso.')
-            else:
-                messages.error(request, 'Regra nao encontrada.')
-            return redirect('automation-rules')
-
-        if rule_id:
-            editing_rule = AutomationRule.objects.filter(pk=rule_id).first()
-            if not editing_rule:
-                messages.error(request, 'Regra nao encontrada.')
-                return redirect('automation-rules')
-            modal_mode = 'edit'
-
-        form = AutomationRuleForm(request.POST, instance=editing_rule)
-        show_modal = True
-        if form.is_valid():
-            form.save()
-            if editing_rule:
-                messages.success(request, 'Regra atualizada com sucesso.')
-            else:
-                messages.success(request, 'Regra cadastrada com sucesso.')
-            return redirect('automation-rules')
-
-        messages.error(request, 'Nao foi possivel salvar a regra. Verifique os dados e tente novamente.')
-
-    return render(
-        request,
-        'accounts/automation_rules.html',
-        {
-            'rules': rules,
-            'sectors': sectors,
-            'form': form,
-            'show_modal': show_modal,
-            'modal_mode': modal_mode,
-            'editing_rule': editing_rule,
-            'filters': {
-                'q': query,
-                'sector': sector_filter,
-                'status': status_filter,
-            },
-            'nav_items': build_nav_items(request.user.role, 'Automacao'),
-            'role_label': request.user.get_role_display(),
-            'user_initial': (request.user.first_name[:1] or request.user.email[:1]).upper(),
-        },
-    )
 
 
 @login_required
@@ -1387,8 +1185,7 @@ def conversation_transfer_view(request, conversation_id):
         conversation.status = 'pending'
     else:
         conversation.status = 'open'
-    conversation.ai_state = 'off'
-    update_fields.update({'status', 'ai_state'})
+    update_fields.add('status')
     conversation.save(update_fields=list(update_fields))
 
     return JsonResponse({'ok': True, 'contact': _serialize_contact_info(conversation)})
@@ -1407,8 +1204,7 @@ def conversation_take_view(request, conversation_id):
 
     conversation.assigned_attendant = attendant
     conversation.status = 'open'
-    conversation.ai_state = 'off'
-    conversation.save(update_fields=['assigned_attendant', 'status', 'ai_state', 'updated_at'])
+    conversation.save(update_fields=['assigned_attendant', 'status', 'updated_at'])
 
     return JsonResponse({'ok': True, 'contact': _serialize_contact_info(conversation)})
 
@@ -1419,8 +1215,7 @@ def conversation_close_view(request, conversation_id):
     conversation = get_object_or_404(Conversation, pk=conversation_id)
     conversation.status = 'closed'
     conversation.assigned_attendant = None
-    conversation.ai_state = 'off'
-    conversation.save(update_fields=['status', 'assigned_attendant', 'ai_state', 'updated_at'])
+    conversation.save(update_fields=['status', 'assigned_attendant', 'updated_at'])
 
     return JsonResponse({'ok': True, 'contact': _serialize_contact_info(conversation)})
 

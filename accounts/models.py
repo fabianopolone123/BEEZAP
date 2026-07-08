@@ -177,50 +177,6 @@ class Sector(models.Model):
         return self.name
 
 
-class AutomationRule(models.Model):
-    title = models.CharField('Titulo da regra', max_length=120)
-    sector = models.ForeignKey(
-        Sector,
-        blank=True,
-        null=True,
-        on_delete=models.SET_NULL,
-        related_name='automation_rules',
-        verbose_name='Setor',
-    )
-    keywords = models.CharField('Palavras-chave', max_length=255)
-    customer_example = models.TextField('Pergunta/exemplo do cliente', blank=True, default='')
-    response_text = models.TextField('Resposta orientada')
-    internal_instruction = models.TextField('Instrucao interna', blank=True, default='')
-    is_active = models.BooleanField('Ativa', default=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        ordering = ('-is_active', 'title')
-        verbose_name = 'Regra de atendimento'
-        verbose_name_plural = 'Regras de atendimento'
-
-    @staticmethod
-    def normalize_keywords(value):
-        parts = [part.strip().lower() for part in (value or '').replace(';', ',').split(',')]
-        return ', '.join(part for part in parts if part)
-
-    @property
-    def sector_label(self):
-        return self.sector.name if self.sector else 'Geral'
-
-    @property
-    def status_label(self):
-        return 'Ativa' if self.is_active else 'Inativa'
-
-    @property
-    def keyword_list(self):
-        return [part.strip().lower() for part in self.keywords.split(',') if part.strip()]
-
-    def __str__(self):
-        return self.title
-
-
 class PasswordResetCode(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='password_reset_codes')
     code_hash = models.CharField(max_length=128)
@@ -289,12 +245,6 @@ class Conversation(models.Model):
         ('private', 'Direta'),
         ('group', 'Grupo'),
     ]
-    # Estado do atendente virtual (IA) nesta conversa.
-    AI_STATE_CHOICES = [
-        ('active', 'IA atendendo'),
-        ('handed_off', 'Transferida pela IA'),
-        ('off', 'IA desligada'),
-    ]
 
     # Conversa direta tem contato (telefone); conversa de grupo nao tem contato
     # individual, por isso o vinculo e opcional.
@@ -316,9 +266,6 @@ class Conversation(models.Model):
     last_message_text = models.TextField(blank=True, default='')
     last_message_at = models.DateTimeField(null=True, blank=True)
     unread_count = models.PositiveIntegerField(default=0)
-    # Atendente virtual (IA): estado e quantas vezes a IA ja falou nesta conversa.
-    ai_state = models.CharField(max_length=12, choices=AI_STATE_CHOICES, default='active')
-    ai_turns = models.PositiveSmallIntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -425,9 +372,6 @@ class Message(models.Model):
     media_url = models.URLField(max_length=500, blank=True, default='')
     media_mimetype = models.CharField(max_length=120, blank=True, default='')
     media_status = models.CharField(max_length=20, choices=MEDIA_STATUS_CHOICES, default='none')
-    # True quando a mensagem foi enviada pelo atendente virtual (IA). Serve para
-    # detectar quando um humano assume a conversa (mensagem 'out' com is_ai=False).
-    is_ai = models.BooleanField(default=False)
     raw_payload = models.JSONField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -452,88 +396,3 @@ class Message(models.Model):
 
     def __str__(self):
         return f'{self.get_direction_display()} ({self.message_type}): {self.text[:30]}'
-
-
-class AiAttendantConfig(models.Model):
-    """Configuracao (singleton) do atendente virtual (IA) de recepcao.
-
-    O bot recebe o cliente numa conversa DIRETA, entende a intencao e transfere
-    para o setor certo. Nada roda enquanto `enabled` estiver desligado (padrao).
-    """
-    enabled = models.BooleanField('Atendente virtual ativo', default=False)
-    company_name = models.CharField('Nome da empresa', max_length=120, default='BEEZAP')
-    welcome_message = models.TextField(
-        'Mensagem de boas-vindas',
-        default=(
-            'Ola! Bem-vindo(a) a {empresa}. '
-            'Sou o atendimento inicial e vou te direcionar para a area certa. '
-            'Como posso ajudar voce hoje?'
-        ),
-        help_text='Use {empresa} para inserir o nome da empresa automaticamente.',
-    )
-    # Setor usado quando a IA nao consegue identificar a intencao apos max_turns.
-    fallback_sector = models.ForeignKey(
-        Sector, null=True, blank=True, on_delete=models.SET_NULL,
-        related_name='ai_fallback_configs', verbose_name='Setor padrao (fallback)',
-    )
-    max_turns = models.PositiveSmallIntegerField(
-        'Tentativas de esclarecer', default=3,
-        help_text='Quantas vezes a IA tenta entender antes de transferir mesmo assim.',
-    )
-    # Modo de teste: quando ligado, a IA decide o setor SO pelo modelo local, sem a
-    # camada de palavras-chave nem a trava anti-ambiguidade (deixa a IA "sozinha").
-    llm_only = models.BooleanField(
-        'IA decide sozinha (sem palavras-chave)', default=False,
-        help_text='Modo de teste: ignora as regras de palavras-chave e deixa o modelo decidir o setor.',
-    )
-    # Prompt/diretrizes que orientam a IA (persona + como escolher o setor + o que
-    # dizer / nao dizer). O formato de saida e garantido pelo codigo (marcador de
-    # setor no modo generativo, ou nome do setor na classificacao), entao estas
-    # instrucoes nao quebram o roteamento. Os setores reais sao injetados pelo codigo.
-    instructions = models.TextField(
-        'Instrucoes da IA (prompt do atendimento)',
-        default=(
-            'Voce e um atendente virtual da empresa {empresa}.\n'
-            'Sua funcao e conversar com o cliente de forma educada, paciente e objetiva, '
-            'entender a necessidade dele e direcionar o atendimento para o setor correto.\n'
-            'Analise a mensagem do cliente e verifique qual setor mais combina com o assunto.\n\n'
-            'Regras obrigatorias:\n'
-            '- Seja sempre educado, respeitoso, paciente e profissional.\n'
-            '- Nao invente precos, prazos, condicoes, promocoes, servicos ou informacoes que nao estejam definidos.\n'
-            '- Nao confirme nada que voce nao tenha certeza. Nao prometa atendimento imediato, desconto, aprovacao ou entrega.\n'
-            '- Nao tente resolver o assunto: sua funcao e apenas entender e direcionar.\n'
-            '- Se o cliente perguntar algo que voce nao sabe, ou o assunto nao estiver claro, direcione para o Setor Geral.\n'
-            '- Se a mensagem estiver confusa, peca educadamente para o cliente explicar melhor.\n'
-            '- Mantenha as respostas curtas, claras e humanas.\n\n'
-            'Quando identificar o setor, avise que vai encaminhar o atendimento para aquele setor. '
-            'Quando nao souber, encaminhe para o Setor Geral. '
-            'Quando precisar de mais informacao, peca para o cliente explicar melhor.'
-        ),
-        help_text='Prompt que orienta a IA (persona, regras, direcionamento). Use {empresa} para o nome da empresa. Os setores cadastrados sao inseridos automaticamente.',
-    )
-    # Quando ligado, a IA GERA as respostas ao cliente a partir das instrucoes (nao
-    # usa as mensagens prontas de boas-vindas/transferencia). Requer o modelo local.
-    generative_replies = models.BooleanField(
-        'IA escreve as respostas (conversa livre)', default=False,
-        help_text='Em vez de mensagens prontas, a IA gera as respostas ao cliente a partir das instrucoes.',
-    )
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        verbose_name = 'Configuracao do atendente virtual'
-        verbose_name_plural = 'Configuracao do atendente virtual'
-
-    @classmethod
-    def get_solo(cls):
-        config, _ = cls.objects.get_or_create(pk=1)
-        return config
-
-    def render_welcome(self):
-        return (self.welcome_message or '').replace('{empresa}', self.company_name or '').strip()
-
-    def render_instructions(self):
-        return (self.instructions or '').replace('{empresa}', self.company_name or '').strip()
-
-    def __str__(self):
-        return f'Atendente virtual ({"ativo" if self.enabled else "desligado"})'

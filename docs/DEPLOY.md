@@ -52,59 +52,6 @@ falha porque a URL pública gerada fica inacessível para a W-API. As credenciai
 da W-API (Instance ID e Token) ficam salvas no banco pela tela de Configurações
 — não precisam estar no `.env`.
 
-## Atendente virtual (IA) — Ollama local no VPS
-
-O atendente virtual usa a **IA local (Ollama)** para entender o texto do cliente e
-decidir o setor. É **nosso**, roda no próprio servidor e **não tem custo por mensagem**.
-Como o VPS é pequeno/compartilhado (4 GB), configure para **liberar RAM quando ocioso**.
-
-> Sem o Ollama, o bot ainda recepciona e roteia **por palavras-chave** (Regras de
-> atendimento); só a interpretação de texto livre depende dele.
-
-### Instalar e subir (leve)
-```bash
-curl -fsSL https://ollama.com/install.sh | sh      # instala + cria o serviço systemd
-ollama pull qwen2.5:1.5b                            # modelo pequeno (~1 GB), bom p/ classificar
-```
-
-Para o servico do Ollama **poupar RAM** num VPS compartilhado, criar um override:
-```bash
-sudo systemctl edit ollama
-```
-e colar:
-```ini
-[Service]
-Environment="OLLAMA_KEEP_ALIVE=30s"      # descarrega o modelo 30s apos o ultimo uso
-Environment="OLLAMA_MAX_LOADED_MODELS=1"
-Environment="OLLAMA_NUM_PARALLEL=1"
-```
-```bash
-sudo systemctl restart ollama
-ollama ps        # mostra o que esta carregado em RAM (vazio quando ocioso)
-```
-
-O BEEZAP tambem envia `keep_alive` por requisicao (`OLLAMA_KEEP_ALIVE` no `.env`,
-padrao `30s`), entao o modelo so ocupa memoria durante/logo apos responder.
-
-### Apontar o BEEZAP para o Ollama (`.env`)
-```
-OLLAMA_BASE_URL=http://127.0.0.1:11434
-OLLAMA_MODEL=qwen2.5:1.5b
-OLLAMA_NUM_GPU=0            # CPU (VPS sem GPU)
-OLLAMA_KEEP_ALIVE=30s      # libera RAM quando ocioso
-```
-Reiniciar o BEEZAP e ligar o bot no painel **Atendente Virtual** (vem desligado por padrão).
-
-### Verificar
-```bash
-curl -s http://127.0.0.1:11434/api/tags | head        # Ollama respondendo
-free -h                                                # RAM livre
-# testar a IA pela tela: Automacao -> IA de atendimento (gera uma resposta de teste)
-sudo journalctl -u beezap -n 50 | grep -i "beezap.ai" # logs do atendente virtual
-```
-Se o servidor apertar de RAM: use `OLLAMA_KEEP_ALIVE=0` (descarrega logo após responder)
-ou um modelo menor (`qwen2.5:0.5b`), lembrando que quanto menor, menos preciso.
-
 ## O problema que já aconteceu
 
 Alterações de CSS (ex.: `conversations.css`) **não apareciam** no sistema mesmo
@@ -204,22 +151,3 @@ sudo systemctl restart beezap
 Em produção o ideal é `DEBUG=False` no `.env` (com `DEBUG=True` o Django expõe
 traceback técnico ao usuário final). Ajustar quando possível.
 
-## Regras basicas da IA por setor
-
-Depois de instalar o Ollama e cadastrar os setores, rode o comando idempotente abaixo para criar/atualizar regras iniciais de roteamento para Compras/Vendas e Financeiro:
-
-```bash
-cd /var/www/beezap
-venv/bin/python manage.py seed_ai_sector_rules --overwrite
-```
-
-Essas regras sao usadas antes do modelo local: se uma palavra-chave casar, a conversa e roteada deterministicamente para o setor. O Ollama (`qwen2.5:1.5b`) fica como segunda camada para texto livre.
-
-Teste direto da classificacao usada pelo atendente virtual:
-
-```bash
-cd /var/www/beezap
-venv/bin/python manage.py shell -c "from ai_engine.services import classify_intent; from accounts.models import Sector; r=classify_intent('preciso da segunda via do boleto', Sector.objects.all()); print(r.sector.name if r.sector else '-', r.source)"
-```
-
-Observacao: o comando `seed_ai_sector_rules --overwrite` tambem preenche descricoes vazias dos setores conhecidos. Essas descricoes entram no prompt do Ollama e ajudam a IA a escolher o setor certo quando nao houver palavra-chave exata.

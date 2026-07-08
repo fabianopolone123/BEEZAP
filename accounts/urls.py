@@ -1,9 +1,6 @@
 from django.urls import path
 
 from .views import (
-    ai_attendant_settings_view,
-    automation_ai_view,
-    automation_rules_view,
     attendants_view,
     change_initial_password_view,
     conversation_list_view,
@@ -49,9 +46,6 @@ urlpatterns = [
     path('conversas/<int:conversation_id>/transferir/', conversation_transfer_view, name='conversation-transfer'),
     path('conversas/<int:conversation_id>/assumir/', conversation_take_view, name='conversation-take'),
     path('conversas/<int:conversation_id>/encerrar/', conversation_close_view, name='conversation-close'),
-    path('automacao/ia/', automation_ai_view, name='automation-ai'),
-    path('automacao/regras/', automation_rules_view, name='automation-rules'),
-    path('automacao/atendente-virtual/', ai_attendant_settings_view, name='ai-attendant-settings'),
     path('setores/', sectors_view, name='sectors'),
     path('setores/salvar/', sectors_save_organization_view, name='sectors-save'),
     path('atendentes/', attendants_view, name='attendants'),
