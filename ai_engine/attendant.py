@@ -258,13 +258,20 @@ def _handle_generative_turn(conversation, config, message, sectors):
         fallback_sector=config.fallback_sector,
     )
 
-    # Log de diagnostico: mostra o que o modelo respondeu e a decisao tomada.
-    ai_logger.info(
-        'atendente IA (generativo) conv=%s: action=%s setor=%s available=%s reply=%r raw=%r',
-        conversation.id, result.action,
-        result.sector.name if result.sector else '-', result.available,
-        (result.reply or '')[:120], (result.raw or '')[:200],
-    )
+    # Log de diagnostico: mostra o modelo usado, o que respondeu e a decisao. Se
+    # a IA local falhou (available=False), loga o MOTIVO (timeout/conexao/HTTP).
+    if not result.available:
+        ai_logger.warning(
+            'atendente IA (generativo) conv=%s: IA LOCAL FALHOU modelo=%s motivo=%r',
+            conversation.id, result.model or '-', result.error or '-',
+        )
+    else:
+        ai_logger.info(
+            'atendente IA (generativo) conv=%s: modelo=%s action=%s setor=%s reply=%r raw=%r',
+            conversation.id, result.model or '-', result.action,
+            result.sector.name if result.sector else '-',
+            (result.reply or '')[:120], (result.raw or '')[:200],
+        )
 
     # A IA decidiu o setor: fala (se escreveu algo) e transfere sem template extra.
     # Se nao escreveu nada, transfere AVISANDO com a fala pronta (nunca mudo).

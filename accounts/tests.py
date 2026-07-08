@@ -922,7 +922,7 @@ class AiGenerativeReplyTests(TestCase):
         from ai_engine.services import generate_reply_and_route
         from .models import Sector
         with patch('ai_engine.services.chat_with_ollama') as mock_llm:
-            mock_llm.return_value = SimpleNamespace(success=success, content=content)
+            mock_llm.return_value = SimpleNamespace(success=success, content=content, error='')
             return generate_reply_and_route(
                 'Voce e o atendente.', list(Sector.objects.all()),
                 'Cliente: quero comprar', fallback_sector=fallback,

@@ -250,6 +250,8 @@ class GenerativeResult:
     action: str = 'continue'
     available: bool = True
     raw: str = ''
+    error: str = ''   # motivo da falha quando available=False (diagnostico)
+    model: str = ''   # modelo local usado (diagnostico)
 
 
 def _clean_generated_reply(text):
@@ -305,9 +307,10 @@ def generate_reply_and_route(instructions, sectors, transcript, history='',
     de roteamento, e devolve um GenerativeResult. Nunca levanta excecao: se a IA
     estiver fora do ar, retorna available=False para o orquestrador tratar."""
     sectors = list(sectors)
+    selected_model = model or settings.OLLAMA_MODEL
     result = chat_with_ollama(
         base_url=base_url or settings.OLLAMA_BASE_URL,
-        model=model or settings.OLLAMA_MODEL,
+        model=selected_model,
         messages=build_generative_reply_messages(
             instructions, _sectors_block(sectors), transcript, history=history,
         ),
@@ -321,13 +324,16 @@ def generate_reply_and_route(instructions, sectors, transcript, history='',
         keep_alive=settings.OLLAMA_KEEP_ALIVE,
     )
     if not result.success:
-        return GenerativeResult(reply='', action='continue', available=False)
+        return GenerativeResult(
+            reply='', action='continue', available=False,
+            error=result.error or 'sem detalhe', model=selected_model,
+        )
 
     reply_raw, marker = _extract_marker(result.content)
     action, sector = _resolve_marker(marker, sectors, fallback_sector)
     return GenerativeResult(
         reply=_clean_generated_reply(reply_raw), sector=sector, action=action,
-        available=True, raw=result.content,
+        available=True, raw=result.content, model=selected_model,
     )
 
 
