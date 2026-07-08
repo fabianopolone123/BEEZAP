@@ -251,8 +251,10 @@ def _handle_generative_turn(conversation, config, message, sectors):
     result = generate_reply_and_route(
         config.render_instructions(),
         sectors,
-        _conversation_transcript(conversation, message),
-        history=_contact_history_context(conversation),
+        # Prompt enxuto = modelo local muito mais rapido no CPU. Historico e
+        # transcricao curtos evitam o timeout no modo generativo.
+        _conversation_transcript(conversation, message, limit=6),
+        history=_contact_history_context(conversation, limit_msgs=6),
         fallback_sector=config.fallback_sector,
     )
 

@@ -220,7 +220,10 @@ OLLAMA_KEEP_ALIVE = os.getenv('OLLAMA_KEEP_ALIVE', '30s')
 # Timeout do MODO GENERATIVO (a IA escreve a resposta). Maior que o de
 # classificacao porque gera texto e porque a 1a mensagem pode precisar carregar o
 # modelo na RAM (partida a frio no CPU). Evita cair na fala de seguranca a toa.
-OLLAMA_GENERATIVE_TIMEOUT = int(os.getenv('OLLAMA_GENERATIVE_TIMEOUT', '60'))
+OLLAMA_GENERATIVE_TIMEOUT = int(os.getenv('OLLAMA_GENERATIVE_TIMEOUT', '90'))
+# Limite de tokens da resposta gerada. Resposta de recepcao e curta; um limite
+# baixo deixa o modelo MUITO mais rapido no CPU (o gargalo e gerar token a token).
+OLLAMA_GENERATIVE_NUM_PREDICT = int(os.getenv('OLLAMA_GENERATIVE_NUM_PREDICT', '120'))
 
 # Logging
 # Sem esta config, os logs INFO da aplicacao (beezap.*) nao apareciam no journal

@@ -313,9 +313,10 @@ def generate_reply_and_route(instructions, sectors, transcript, history='',
         ),
         # Timeout generoso: gerar texto demora mais e a 1a mensagem pode carregar
         # o modelo na RAM (partida a frio no CPU).
-        timeout=timeout or getattr(settings, 'OLLAMA_GENERATIVE_TIMEOUT', 60),
+        timeout=timeout or getattr(settings, 'OLLAMA_GENERATIVE_TIMEOUT', 90),
         temperature=settings.OLLAMA_TEMPERATURE,
-        num_predict=240,
+        # Resposta curta = muito mais rapido no CPU (gargalo e gerar token a token).
+        num_predict=getattr(settings, 'OLLAMA_GENERATIVE_NUM_PREDICT', 120),
         num_gpu=settings.OLLAMA_NUM_GPU,
         keep_alive=settings.OLLAMA_KEEP_ALIVE,
     )
