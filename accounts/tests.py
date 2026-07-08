@@ -851,6 +851,14 @@ class AiIntentClassificationTests(TestCase):
         self.assertFalse(result.decided)
         self.assertEqual(result.source, 'undefined')
 
+    def test_ambiguous_message_does_not_let_llm_guess_sector(self):
+        with patch('ai_engine.services.chat_with_ollama') as mock_llm:
+            mock_llm.return_value = SimpleNamespace(success=True, content='Financeiro')
+            result = self._classify('na tenho certeza ta dando tudo errado')
+        self.assertFalse(result.decided)
+        self.assertEqual(result.source, 'undefined')
+        mock_llm.assert_not_called()
+
     def test_llm_failure_is_undefined(self):
         with patch('ai_engine.services.chat_with_ollama') as mock_llm:
             mock_llm.return_value = SimpleNamespace(success=False, content='')

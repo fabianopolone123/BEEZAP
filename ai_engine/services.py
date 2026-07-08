@@ -21,6 +21,11 @@ MAX_CONTEXT_LENGTH = 1600
 MAX_RELEVANT_RULES = 5
 RULES_HANDOFF_REPLY = 'Vou encaminhar sua solicitacao para um atendente.'
 RULES_UNAVAILABLE_REPLY = 'No momento nao consegui responder automaticamente. Vou encaminhar para um atendente.'
+AMBIGUOUS_TERMS = (
+    'ajuda', 'ajudar', 'duvida', 'dúvida', 'problema', 'erro', 'errado',
+    'tudo errado', 'nao sei', 'não sei', 'nao tenho certeza', 'não tenho certeza',
+    'sem certeza', 'confuso', 'complicado', 'ruim',
+)
 
 
 @dataclass
@@ -151,6 +156,22 @@ def _keyword_sector(message):
     return best_sector
 
 
+def _looks_ambiguous_without_sector_hint(message):
+    """Evita o modelo pequeno chutar setor quando o cliente ainda nao deu assunto.
+
+    Essa funcao roda depois da camada de palavras-chave. Portanto, se a mensagem
+    tivesse boleto, compra, cotacao etc., ja teria sido roteada antes. Aqui
+    seguramos textos vagos como "ta dando tudo errado" para pedir esclarecimento.
+    """
+    normalized = _normalize_search_text(message)
+    if not normalized:
+        return True
+    words = [part for part in normalized.split() if len(part) > 2]
+    if len(words) <= 2:
+        return True
+    return any(term in normalized for term in AMBIGUOUS_TERMS)
+
+
 def classify_intent(message, sectors, model=None, base_url=None, timeout=None):
     """Decide para qual Setor a mensagem do cliente deve ir.
 
@@ -169,6 +190,9 @@ def classify_intent(message, sectors, model=None, base_url=None, timeout=None):
     keyword_sector = _keyword_sector(cleaned_message)
     if keyword_sector is not None:
         return IntentResult(sector=keyword_sector, source='keyword')
+
+    if _looks_ambiguous_without_sector_hint(cleaned_message):
+        return IntentResult(sector=None, source='undefined')
 
     # 2) Camada LLM (classificacao simples: nome do setor ou INDEFINIDO).
     result = chat_with_ollama(

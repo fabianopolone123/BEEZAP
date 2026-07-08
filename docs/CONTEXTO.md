@@ -391,3 +391,7 @@ intenção do cliente e **transfere para o setor certo** (deixa `status='pending
 - Encerrar atendimento marca a conversa como `closed`; a proxima mensagem do mesmo contato cria uma nova `Conversation` aberta, sem setor/atendente, pronta para a recepcao da IA.
 - Na tela Conversas existem acoes de atendimento: `Assumir` (para usuario com perfil de atendente) e `Encerrar`. O admin sem perfil ainda pode atribuir atendente pelo select.
 
+
+### Complemento IA - mensagens ambiguas
+
+- A classificacao de setor tem uma trava antes do Ollama: se nao houver palavra-chave de setor e a mensagem for vaga/ambigua (ex.: "nao sei", "ta dando tudo errado", "preciso de ajuda" sem assunto), o resultado fica `INDEFINIDO` e a IA pede esclarecimento em vez de chutar Compras/Financeiro.
