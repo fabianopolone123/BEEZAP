@@ -85,6 +85,14 @@
             </span>
           </label>
 
+          <label class="ai-check" for="{{ form.generative_replies.id_for_label }}">
+            {{ form.generative_replies }}
+            <span>
+              <strong>IA escreve as respostas (conversa livre)</strong>
+              <small>Em vez das mensagens prontas, a IA gera as respostas ao cliente a partir das instrucoes abaixo. Requer o modelo local (Ollama) e e mais sujeito a erro com modelo pequeno.</small>
+            </span>
+          </label>
+
           {% if not has_sectors %}
             <p class="ai-empty-rules">
               Cadastre setores em <a href="{% url 'sectors' %}">Setores</a> para a IA conseguir

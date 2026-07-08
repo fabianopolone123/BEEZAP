@@ -910,6 +910,53 @@ class AiIntentClassificationTests(TestCase):
         self.assertIn('FORMATO DA RESPOSTA', system)  # regra de formato blindada
 
 
+class AiGenerativeReplyTests(TestCase):
+    """Modo generativo: a IA escreve a resposta e decide o roteamento."""
+
+    def setUp(self):
+        from .models import Sector
+        self.vendas = Sector.objects.create(name='Vendas', description='Compras')
+        self.geral = Sector.objects.create(name='Geral', description='Outros assuntos')
+
+    def _generate(self, content, success=True, fallback=None):
+        from ai_engine.services import generate_reply_and_route
+        from .models import Sector
+        with patch('ai_engine.services.chat_with_ollama') as mock_llm:
+            mock_llm.return_value = SimpleNamespace(success=success, content=content)
+            return generate_reply_and_route(
+                'Voce e o atendente.', list(Sector.objects.all()),
+                'Cliente: quero comprar', fallback_sector=fallback,
+            )
+
+    def test_routes_to_named_sector_and_strips_marker(self):
+        res = self._generate('Perfeito, vou te encaminhar para Vendas!\n[SETOR: Vendas]')
+        self.assertEqual(res.action, 'route')
+        self.assertEqual(res.sector, self.vendas)
+        self.assertIn('encaminhar para Vendas', res.reply)
+        self.assertNotIn('SETOR', res.reply)
+
+    def test_geral_marker_routes_to_geral_sector(self):
+        res = self._generate('Vou te encaminhar ao setor geral.\n[SETOR: GERAL]')
+        self.assertEqual(res.action, 'route')
+        self.assertEqual(res.sector, self.geral)
+
+    def test_continuar_marker_keeps_conversation(self):
+        res = self._generate('Pode explicar melhor o que precisa?\n[SETOR: CONTINUAR]')
+        self.assertEqual(res.action, 'continue')
+        self.assertIsNone(res.sector)
+        self.assertIn('explicar melhor', res.reply)
+
+    def test_unknown_or_missing_marker_is_safe_continue(self):
+        res = self._generate('Oi! Como posso ajudar?')  # sem marcador
+        self.assertEqual(res.action, 'continue')
+        self.assertIsNone(res.sector)
+
+    def test_llm_unavailable_flags_not_available(self):
+        res = self._generate('', success=False)
+        self.assertFalse(res.available)
+        self.assertEqual(res.action, 'continue')
+
+
 class AiAttendantFlowTests(TestCase):
     """Maquina de estados do atendente virtual (falas mockadas, sem rede)."""
 
@@ -1118,6 +1165,40 @@ class AiAttendantFlowTests(TestCase):
         history = _contact_history_context(self.conversation)
         self.assertIn('boleto atrasado', history)
         self.assertIn('Cliente:', history)
+
+    def test_generative_mode_sends_ai_reply_and_routes(self):
+        from ai_engine import attendant
+        from ai_engine.services import GenerativeResult
+        self.config.generative_replies = True
+        self.config.save(update_fields=['generative_replies'])
+        with patch.object(attendant, '_send_bot_message') as mock_send, \
+                patch.object(attendant, 'generate_reply_and_route') as mock_gen:
+            mock_gen.return_value = GenerativeResult(
+                reply='Perfeito, vou te encaminhar para Vendas!', sector=self.vendas,
+                action='route', available=True,
+            )
+            attendant.handle_incoming_for_ai(self.conversation, self._incoming('quero comprar'))
+        self.conversation.refresh_from_db()
+        self.assertEqual(self.conversation.sector, self.vendas)
+        self.assertEqual(self.conversation.status, 'pending')
+        self.assertEqual(self.conversation.ai_state, 'handed_off')
+        mock_send.assert_called_once()
+        self.assertIn('Vendas', mock_send.call_args.args[1])
+
+    def test_generative_mode_continue_keeps_active(self):
+        from ai_engine import attendant
+        from ai_engine.services import GenerativeResult
+        self.config.generative_replies = True
+        self.config.save(update_fields=['generative_replies'])
+        with patch.object(attendant, '_send_bot_message'), \
+                patch.object(attendant, 'generate_reply_and_route') as mock_gen:
+            mock_gen.return_value = GenerativeResult(
+                reply='Pode explicar melhor?', sector=None, action='continue', available=True,
+            )
+            attendant.handle_incoming_for_ai(self.conversation, self._incoming('ola'))
+        self.conversation.refresh_from_db()
+        self.assertEqual(self.conversation.ai_state, 'active')
+        self.assertEqual(self.conversation.ai_turns, 1)
 
 
 class ConversationTransferViewTests(TestCase):

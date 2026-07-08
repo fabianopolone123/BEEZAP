@@ -386,7 +386,8 @@ venv/bin/python manage.py seed_ai_sector_rules --overwrite
 - Antes do handoff, a IA usa as ultimas mensagens recebidas como contexto curto para classificar o setor e varia a resposta quando o cliente manda apenas cumprimento ou texto vago.
 - A classificacao tambem recebe um resumo de conversas ANTERIORES com o mesmo contato (contexto historico), para a IA se inteirar do que ja foi tratado.
 - Modo de teste "IA decide sozinha" (`AiAttendantConfig.llm_only`, checkbox no painel Atendente Virtual): quando ligado, a IA ignora as regras de palavras-chave e a trava anti-ambiguidade e deixa o modelo local decidir o setor. Serve para avaliar o modelo por conta propria; desligado, mantem a camada deterministica na frente.
-- Instrucoes da IA (`AiAttendantConfig.instructions`, textarea no painel Atendente Virtual): prompt/diretrizes que orientam a DECISAO do setor (persona, o que fazer / nao fazer). Editavel; o formato de saida e blindado pelo codigo. As falas ao cliente continuam vindo da mensagem de boas-vindas e dos avisos de transferencia.
+- Instrucoes da IA (`AiAttendantConfig.instructions`, textarea no painel Atendente Virtual): prompt/diretrizes que orientam a IA (persona, o que fazer / nao fazer). Editavel; o formato de saida e blindado pelo codigo. Os setores cadastrados sao injetados automaticamente.
+- Modo generativo (`AiAttendantConfig.generative_replies`, checkbox no painel): quando ligado, a IA ESCREVE as respostas ao cliente a partir das instrucoes (nao usa as mensagens prontas) e decide o roteamento por um marcador interno `[SETOR: ...]`. Requer o Ollama; com o `qwen2.5:1.5b` e mais instavel. Desligado, usa as mensagens prontas (boas-vindas + avisos de transferencia).
 
 ### Comandos de verificacao rapida
 

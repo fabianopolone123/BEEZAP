@@ -1,3 +1,4 @@
+import re
 from dataclasses import dataclass, field
 
 from django.conf import settings
@@ -10,6 +11,7 @@ from .fallbacks import (
     AI_UNAVAILABLE_REPLY,
 )
 from .prompts import (
+    build_generative_reply_messages,
     build_intent_classification_messages,
     build_messages,
     build_messages_with_rules,
@@ -222,6 +224,108 @@ def classify_intent(message, sectors, model=None, base_url=None, timeout=None,
 
     # 3) IA indisponivel/erro: indefinido (o orquestrador cuida do fallback).
     return IntentResult(sector=None, source='undefined')
+
+
+# ======================================================================
+# Modo generativo: a IA escreve a resposta ao cliente e decide o roteamento
+# ======================================================================
+
+MAX_GENERATED_REPLY_LENGTH = 600
+_MARKER_BRACKET_RE = re.compile(r'\[\s*setor\s*[:=]\s*([^\]\n]+?)\s*\]', re.IGNORECASE)
+_MARKER_LINE_RE = re.compile(r'(?im)^\s*setor\s*[:=]\s*(.+?)\s*$')
+# Termos do marcador que significam "ainda nao decidir" (continuar perguntando).
+_MARKER_CONTINUE = {'continuar', 'continua', 'indefinido', 'nenhum', 'none', '-', ''}
+_MARKER_GERAL = {'geral', 'setor geral', 'general'}
+
+
+@dataclass
+class GenerativeResult:
+    """Resultado do modo generativo: a fala ao cliente + a decisao de roteamento.
+
+    `action`: 'route' (encaminhar para `sector`, que pode ser None = geral sem setor)
+    ou 'continue' (seguir a conversa / pedir mais informacao). `available` indica se
+    o modelo respondeu (False quando a IA local esta fora do ar)."""
+    reply: str = ''
+    sector: object = None
+    action: str = 'continue'
+    available: bool = True
+    raw: str = ''
+
+
+def _clean_generated_reply(text):
+    """Limpa a fala gerada: remove restos de marcador, espacos e limita o tamanho."""
+    cleaned = (text or '').strip()
+    # Remove qualquer marcador que tenha sobrado no meio/fim.
+    cleaned = _MARKER_BRACKET_RE.sub('', cleaned)
+    cleaned = _MARKER_LINE_RE.sub('', cleaned)
+    cleaned = '\n'.join(line.rstrip() for line in cleaned.splitlines() if line.strip())
+    return cleaned.strip()[:MAX_GENERATED_REPLY_LENGTH]
+
+
+def _extract_marker(text):
+    """Separa a fala do marcador de controle. Retorna (reply_sem_marcador, valor).
+
+    Aceita `[SETOR: X]` em qualquer lugar ou uma linha `SETOR: X`. Sem marcador,
+    retorna (texto, None)."""
+    raw = text or ''
+    matches = list(_MARKER_BRACKET_RE.finditer(raw))
+    if matches:
+        marker = matches[-1].group(1).strip()
+        reply = (raw[:matches[-1].start()] + raw[matches[-1].end():])
+        return reply, marker
+    line = None
+    for line in _MARKER_LINE_RE.finditer(raw):
+        pass  # pega a ultima ocorrencia
+    if line:
+        return raw[:line.start()], line.group(1).strip()
+    return raw, None
+
+
+def _resolve_marker(marker, sectors, fallback_sector):
+    """Traduz o marcador para (action, sector). Sem certeza, 'continue' (seguro)."""
+    if marker is None:
+        return 'continue', None
+    norm = _normalize_search_text(marker)
+    if norm in _MARKER_CONTINUE:
+        return 'continue', None
+    if norm in _MARKER_GERAL:
+        for sector in sectors:
+            if _normalize_search_text(sector.name) in _MARKER_GERAL:
+                return 'route', sector
+        return 'route', fallback_sector  # pode ser None = encaminhamento geral sem setor
+    matched = _match_sector_by_name(sectors, marker)
+    if matched is not None:
+        return 'route', matched
+    return 'continue', None
+
+
+def generate_reply_and_route(instructions, sectors, transcript, history='',
+                             fallback_sector=None, model=None, base_url=None, timeout=None):
+    """Modo generativo: pede ao modelo local a proxima fala ao cliente + o marcador
+    de roteamento, e devolve um GenerativeResult. Nunca levanta excecao: se a IA
+    estiver fora do ar, retorna available=False para o orquestrador tratar."""
+    sectors = list(sectors)
+    result = chat_with_ollama(
+        base_url=base_url or settings.OLLAMA_BASE_URL,
+        model=model or settings.OLLAMA_MODEL,
+        messages=build_generative_reply_messages(
+            instructions, _sectors_block(sectors), transcript, history=history,
+        ),
+        timeout=timeout or settings.OLLAMA_TIMEOUT,
+        temperature=settings.OLLAMA_TEMPERATURE,
+        num_predict=240,
+        num_gpu=settings.OLLAMA_NUM_GPU,
+        keep_alive=settings.OLLAMA_KEEP_ALIVE,
+    )
+    if not result.success:
+        return GenerativeResult(reply='', action='continue', available=False)
+
+    reply_raw, marker = _extract_marker(result.content)
+    action, sector = _resolve_marker(marker, sectors, fallback_sector)
+    return GenerativeResult(
+        reply=_clean_generated_reply(reply_raw), sector=sector, action=action,
+        available=True, raw=result.content,
+    )
 
 
 def build_rules_context(message, sector=None):

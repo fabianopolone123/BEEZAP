@@ -12,9 +12,13 @@ que mantem a tarefa dentro da capacidade de um modelo pequeno.
 import logging
 import threading
 
-from .services import classify_intent
+from .services import classify_intent, generate_reply_and_route
 
 ai_logger = logging.getLogger('beezap.ai')
+
+# Fala minima usada SO quando a IA generativa nao respondeu (modelo local fora do
+# ar), para o cliente nao ficar sem resposta. Nao e uma "mensagem padrao" de fluxo.
+GENERATIVE_SAFETY_REPLY = 'So um momento, ja vou te ajudar.'
 
 
 # --- Falas do bot (modelos de texto fixos) --------------------------------
@@ -112,17 +116,19 @@ def _human_took_over(conversation):
     ).exists()
 
 
-def _route_to_sector(conversation, sector):
+def _route_to_sector(conversation, sector, announce=True):
     """Transfere a conversa: define setor (pode ser None), marca Aguardando e
-    encerra a atuacao da IA, avisando o cliente com a fala de transferencia."""
+    encerra a atuacao da IA. Com `announce=True`, envia a fala de transferencia
+    pronta; no modo generativo (`announce=False`) a propria IA ja avisou o cliente."""
     conversation.sector = sector
     conversation.status = 'pending'
     conversation.ai_state = 'handed_off'
     conversation.save(update_fields=['sector', 'status', 'ai_state', 'updated_at'])
-    if sector is not None:
-        _send_bot_message(conversation, TRANSFER_TO_SECTOR_TEMPLATE.format(setor=sector.name))
-    else:
-        _send_bot_message(conversation, TRANSFER_GENERIC_TEMPLATE)
+    if announce:
+        if sector is not None:
+            _send_bot_message(conversation, TRANSFER_TO_SECTOR_TEMPLATE.format(setor=sector.name))
+        else:
+            _send_bot_message(conversation, TRANSFER_GENERIC_TEMPLATE)
     ai_logger.info(
         'atendente IA: conversa %s transferida (setor=%s).',
         conversation.id, sector.name if sector else '-',
@@ -202,6 +208,60 @@ def _contact_history_context(conversation, limit_msgs=8):
     return '\n'.join(lines)
 
 
+def _conversation_transcript(conversation, current_message, limit=8):
+    """Transcricao curta da conversa ATUAL (Cliente/Voce) para o modo generativo,
+    garantindo que a mensagem atual do cliente esteja no final."""
+    messages = list(
+        conversation.messages
+        .filter(message_type='text')
+        .order_by('-created_at')[:limit]
+    )
+    messages.reverse()
+    seen = set()
+    lines = []
+    for item in messages:
+        seen.add(item.id)
+        text = (item.text or '').strip()
+        if not text:
+            continue
+        who = 'Voce' if item.direction == 'out' else 'Cliente'
+        lines.append(f'{who}: {text}')
+    if current_message.id not in seen:
+        text = (current_message.text or '').strip()
+        if text:
+            lines.append(f'Cliente: {text}')
+    return '\n'.join(lines[-limit:])
+
+
+def _handle_generative_turn(conversation, config, message, sectors):
+    """Modo generativo: a IA escreve a resposta ao cliente e decide o roteamento.
+
+    Nao usa as falas prontas (boas-vindas/esclarecer/transferir); a propria IA
+    conduz a conversa. `_route_to_sector(..., announce=False)` so muda o estado,
+    pois a fala de transferencia ja foi enviada pela IA."""
+    result = generate_reply_and_route(
+        config.render_instructions(),
+        sectors,
+        _conversation_transcript(conversation, message),
+        history=_contact_history_context(conversation),
+        fallback_sector=config.fallback_sector,
+    )
+
+    reply = result.reply or (GENERATIVE_SAFETY_REPLY if not result.available else '')
+    if reply:
+        _send_bot_message(conversation, reply)
+
+    if result.action == 'route':
+        _route_to_sector(conversation, result.sector, announce=False)
+        return
+
+    # 'continue': segue a conversa. Conta o turno e, no limite, encaminha ao geral.
+    conversation.ai_turns = conversation.ai_turns + 1
+    conversation.save(update_fields=['ai_turns', 'updated_at'])
+    if conversation.ai_turns >= config.max_turns:
+        _route_to_sector(conversation, config.fallback_sector, announce=False)
+
+
 def _clarify_text_for_turn(conversation, message):
     if _is_greeting(message.text):
         return CLARIFY_AFTER_GREETING_TEMPLATE
@@ -251,6 +311,11 @@ def handle_incoming_for_ai(conversation, message):
     if _human_took_over(conversation):
         conversation.ai_state = 'off'
         conversation.save(update_fields=['ai_state', 'updated_at'])
+        return
+
+    # Modo generativo: a IA escreve as respostas (sem mensagens prontas).
+    if config.generative_replies:
+        _handle_generative_turn(conversation, config, message, list(Sector.objects.all()))
         return
 
     # 1a interacao: boas-vindas + pergunta (nao classifica ainda).

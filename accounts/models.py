@@ -486,21 +486,36 @@ class AiAttendantConfig(models.Model):
         'IA decide sozinha (sem palavras-chave)', default=False,
         help_text='Modo de teste: ignora as regras de palavras-chave e deixa o modelo decidir o setor.',
     )
-    # Prompt/diretrizes que orientam a DECISAO da IA (persona + como escolher o setor).
-    # O formato de saida (so o nome do setor / INDEFINIDO) e garantido pelo codigo,
-    # entao estas instrucoes nao quebram o roteamento.
+    # Prompt/diretrizes que orientam a IA (persona + como escolher o setor + o que
+    # dizer / nao dizer). O formato de saida e garantido pelo codigo (marcador de
+    # setor no modo generativo, ou nome do setor na classificacao), entao estas
+    # instrucoes nao quebram o roteamento. Os setores reais sao injetados pelo codigo.
     instructions = models.TextField(
-        'Instrucoes da IA (como decidir o setor)',
+        'Instrucoes da IA (prompt do atendimento)',
         default=(
-            'Voce e o atendimento inicial da empresa {empresa} no WhatsApp.\n'
-            'Sua funcao e entender o que o cliente precisa e encaminha-lo ao setor certo.\n'
-            'Analise a mensagem do cliente e escolha o setor mais adequado entre os disponiveis.\n'
-            'Seja educado, cordial e objetivo. Use portugues do Brasil.\n'
-            'Nao invente precos, prazos, politicas ou informacoes que voce nao tem.\n'
-            'Nao peca dados sensiveis (senha, cartao, documentos).\n'
-            'Se a mensagem nao deixar claro o assunto, responda INDEFINIDO para pedir mais detalhes.'
+            'Voce e um atendente virtual da empresa {empresa}.\n'
+            'Sua funcao e conversar com o cliente de forma educada, paciente e objetiva, '
+            'entender a necessidade dele e direcionar o atendimento para o setor correto.\n'
+            'Analise a mensagem do cliente e verifique qual setor mais combina com o assunto.\n\n'
+            'Regras obrigatorias:\n'
+            '- Seja sempre educado, respeitoso, paciente e profissional.\n'
+            '- Nao invente precos, prazos, condicoes, promocoes, servicos ou informacoes que nao estejam definidos.\n'
+            '- Nao confirme nada que voce nao tenha certeza. Nao prometa atendimento imediato, desconto, aprovacao ou entrega.\n'
+            '- Nao tente resolver o assunto: sua funcao e apenas entender e direcionar.\n'
+            '- Se o cliente perguntar algo que voce nao sabe, ou o assunto nao estiver claro, direcione para o Setor Geral.\n'
+            '- Se a mensagem estiver confusa, peca educadamente para o cliente explicar melhor.\n'
+            '- Mantenha as respostas curtas, claras e humanas.\n\n'
+            'Quando identificar o setor, avise que vai encaminhar o atendimento para aquele setor. '
+            'Quando nao souber, encaminhe para o Setor Geral. '
+            'Quando precisar de mais informacao, peca para o cliente explicar melhor.'
         ),
-        help_text='Orienta como a IA escolhe o setor. Use {empresa} para inserir o nome da empresa.',
+        help_text='Prompt que orienta a IA (persona, regras, direcionamento). Use {empresa} para o nome da empresa. Os setores cadastrados sao inseridos automaticamente.',
+    )
+    # Quando ligado, a IA GERA as respostas ao cliente a partir das instrucoes (nao
+    # usa as mensagens prontas de boas-vindas/transferencia). Requer o modelo local.
+    generative_replies = models.BooleanField(
+        'IA escreve as respostas (conversa livre)', default=False,
+        help_text='Em vez de mensagens prontas, a IA gera as respostas ao cliente a partir das instrucoes.',
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

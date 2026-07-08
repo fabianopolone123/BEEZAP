@@ -92,6 +92,51 @@ def build_intent_classification_messages(message, sectors_block, history='', ins
     ]
 
 
+# Regra de controle anexada ao final do system prompt no MODO GENERATIVO (a IA
+# escreve a resposta ao cliente). Garante um marcador legivel pelo codigo para
+# decidir o roteamento, que o cliente nunca ve.
+_GENERATIVE_FORMAT_RULE = (
+    'FORMATO OBRIGATORIO DA SUA RESPOSTA:\n'
+    '1) Primeiro, escreva SOMENTE a mensagem que o cliente vai ler (curta, educada, humana).\n'
+    '2) Depois, em uma ultima linha separada, escreva o marcador de controle no formato '
+    'exato: [SETOR: X]\n'
+    'Onde X e o NOME EXATO de um setor da lista de setores disponiveis (quando voce ja '
+    'sabe para onde encaminhar), ou GERAL (assunto indefinido / encaminhar ao setor geral), '
+    'ou CONTINUAR (quando voce ainda precisa de mais informacao e fez uma pergunta ao cliente).\n'
+    'O cliente NAO ve o marcador. Nunca escreva o marcador no meio da mensagem.'
+)
+
+
+def build_generative_reply_messages(instructions, sectors_block, transcript, history=''):
+    """Monta as mensagens para o modelo GERAR a resposta ao cliente e decidir o
+    roteamento (marcador [SETOR: ...]) no modo generativo.
+
+    `instructions` sao as diretrizes/persona do painel; `sectors_block` a lista de
+    setores; `transcript` a conversa atual (Cliente/Voce); `history` (opcional) um
+    resumo de conversas anteriores com o mesmo contato.
+    """
+    base = (instructions or '').strip() or INTENT_CLASSIFICATION_PROMPT
+    safe_sectors = (sectors_block or '').strip()
+    system_prompt = (
+        f'{base}\n\nSetores disponiveis:\n{safe_sectors}\n\n{_GENERATIVE_FORMAT_RULE}'
+    )
+
+    parts = []
+    safe_history = (history or '').strip()
+    if safe_history:
+        parts.append(
+            'Historico de conversas anteriores com este contato (contexto, pode '
+            f'estar desatualizado):\n{safe_history}'
+        )
+    parts.append(f'Conversa atual:\n{(transcript or "").strip()}')
+    parts.append('Escreva a proxima mensagem ao cliente e, na ultima linha, o marcador [SETOR: ...].')
+
+    return [
+        {'role': 'system', 'content': system_prompt},
+        {'role': 'user', 'content': '\n\n'.join(parts)},
+    ]
+
+
 def build_messages_with_rules(message, rules_context):
     user_message = message.strip()
     safe_rules_context = (rules_context or '').strip()

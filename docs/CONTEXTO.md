@@ -34,7 +34,7 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
 > `wapi/` é um módulo Python comum (importa `accounts.models`); **não** está em
 > `INSTALLED_APPS`, por isso os models ficam em `accounts/models.py`.
 
-## 3. Modelos (`accounts/models.py`) — migração atual: `0016`
+## 3. Modelos (`accounts/models.py`) — migração atual: `0017`
 
 - **User** (AbstractUser, login por e-mail; `role`: `leitor`/`usuario`/`adm`).
 - **Attendant** (perfil de atendente, vínculo com User, troca de senha inicial).
@@ -66,9 +66,10 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
   virtual), `raw_payload`.
 - **AiAttendantConfig** (singleton `get_solo()`): configura o **atendente virtual (IA)**
   — `enabled` (padrão **False**), `llm_only` (modo de teste: IA decide o setor só
-  pelo modelo, sem palavras-chave), `company_name`, `instructions` (prompt/diretrizes
-  editáveis que guiam a DECISÃO da IA; usa `{empresa}`), `welcome_message` (usa `{empresa}`),
-  `fallback_sector`, `max_turns`. Editado na tela **Atendente Virtual** (ADM).
+  pelo modelo, sem palavras-chave), `generative_replies` (a IA **escreve** as respostas
+  em vez de usar mensagens prontas), `company_name`, `instructions` (prompt/diretrizes
+  editáveis; usa `{empresa}`), `welcome_message` (usa `{empresa}`), `fallback_sector`,
+  `max_turns`. Editado na tela **Atendente Virtual** (ADM).
 - **Conversation** ganhou `ai_state` (`active`/`handed_off`/`off`) e `ai_turns` para o
   atendente virtual (ver seção 12).
 
@@ -383,6 +384,15 @@ intenção do cliente e **transfere para o setor certo** (deixa `status='pending
   `sector`+`status=pending`+`ai_state=handed_off` e avisa; indefinido → pede esclarecer até
   `max_turns`, depois transfere ao `fallback_sector`; **humano assumiu** (mensagem `out` com
   `is_ai=False`, inclui resposta pelo celular) → `ai_state='off'`, para.
+- **Modo generativo** (`AiAttendantConfig.generative_replies`): quando ligado, a IA **gera**
+  a resposta ao cliente a partir das `instructions` (não usa os templates de boas-vindas/
+  transferência) e decide o roteamento por um marcador `[SETOR: X | GERAL | CONTINUAR]` que
+  o código extrai e o cliente não vê (`ai_engine/services.py` `generate_reply_and_route` +
+  prompt `build_generative_reply_messages`; parsing tolerante em `_extract_marker`/
+  `_resolve_marker`). Roteia sem template (`_route_to_sector(..., announce=False)`), pois a
+  própria IA já avisou. Se a IA local estiver fora do ar, envia uma fala mínima de segurança
+  (`GENERATIVE_SAFETY_REPLY`) para não deixar o cliente sem resposta. Mais sujeito a erro com
+  modelo pequeno (`qwen2.5:1.5b`).
 - **Disparo**: `handle_incoming_for_ai_async` roda em **thread daemon** (lock por conversa),
   chamado por `wapi/services.py` após salvar uma mensagem recebida — nunca bloqueia o webhook.
 - **Config** (`AiAttendantConfig.get_solo()`): master switch **default OFF**; `llm_only`
