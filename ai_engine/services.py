@@ -172,7 +172,8 @@ def _looks_ambiguous_without_sector_hint(message):
     return any(term in normalized for term in AMBIGUOUS_TERMS)
 
 
-def classify_intent(message, sectors, model=None, base_url=None, timeout=None):
+def classify_intent(message, sectors, model=None, base_url=None, timeout=None,
+                    llm_only=False, history=''):
     """Decide para qual Setor a mensagem do cliente deve ir.
 
     Estrategia em camadas (torna o modelo pequeno suficiente):
@@ -180,25 +181,33 @@ def classify_intent(message, sectors, model=None, base_url=None, timeout=None):
       2) classificacao pela IA local (escolhe 1 setor da lista ou INDEFINIDO);
       3) INDEFINIDO se nada decidir.
     Nunca levanta excecao de rede: em falha da IA, cai em INDEFINIDO.
+
+    `llm_only=True` (modo de teste) pula as camadas deterministicas (1 e a trava
+    anti-ambiguidade) e deixa o modelo decidir sozinho. `history` e um resumo
+    curto de conversas anteriores com o mesmo contato, passado ao modelo como
+    contexto.
     """
     cleaned_message = _clean_text(message, MAX_MESSAGE_LENGTH)
     sectors = list(sectors)
     if not cleaned_message or not sectors:
         return IntentResult(sector=None, source='undefined')
 
-    # 1) Camada deterministica por palavras-chave.
-    keyword_sector = _keyword_sector(cleaned_message)
-    if keyword_sector is not None:
-        return IntentResult(sector=keyword_sector, source='keyword')
+    if not llm_only:
+        # 1) Camada deterministica por palavras-chave.
+        keyword_sector = _keyword_sector(cleaned_message)
+        if keyword_sector is not None:
+            return IntentResult(sector=keyword_sector, source='keyword')
 
-    if _looks_ambiguous_without_sector_hint(cleaned_message):
-        return IntentResult(sector=None, source='undefined')
+        if _looks_ambiguous_without_sector_hint(cleaned_message):
+            return IntentResult(sector=None, source='undefined')
 
     # 2) Camada LLM (classificacao simples: nome do setor ou INDEFINIDO).
     result = chat_with_ollama(
         base_url=base_url or settings.OLLAMA_BASE_URL,
         model=model or settings.OLLAMA_MODEL,
-        messages=build_intent_classification_messages(cleaned_message, _sectors_block(sectors)),
+        messages=build_intent_classification_messages(
+            cleaned_message, _sectors_block(sectors), history=history,
+        ),
         timeout=timeout or settings.OLLAMA_TIMEOUT,
         temperature=settings.OLLAMA_TEMPERATURE,
         num_predict=40,

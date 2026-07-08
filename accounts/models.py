@@ -480,6 +480,12 @@ class AiAttendantConfig(models.Model):
         'Tentativas de esclarecer', default=3,
         help_text='Quantas vezes a IA tenta entender antes de transferir mesmo assim.',
     )
+    # Modo de teste: quando ligado, a IA decide o setor SO pelo modelo local, sem a
+    # camada de palavras-chave nem a trava anti-ambiguidade (deixa a IA "sozinha").
+    llm_only = models.BooleanField(
+        'IA decide sozinha (sem palavras-chave)', default=False,
+        help_text='Modo de teste: ignora as regras de palavras-chave e deixa o modelo decidir o setor.',
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

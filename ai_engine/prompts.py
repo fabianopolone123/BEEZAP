@@ -53,25 +53,30 @@ Nao explique, nao cumprimente, nao escreva frases. Responda so o nome do setor o
 """.strip()
 
 
-def build_intent_classification_messages(message, sectors_block):
+def build_intent_classification_messages(message, sectors_block, history=''):
     """Monta as mensagens para o modelo CLASSIFICAR a intencao em um setor.
 
     `sectors_block` e um texto com os setores disponiveis (nome + descricao).
-    A saida esperada e apenas o nome de um setor ou 'INDEFINIDO'.
+    `history` (opcional) e um resumo curto de conversas anteriores com o MESMO
+    contato, para a IA se inteirar do contexto. A saida esperada e apenas o nome
+    de um setor ou 'INDEFINIDO'.
     """
     user_message = (message or '').strip()
     safe_sectors = (sectors_block or '').strip()
+    safe_history = (history or '').strip()
+
+    parts = [f'Setores disponiveis:\n{safe_sectors}']
+    if safe_history:
+        parts.append(
+            'Historico recente com este contato (apenas contexto, pode estar '
+            f'desatualizado):\n{safe_history}'
+        )
+    parts.append(f'Mensagem atual do cliente:\n{user_message}')
+    parts.append('Responda so o nome do setor ou INDEFINIDO.')
 
     return [
         {'role': 'system', 'content': INTENT_CLASSIFICATION_PROMPT},
-        {
-            'role': 'user',
-            'content': (
-                f'Setores disponiveis:\n{safe_sectors}\n\n'
-                f'Mensagem do cliente:\n{user_message}\n\n'
-                f'Responda so o nome do setor ou INDEFINIDO.'
-            ),
-        },
+        {'role': 'user', 'content': '\n\n'.join(parts)},
     ]
 
 

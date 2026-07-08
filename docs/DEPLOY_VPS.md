@@ -384,6 +384,8 @@ venv/bin/python manage.py seed_ai_sector_rules --overwrite
 - Encerrar marca a conversa como `closed`; a proxima mensagem do mesmo contato cria nova conversa aberta sem setor/atendente e volta para a IA.
 - Conversas antigas que ficaram `ai_state=off` sem setor/atendente voltam para a IA na proxima mensagem, desde que nao exista resposta humana depois da ultima fala da IA.
 - Antes do handoff, a IA usa as ultimas mensagens recebidas como contexto curto para classificar o setor e varia a resposta quando o cliente manda apenas cumprimento ou texto vago.
+- A classificacao tambem recebe um resumo de conversas ANTERIORES com o mesmo contato (contexto historico), para a IA se inteirar do que ja foi tratado.
+- Modo de teste "IA decide sozinha" (`AiAttendantConfig.llm_only`, checkbox no painel Atendente Virtual): quando ligado, a IA ignora as regras de palavras-chave e a trava anti-ambiguidade e deixa o modelo local decidir o setor. Serve para avaliar o modelo por conta propria; desligado, mantem a camada deterministica na frente.
 
 ### Comandos de verificacao rapida
 

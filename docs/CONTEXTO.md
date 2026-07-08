@@ -34,7 +34,7 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
 > `wapi/` é um módulo Python comum (importa `accounts.models`); **não** está em
 > `INSTALLED_APPS`, por isso os models ficam em `accounts/models.py`.
 
-## 3. Modelos (`accounts/models.py`) — migração atual: `0014`
+## 3. Modelos (`accounts/models.py`) — migração atual: `0015`
 
 - **User** (AbstractUser, login por e-mail; `role`: `leitor`/`usuario`/`adm`).
 - **Attendant** (perfil de atendente, vínculo com User, troca de senha inicial).
@@ -65,7 +65,8 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
   `media_status` (`none/pending/ok/unavailable`), `is_ai` (fala do atendente
   virtual), `raw_payload`.
 - **AiAttendantConfig** (singleton `get_solo()`): configura o **atendente virtual (IA)**
-  — `enabled` (padrão **False**), `company_name`, `welcome_message` (usa `{empresa}`),
+  — `enabled` (padrão **False**), `llm_only` (modo de teste: IA decide o setor só
+  pelo modelo, sem palavras-chave), `company_name`, `welcome_message` (usa `{empresa}`),
   `fallback_sector`, `max_turns`. Editado na tela **Atendente Virtual** (ADM).
 - **Conversation** ganhou `ai_state` (`active`/`handed_off`/`off`) e `ai_turns` para o
   atendente virtual (ver seção 12).
@@ -361,10 +362,15 @@ intenção do cliente e **transfere para o setor certo** (deixa `status='pending
 - **Motor**: Ollama local (`qwen2.5:1.5b`), **plugável** (trocar p/ Claude depois só mexe
   no seam do `ai_engine`). As **falas do bot são templates fixos** (`ai_engine/attendant.py`),
   não geradas pela IA — o modelo só é usado para **classificar** a intenção.
-- **`classify_intent(message, sectors)`** (`ai_engine/services.py`): 2 camadas — (1)
-  palavras-chave das `AutomationRule` que têm setor (determinístico, prioridade); (2) IA
-  local escolhe **1 setor da lista ou `INDEFINIDO`** (prompt `build_intent_classification_messages`).
-  Retorna `IntentResult(sector, source)`. Nunca quebra por rede (cai em indefinido).
+- **`classify_intent(message, sectors, llm_only=False, history='')`** (`ai_engine/services.py`):
+  2 camadas — (1) palavras-chave das `AutomationRule` que têm setor (determinístico,
+  prioridade) + trava anti-ambiguidade; (2) IA local escolhe **1 setor da lista ou
+  `INDEFINIDO`** (prompt `build_intent_classification_messages`). Retorna
+  `IntentResult(sector, source)`. Nunca quebra por rede (cai em indefinido).
+  **`llm_only=True`** (config `AiAttendantConfig.llm_only`, modo de teste): pula a camada
+  (1) inteira e deixa o modelo decidir sozinho. **`history`**: resumo curto de conversas
+  ANTERIORES com o mesmo contato (montado por `_contact_history_context` no orquestrador,
+  via `_sibling_conversation_ids`), passado ao modelo como contexto.
 - **`handle_incoming_for_ai(conversation, message)`** (máquina de estados): guardas
   (`AiAttendantConfig.enabled`, só `private`, não fechada/atribuída, `ai_state='active'`,
   `direction='in'`); 1º contato → boas-vindas (`ai_turns=1`); intenção clara → define
@@ -373,8 +379,9 @@ intenção do cliente e **transfere para o setor certo** (deixa `status='pending
   `is_ai=False`, inclui resposta pelo celular) → `ai_state='off'`, para.
 - **Disparo**: `handle_incoming_for_ai_async` roda em **thread daemon** (lock por conversa),
   chamado por `wapi/services.py` após salvar uma mensagem recebida — nunca bloqueia o webhook.
-- **Config** (`AiAttendantConfig.get_solo()`): master switch **default OFF**; editável na tela
-  **Atendente Virtual** (ADM). Falas do bot salvas com `Message.is_ai=True`.
+- **Config** (`AiAttendantConfig.get_solo()`): master switch **default OFF**; `llm_only`
+  (IA decide sozinha, modo de teste); editável na tela **Atendente Virtual** (ADM). Falas
+  do bot salvas com `Message.is_ai=True`.
 - Logs no logger `beezap.ai` (sem token/dado sensível).
 
 ### Complemento IA/recepcao - regras basicas

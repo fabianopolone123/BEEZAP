@@ -396,9 +396,10 @@ class AiAttendantConfigForm(forms.ModelForm):
 
     class Meta:
         model = AiAttendantConfig
-        fields = ['enabled', 'company_name', 'welcome_message', 'fallback_sector', 'max_turns']
+        fields = ['enabled', 'llm_only', 'company_name', 'welcome_message', 'fallback_sector', 'max_turns']
         labels = {
             'enabled': 'Ativar atendente virtual',
+            'llm_only': 'IA decide o setor sozinha (modo de teste)',
             'company_name': 'Nome da empresa',
             'welcome_message': 'Mensagem de boas-vindas',
             'fallback_sector': 'Setor padrao (quando nao entender)',

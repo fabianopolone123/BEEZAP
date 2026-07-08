@@ -866,6 +866,37 @@ class AiIntentClassificationTests(TestCase):
         self.assertFalse(result.decided)
         self.assertEqual(result.source, 'undefined')
 
+    def test_llm_only_skips_keyword_and_ambiguity_layers(self):
+        # Modo "IA sozinha": mesmo com palavra-chave (boleto) e mesmo em texto
+        # vago, a decisao vai direto para o modelo local.
+        from ai_engine.services import classify_intent
+        from .models import Sector
+        sectors = list(Sector.objects.all())
+        with patch('ai_engine.services.chat_with_ollama') as mock_llm:
+            mock_llm.return_value = SimpleNamespace(success=True, content='Vendas')
+            result = classify_intent('preciso da segunda via do boleto', sectors, llm_only=True)
+        self.assertEqual(result.sector, self.vendas)  # o modelo decidiu, nao a palavra-chave
+        self.assertEqual(result.source, 'llm')
+        mock_llm.assert_called_once()
+
+        with patch('ai_engine.services.chat_with_ollama') as mock_llm:
+            mock_llm.return_value = SimpleNamespace(success=True, content='Suporte')
+            result = classify_intent('ta dando tudo errado', sectors, llm_only=True)
+        self.assertEqual(result.sector, self.suporte)
+        mock_llm.assert_called_once()
+
+    def test_history_is_passed_to_the_model(self):
+        from ai_engine.services import classify_intent
+        from .models import Sector
+        sectors = list(Sector.objects.all())
+        with patch('ai_engine.services.chat_with_ollama') as mock_llm:
+            mock_llm.return_value = SimpleNamespace(success=True, content='Financeiro')
+            classify_intent('e sobre aquilo', sectors, llm_only=True,
+                            history='Cliente: falei do boleto ontem')
+        sent = mock_llm.call_args.kwargs['messages'][-1]['content']
+        self.assertIn('boleto ontem', sent)
+        self.assertIn('Historico recente', sent)
+
 
 class AiAttendantFlowTests(TestCase):
     """Maquina de estados do atendente virtual (falas mockadas, sem rede)."""
@@ -1061,6 +1092,20 @@ class AiAttendantFlowTests(TestCase):
             save_incoming_message(self.conversation, ctx, message_type='text', text='oi',
                                   external_message_id='X1')
         mock_async.assert_called_once()
+
+    def test_contact_history_pulls_previous_conversations(self):
+        from ai_engine.attendant import _contact_history_context
+        from .models import Conversation, Message
+        # Conversa ANTERIOR (encerrada) do mesmo contato, com uma mensagem.
+        old = Conversation.objects.create(
+            contact=self.contact, external_id='5516999990000', chat_type='private',
+            status='closed',
+        )
+        Message.objects.create(conversation=old, direction='in', message_type='text',
+                               text='queria falar sobre o boleto atrasado', status='received')
+        history = _contact_history_context(self.conversation)
+        self.assertIn('boleto atrasado', history)
+        self.assertIn('Cliente:', history)
 
 
 class ConversationTransferViewTests(TestCase):

@@ -77,6 +77,14 @@
             </span>
           </label>
 
+          <label class="ai-check" for="{{ form.llm_only.id_for_label }}">
+            {{ form.llm_only }}
+            <span>
+              <strong>IA decide o setor sozinha (modo de teste)</strong>
+              <small>Ignora as regras de palavras-chave e deixa o modelo decidir o setor. Use para testar como a IA se sai por conta propria.</small>
+            </span>
+          </label>
+
           {% if not has_sectors %}
             <p class="ai-empty-rules">
               Cadastre setores em <a href="{% url 'sectors' %}">Setores</a> para a IA conseguir

@@ -160,6 +160,48 @@ def _recent_customer_context(conversation, current_message, limit=5):
     return '\n'.join(parts[-limit:])
 
 
+def _sibling_conversation_ids(conversation, limit=5):
+    """Conversas ANTERIORES do mesmo contato (por contato ou, sem contato, pelo
+    external_id da direta), da mais recente para a mais antiga."""
+    from accounts.models import Conversation
+
+    qs = Conversation.objects.exclude(id=conversation.id)
+    if conversation.contact_id:
+        qs = qs.filter(contact_id=conversation.contact_id)
+    elif conversation.external_id:
+        qs = qs.filter(external_id=conversation.external_id, chat_type='private')
+    else:
+        return []
+    return list(
+        qs.order_by('-last_message_at', '-created_at').values_list('id', flat=True)[:limit]
+    )
+
+
+def _contact_history_context(conversation, limit_msgs=8):
+    """Resumo curto das ultimas mensagens de texto em conversas ANTERIORES com o
+    mesmo contato, para a IA se inteirar do historico. Vazio se nao houver."""
+    from accounts.models import Message
+
+    conv_ids = _sibling_conversation_ids(conversation)
+    if not conv_ids:
+        return ''
+    messages = list(
+        Message.objects
+        .filter(conversation_id__in=conv_ids, message_type='text')
+        .exclude(text='')
+        .order_by('-created_at')[:limit_msgs]
+    )
+    messages.reverse()
+    lines = []
+    for item in messages:
+        text = (item.text or '').strip()
+        if not text:
+            continue
+        who = 'Cliente' if item.direction == 'in' else 'Atendimento'
+        lines.append(f'{who}: {text[:200]}')
+    return '\n'.join(lines)
+
+
 def _clarify_text_for_turn(conversation, message):
     if _is_greeting(message.text):
         return CLARIFY_AFTER_GREETING_TEMPLATE
@@ -224,7 +266,12 @@ def handle_incoming_for_ai(conversation, message):
         return
 
     sectors = list(Sector.objects.all())
-    intent = classify_intent(_recent_customer_context(conversation, message), sectors)
+    intent = classify_intent(
+        _recent_customer_context(conversation, message),
+        sectors,
+        llm_only=config.llm_only,
+        history=_contact_history_context(conversation),
+    )
     if intent.decided:
         _route_to_sector(conversation, intent.sector)
         return
