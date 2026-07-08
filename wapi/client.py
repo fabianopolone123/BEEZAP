@@ -214,8 +214,13 @@ def send_video_message(phone, video, caption=None):
     return _send('send-video', phone, {'video': video, 'caption': caption})
 
 
-def send_document_message(phone, document, file_name=None, caption=None):
-    return _send('send-document', phone, {'document': document, 'fileName': file_name, 'caption': caption})
+def send_document_message(phone, document, file_name=None, caption=None, extension=None):
+    # A W-API exige `extension` (ex.: "pdf"); sem ela responde HTTP 500
+    # "A extensao do arquivo e obrigatoria.".
+    return _send('send-document', phone, {
+        'document': document, 'fileName': file_name,
+        'extension': extension, 'caption': caption,
+    })
 
 
 def download_media(media_key, direct_path, media_type, mimetype):

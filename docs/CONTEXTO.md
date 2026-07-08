@@ -72,7 +72,8 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
   (credenciais, erros amigáveis, **log seguro sem token** no logger
   `beezap.wapi.send`). Sucesso é 2xx **e** sem `error` no corpo.
 - Funções: `send_text_message`, `send_image_message`, `send_audio_message`,
-  `send_video_message`, `send_document_message`, `download_media`.
+  `send_video_message`, `send_document_message` (exige `extension`, ex.: `pdf`),
+  `download_media`.
 
 ### Plano LITE vs PRO (instância atual é **LITE**)
 - **Envio LITE (implementado):** texto (com emoji), imagem, áudio, vídeo, documento.

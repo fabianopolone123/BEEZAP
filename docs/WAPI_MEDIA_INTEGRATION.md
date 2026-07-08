@@ -25,7 +25,7 @@ Header: `Authorization: Bearer <TOKEN>` · `Content-Type: application/json`
 | Imagem | `send-image` | `{phone, image, caption?}` | LITE |
 | Áudio | `send-audio` | `{phone, audio}` | LITE |
 | Vídeo | `send-video` | `{phone, video, caption?}` | LITE |
-| Documento | `send-document` | `{phone, document, fileName?, caption?}` | LITE |
+| Documento | `send-document` | `{phone, document, fileName?, extension, caption?}` | LITE |
 | Baixar mídia | `download-media` | `{mediaKey, directPath, type, mimetype}` → `{fileLink, expires, ...}` | LITE |
 | Reação/Sticker/GIF | — | — | **PRO (não enviado)** |
 
@@ -126,6 +126,11 @@ deve ser nos formatos ..."). Por isso `ensure_wapi_image()` roda **antes de salv
 PNG/JPEG só têm a extensão do arquivo normalizada (cobre `.jfif`, print colado sem
 extensão, etc.); **webp/gif/bmp/heic/...** são convertidos para **JPEG** com ffmpeg
 (`_convert_image_to_jpeg`). O ffmpeg, além do áudio, passa a ser usado para imagem.
+
+**Documento — `extension` obrigatório:** o `send-document` da W-API exige o campo
+`extension` no corpo (senão HTTP 500 "A extensão do arquivo é obrigatória."). A view
+calcula a extensão pelo nome do arquivo (ex.: `Contrato.pdf`→`pdf`), com fallback por
+mimetype (`WAPI_DOC_EXT_BY_MIME`), e passa em `send_document_message(..., extension=)`.
 
 A mensagem enviada é renderizada imediatamente no chat (reaproveitando o mesmo
 render de mídia recebida) e a última mensagem da conversa vira o rótulo do tipo.

@@ -3,6 +3,7 @@ import ipaddress
 import json
 import logging
 import mimetypes
+import os
 import re
 import secrets
 from hmac import compare_digest
@@ -1130,6 +1131,20 @@ WAPI_DOC_MIMETYPES = {
     'text/plain',
     'text/csv',
 }
+# A W-API exige a extensao do arquivo no envio de documento ("A extensao do arquivo
+# e obrigatoria."). Usamos a extensao do nome enviado; este mapa e o fallback quando
+# o nome vem sem extensao.
+WAPI_DOC_EXT_BY_MIME = {
+    'application/pdf': 'pdf',
+    'application/msword': 'doc',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
+    'application/vnd.ms-excel': 'xls',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
+    'application/vnd.ms-powerpoint': 'ppt',
+    'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'pptx',
+    'text/plain': 'txt',
+    'text/csv': 'csv',
+}
 
 
 def _media_category_ok(media_type, mimetype):
@@ -1252,7 +1267,13 @@ def conversation_send_media_view(request, conversation_id):
     elif media_type == 'video':
         result = send_video_message(phone, media_payload, caption=caption or None)
     else:
-        result = send_document_message(phone, media_payload, file_name=uploaded.name, caption=caption or None)
+        # A W-API exige a extensao do documento; usa a do nome e cai no mapa por mimetype.
+        doc_ext = os.path.splitext(uploaded.name or '')[1].lstrip('.').lower() \
+            or WAPI_DOC_EXT_BY_MIME.get(mimetype, '')
+        result = send_document_message(
+            phone, media_payload, file_name=uploaded.name,
+            caption=caption or None, extension=doc_ext,
+        )
 
     if result.success:
         message.status = 'sent'
