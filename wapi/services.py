@@ -308,6 +308,11 @@ def document_filename(message):
     if message is None or message.message_type != 'document':
         return ''
     if isinstance(message.raw_payload, dict):
+        # Enviado pelo BEEZAP: nome original guardado direto no envio.
+        name = (message.raw_payload.get('beezap_filename') or '').strip()
+        if name:
+            return name
+        # Recebido: o fileName vem dentro da estrutura do webhook da W-API.
         name = (parse_wapi_media(message.raw_payload).get('filename') or '').strip()
         if name:
             return name
@@ -767,7 +772,8 @@ def convert_audio_to_ogg(uploaded_file):
 def save_outgoing_media_message(conversation, message_type, uploaded_file, caption='', mimetype=''):
     """Cria a mensagem enviada de midia e salva o arquivo em MEDIA/whatsapp/outgoing/
     com nome unico. Status/media_status ficam 'pending' ate a W-API confirmar."""
-    ext = os.path.splitext(getattr(uploaded_file, 'name', '') or '')[1].lower()[:10]
+    original_name = (getattr(uploaded_file, 'name', '') or '').strip()
+    ext = os.path.splitext(original_name)[1].lower()[:10]
     message = Message(
         conversation=conversation,
         direction='out',
@@ -778,6 +784,10 @@ def save_outgoing_media_message(conversation, message_type, uploaded_file, capti
         status='sent',
         media_mimetype=mimetype or '',
         media_status='pending',
+        # Documento: guarda o nome ORIGINAL (o arquivo em disco usa uuid), para o chat
+        # exibir/baixar com o nome certo em vez do generico "Baixar documento".
+        raw_payload=({'beezap_filename': original_name}
+                     if message_type == 'document' and original_name else None),
     )
     # Nome unico (nunca reaproveita o nome do usuario -> evita traversal/sobrescrita).
     message.media_file.save(f'outgoing/{uuid.uuid4().hex}{ext}', uploaded_file, save=True)

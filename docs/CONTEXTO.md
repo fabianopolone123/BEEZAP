@@ -139,7 +139,9 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
 - `retry_conversation_media_async(conversation_id)` → tenta rebaixar em **background**
   (thread) as mídias que falharam na chegada; disparado pelo botão **Atualizar**.
 - `save_outgoing_media_message(...)` salva arquivo enviado em
-  `MEDIA/whatsapp/outgoing/` (nome único uuid).
+  `MEDIA/whatsapp/outgoing/` (nome único uuid). Para **documento**, guarda o nome
+  ORIGINAL em `raw_payload={'beezap_filename': ...}` — assim o chat mostra/baixa com
+  o nome real (`document_filename()` lê isso; documento recebido lê do payload do webhook).
 - Envio de mídia (`conversation_send_media_view`): a W-API baixa a mídia pela URL
   pública. Se o host for público (produção) usa a URL; se for **localhost/IP
   privado/.local** (ambiente local, onde a W-API na nuvem não alcança a URL) envia
