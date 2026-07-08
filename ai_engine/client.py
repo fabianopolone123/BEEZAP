@@ -20,8 +20,9 @@ def _build_url(base_url):
     return base_url.rstrip('/') + CHAT_PATH
 
 
-def chat_with_ollama(base_url, model, messages, timeout, temperature=0.2, num_predict=180, num_gpu=0):
-    payload = json.dumps({
+def chat_with_ollama(base_url, model, messages, timeout, temperature=0.2, num_predict=180,
+                     num_gpu=0, keep_alive=None):
+    body = {
         'model': model,
         'messages': messages,
         'stream': False,
@@ -30,7 +31,12 @@ def chat_with_ollama(base_url, model, messages, timeout, temperature=0.2, num_pr
             'num_predict': num_predict,
             'num_gpu': num_gpu,
         },
-    }).encode('utf-8')
+    }
+    # keep_alive controla quanto tempo o modelo fica em RAM apos responder
+    # (num VPS pequeno, um valor curto libera memoria quando ocioso).
+    if keep_alive is not None:
+        body['keep_alive'] = keep_alive
+    payload = json.dumps(body).encode('utf-8')
 
     http_request = request.Request(
         _build_url(base_url),

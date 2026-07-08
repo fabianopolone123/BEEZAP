@@ -213,6 +213,10 @@ OLLAMA_TIMEOUT = int(os.getenv('OLLAMA_TIMEOUT', '20'))
 OLLAMA_TEMPERATURE = float(os.getenv('OLLAMA_TEMPERATURE', '0.2'))
 OLLAMA_NUM_PREDICT = int(os.getenv('OLLAMA_NUM_PREDICT', '180'))
 OLLAMA_NUM_GPU = int(os.getenv('OLLAMA_NUM_GPU', '0'))
+# Quanto tempo o Ollama mantem o modelo carregado em RAM apos o ultimo uso. Num
+# VPS pequeno/compartilhado, um valor curto libera a memoria quando ocioso
+# (ex.: '30s', '0' = descarrega logo apos responder, '5m' = mantem 5 min).
+OLLAMA_KEEP_ALIVE = os.getenv('OLLAMA_KEEP_ALIVE', '30s')
 
 # Logging
 # Sem esta config, os logs INFO da aplicacao (beezap.*) nao apareciam no journal

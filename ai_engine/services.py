@@ -179,6 +179,7 @@ def classify_intent(message, sectors, model=None, base_url=None, timeout=None):
         temperature=settings.OLLAMA_TEMPERATURE,
         num_predict=40,
         num_gpu=settings.OLLAMA_NUM_GPU,
+        keep_alive=settings.OLLAMA_KEEP_ALIVE,
     )
     if result.success:
         matched = _match_sector_by_name(sectors, result.content)
