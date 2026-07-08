@@ -386,3 +386,9 @@ intenção do cliente e **transfere para o setor certo** (deixa `status='pending
 - Comando idempotente para criar/atualizar regras iniciais de Compras/Vendas e Financeiro:
   `venv/bin/python manage.py seed_ai_sector_rules --overwrite`.
 - A tela Atendente Virtual continua sendo o interruptor de producao (`AiAttendantConfig.enabled`). Sem ligar essa tela, o webhook salva mensagens, mas a IA nao recepciona.
+
+### Complemento ciclo de atendimento
+
+- Enquanto uma conversa esta aberta/pendente com setor ou atendente, novas mensagens continuam no mesmo atendimento e a IA nao entra.
+- Encerrar atendimento marca a conversa como `closed`; a proxima mensagem do mesmo contato cria uma nova `Conversation` aberta, sem setor/atendente, pronta para a recepcao da IA.
+- Na tela Conversas existem acoes de atendimento: `Assumir` (para usuario com perfil de atendente) e `Encerrar`. O admin sem perfil ainda pode atribuir atendente pelo select.

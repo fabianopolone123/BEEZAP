@@ -5,7 +5,7 @@
 
 {% block extra_head %}
 <link rel="stylesheet" href="{% static 'css/dashboard.css' %}?v=5">
-<link rel="stylesheet" href="{% static 'css/conversations.css' %}?v=17">
+<link rel="stylesheet" href="{% static 'css/conversations.css' %}?v=18">
 {% endblock %}
 
 {% block content %}
@@ -242,6 +242,11 @@
               <select class="conv-transfer-select" data-transfer-attendant></select>
             </label>
           </div>
+
+          <div class="conv-service-actions">
+            <button type="button" class="conv-service-btn" data-take-conversation>Assumir</button>
+            <button type="button" class="conv-service-btn conv-service-btn-danger" data-close-conversation>Encerrar</button>
+          </div>
         </div>
       </div>
 
@@ -293,6 +298,8 @@
   var infoPanel = document.querySelector('[data-info-panel]');
   var sectorSelect = document.querySelector('[data-transfer-sector]');
   var attendantSelect = document.querySelector('[data-transfer-attendant]');
+  var takeBtn = document.querySelector('[data-take-conversation]');
+  var closeBtn = document.querySelector('[data-close-conversation]');
 
   var currentId = null;
   var currentStatus = 'todas';
@@ -791,6 +798,16 @@
     infoPanel.hidden = false;
   }
 
+  function applyContactInfo(contact) {
+    if (!contact) return;
+    document.querySelector('[data-chat-status]').textContent = '● ' + contact.status_label;
+    document.querySelector('[data-info-status]').textContent = contact.status_label;
+    document.querySelector('[data-info-sector]').textContent = contact.sector;
+    document.querySelector('[data-info-attendant]').textContent = contact.attendant;
+    if (sectorSelect) sectorSelect.value = contact.sector_id || '';
+    if (attendantSelect) attendantSelect.value = contact.attendant_id || '';
+  }
+
   /* ---------- Abrir conversa ---------- */
   function openConversation(id) {
     currentId = id;
@@ -939,7 +956,8 @@
   function listSignature(items) {
     return items.map(function (c) {
       return c.id + ':' + (c.time || '') + ':' + (c.unread || 0) +
-             ':' + (c.preview || '') + ':' + (c.name || '');
+             ':' + (c.preview || '') + ':' + (c.name || '') +
+             ':' + (c.status || '') + ':' + (c.queue_label || '');
     }).join('|');
   }
 
@@ -1292,38 +1310,58 @@
   }
 
   /* ---------- Transferencia (setor / atendente) ---------- */
-  function transfer(field, value) {
+  function postConversationAction(suffix, payload, successMessage, errorMessage) {
     if (!currentId) return;
-    var payload = new URLSearchParams();
-    payload.append(field, value);
-    fetch(urlFor(currentId, 'transferir'), {
+    fetch(urlFor(currentId, suffix), {
       method: 'POST',
       headers: {
         'X-CSRFToken': csrf,
         'X-Requested-With': 'XMLHttpRequest',
         'Content-Type': 'application/x-www-form-urlencoded',
       },
-      body: payload.toString(),
+      body: payload ? payload.toString() : '',
     })
-      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (r) { return r.ok ? r.json() : r.json().catch(function () { return null; }); })
       .then(function (data) {
         if (data && data.ok) {
-          document.querySelector('[data-info-sector]').textContent = data.contact.sector;
-          document.querySelector('[data-info-attendant]').textContent = data.contact.attendant;
-          showToast('Atendimento atualizado.', 'success');
+          applyContactInfo(data.contact);
+          refreshList(true);
+          showToast(successMessage, 'success');
         } else {
-          showToast('Nao foi possivel transferir o atendimento.', 'error');
+          showToast((data && data.error) || errorMessage, 'error');
         }
       })
       .catch(function () {
-        showToast('Nao foi possivel transferir o atendimento.', 'error');
+        showToast(errorMessage, 'error');
       });
+  }
+
+  function transfer(field, value) {
+    if (!currentId) return;
+    var payload = new URLSearchParams();
+    payload.append(field, value);
+    postConversationAction(
+      'transferir', payload, 'Atendimento atualizado.',
+      'Nao foi possivel transferir o atendimento.'
+    );
   }
   if (sectorSelect) {
     sectorSelect.addEventListener('change', function () { transfer('sector_id', sectorSelect.value); });
   }
   if (attendantSelect) {
     attendantSelect.addEventListener('change', function () { transfer('attendant_id', attendantSelect.value); });
+  }
+  if (takeBtn) {
+    takeBtn.addEventListener('click', function () {
+      postConversationAction('assumir', null, 'Atendimento assumido.', 'Nao foi possivel assumir o atendimento.');
+    });
+  }
+  if (closeBtn) {
+    closeBtn.addEventListener('click', function () {
+      if (!currentId) return;
+      if (!window.confirm('Encerrar este atendimento? Novas mensagens deste contato voltarao para a recepcao da IA.')) return;
+      postConversationAction('encerrar', null, 'Atendimento encerrado.', 'Nao foi possivel encerrar o atendimento.');
+    });
   }
 
   /* ================================================================

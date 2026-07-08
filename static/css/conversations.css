@@ -934,6 +934,39 @@
   to { transform: rotate(360deg); }
 }
 
+.conv-service-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin: 14px 16px 16px;
+}
+
+.conv-service-btn {
+  border: 1px solid rgba(21, 115, 71, 0.24);
+  background: #ecfdf3;
+  color: #157347;
+  border-radius: 6px;
+  min-height: 36px;
+  padding: 0 10px;
+  font-size: 0.78rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.conv-service-btn:hover {
+  background: #dcfce7;
+}
+
+.conv-service-btn-danger {
+  border-color: rgba(185, 28, 28, 0.22);
+  background: #fef2f2;
+  color: #b91c1c;
+}
+
+.conv-service-btn-danger:hover {
+  background: #fee2e2;
+}
+
 /* ======================================================
    COLUNA DIREITA — Informações do contato
    ====================================================== */

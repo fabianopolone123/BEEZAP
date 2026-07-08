@@ -1395,6 +1395,37 @@ def conversation_transfer_view(request, conversation_id):
 
 
 @login_required
+@require_POST
+def conversation_take_view(request, conversation_id):
+    conversation = get_object_or_404(Conversation, pk=conversation_id)
+    attendant = getattr(request.user, 'attendant_profile', None)
+    if attendant is None:
+        return JsonResponse(
+            {'ok': False, 'error': 'Esta conta nao possui perfil de atendente.'},
+            status=400,
+        )
+
+    conversation.assigned_attendant = attendant
+    conversation.status = 'open'
+    conversation.ai_state = 'off'
+    conversation.save(update_fields=['assigned_attendant', 'status', 'ai_state', 'updated_at'])
+
+    return JsonResponse({'ok': True, 'contact': _serialize_contact_info(conversation)})
+
+
+@login_required
+@require_POST
+def conversation_close_view(request, conversation_id):
+    conversation = get_object_or_404(Conversation, pk=conversation_id)
+    conversation.status = 'closed'
+    conversation.assigned_attendant = None
+    conversation.ai_state = 'off'
+    conversation.save(update_fields=['status', 'assigned_attendant', 'ai_state', 'updated_at'])
+
+    return JsonResponse({'ok': True, 'contact': _serialize_contact_info(conversation)})
+
+
+@login_required
 def sectors_view(request):
     if request.user.role != 'adm':
         return HttpResponseForbidden('Acesso restrito.')

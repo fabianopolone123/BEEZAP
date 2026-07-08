@@ -1076,6 +1076,55 @@ class ConversationTransferViewTests(TestCase):
         self.assertEqual(data['queue_label'], 'Aguardando Vendas')
         self.assertEqual(data['sector'], 'Vendas')
 
+    def test_attendant_can_take_conversation(self):
+        self.client.force_login(self.attendant_user)
+
+        response = self.client.post(reverse('conversation-take', args=[self.conversation.id]))
+
+        self.assertEqual(response.status_code, 200)
+        self.conversation.refresh_from_db()
+        self.assertEqual(self.conversation.assigned_attendant, self.attendant)
+        self.assertEqual(self.conversation.status, 'open')
+        self.assertEqual(self.conversation.ai_state, 'off')
+        self.assertEqual(response.json()['contact']['attendant'], 'Atendente Vendas')
+
+    def test_close_conversation_ends_current_service(self):
+        self.client.force_login(self.admin)
+        self.conversation.sector = self.sector
+        self.conversation.assigned_attendant = self.attendant
+        self.conversation.status = 'open'
+        self.conversation.save(update_fields=['sector', 'assigned_attendant', 'status'])
+
+        response = self.client.post(reverse('conversation-close', args=[self.conversation.id]))
+
+        self.assertEqual(response.status_code, 200)
+        self.conversation.refresh_from_db()
+        self.assertEqual(self.conversation.status, 'closed')
+        self.assertIsNone(self.conversation.assigned_attendant)
+        self.assertEqual(self.conversation.ai_state, 'off')
+        self.assertEqual(response.json()['contact']['status_label'], 'Encerrada')
+
+    def test_incoming_after_closed_conversation_starts_new_ai_cycle(self):
+        from wapi.services import resolve_conversation_for_context
+        self.conversation.status = 'closed'
+        self.conversation.sector = self.sector
+        self.conversation.assigned_attendant = self.attendant
+        self.conversation.ai_state = 'off'
+        self.conversation.save(update_fields=['status', 'sector', 'assigned_attendant', 'ai_state'])
+
+        new_conversation = resolve_conversation_for_context({
+            'chat_id': self.contact.phone,
+            'is_group': False,
+            'sender_name': self.contact.name,
+        })
+
+        self.assertNotEqual(new_conversation.id, self.conversation.id)
+        self.assertEqual(new_conversation.status, 'open')
+        self.assertIsNone(new_conversation.sector)
+        self.assertIsNone(new_conversation.assigned_attendant)
+        self.assertEqual(new_conversation.ai_state, 'active')
+        self.assertEqual(new_conversation.ai_turns, 0)
+
 
 class AiAttendantSettingsViewTests(TestCase):
     """Tela de administracao do atendente virtual."""
