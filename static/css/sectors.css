@@ -57,7 +57,7 @@
    ====================================================== */
 .sec-actions-bar {
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-end;
   align-items: center;
   gap: 12px;
   padding: 10px 24px;

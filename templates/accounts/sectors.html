@@ -5,7 +5,7 @@
 
 {% block extra_head %}
 <link rel="stylesheet" href="{% static 'css/dashboard.css' %}">
-<link rel="stylesheet" href="{% static 'css/sectors.css' %}?v=2">
+<link rel="stylesheet" href="{% static 'css/sectors.css' %}?v=3">
 {% endblock %}
 
 {% block content %}
@@ -58,11 +58,6 @@
 
     <!-- Barra de ações -->
     <div class="sec-actions-bar">
-      <div class="sec-hint">
-        <span class="sec-hint-icon" aria-hidden="true">&#9432;</span>
-        Um atendente pode ficar em v&aacute;rios setores. Arraste (ou use <strong>+ Adicionar atendente</strong>)
-        para inclu&iacute;-lo em cada setor; clique no &times; para remover.
-      </div>
       <div class="sec-actions-right">
         <span class="sec-dirty-msg" id="sec-dirty-msg" aria-live="polite">Existem alterações não salvas.</span>
         <button type="button" class="sec-btn-outline" id="btn-new-sector">
