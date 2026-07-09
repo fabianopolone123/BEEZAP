@@ -1006,9 +1006,15 @@ class AiAttendantFlowTests(TestCase):
         self.Message = Message
         self.Sector = Sector
 
+        from accounts.models import MenuBotConfiguration
+        self.MenuBotConfiguration = MenuBotConfiguration
+        # A ativacao da IA vem do MODO mestre (mode == 'ai'), nao mais de enabled.
+        menubot = MenuBotConfiguration.get_solo()
+        menubot.mode = MenuBotConfiguration.MODE_AI
+        menubot.save()
+
         self.config = OpenAiConfiguration.get_solo()
         self.config.api_key = 'sk-test'
-        self.config.enabled = True
         self.config.model = 'gpt-4.1-nano'
         self.config.max_turns = 3
         self.config.save()
@@ -1115,8 +1121,10 @@ class AiAttendantFlowTests(TestCase):
         mock_gpt.assert_not_called()
 
     def test_skips_when_disabled(self):
-        self.config.enabled = False
-        self.config.save()
+        # Modo mestre desligado: a IA nao atua.
+        menubot = self.MenuBotConfiguration.get_solo()
+        menubot.mode = self.MenuBotConfiguration.MODE_OFF
+        menubot.save()
         mock_gpt, _ = self._run(self._gpt(mensagem='x'))
         mock_gpt.assert_not_called()
 
@@ -1199,12 +1207,19 @@ class AiAttendantFlowTests(TestCase):
 
     def test_history_scoped_to_current_segment(self):
         # Mensagens antes da ultima divisoria (atendimento anterior) nao entram no contexto.
+        from datetime import timedelta
+        from django.utils import timezone
         from gpt.attendant import build_history
         from wapi.services import save_system_message
         old = self.conv.messages.first()  # 'oi, preciso de ajuda' (do setUp)
-        save_system_message(self.conv, 'Novo atendimento iniciado')  # divisoria
-        self.Message.objects.create(conversation=self.conv, direction='in',
-                                    message_type='text', text='mensagem nova')
+        divider = save_system_message(self.conv, 'Novo atendimento iniciado')  # divisoria
+        nova = self.Message.objects.create(conversation=self.conv, direction='in',
+                                           message_type='text', text='mensagem nova')
+        # O relogio do Windows tem baixa resolucao (chamadas seguidas retornam o
+        # mesmo instante), o que empataria created_at com a divisoria; garante que a
+        # mensagem nova e posterior (em producao ela chega segundos depois).
+        self.Message.objects.filter(pk=nova.pk).update(
+            created_at=divider.created_at + timedelta(seconds=1))
         history = build_history(self.conv)
         texts = [h['content'] for h in history]
         self.assertIn('mensagem nova', texts)
@@ -1235,3 +1250,119 @@ class AiAttendantFlowTests(TestCase):
         self.assertIn('Atendentes cadastrados', prompt)
         self.assertIn('Geral', prompt)  # setor geral/curinga (dado dinamico)
         self.assertIn('JSON', prompt)   # regra de formato (obrigatoria, automatica)
+
+
+class MenuBotFlowTests(TestCase):
+    """Chatbot de menu (sem IA): saudacao, escolha valida, opcao invalida, handoff.
+
+    O envio pela W-API e mockado — nenhum teste faz chamada externa."""
+
+    def setUp(self):
+        from accounts.models import (
+            Contact, Conversation, MenuBotConfiguration, MenuOption, Message, Sector,
+        )
+
+        self.Conversation = Conversation
+        self.Message = Message
+        self.MenuBotConfiguration = MenuBotConfiguration
+
+        self.financeiro = Sector.objects.create(name='Financeiro')
+        self.vendas = Sector.objects.create(name='Vendas')
+        self.geral = Sector.objects.create(name='Geral')
+
+        self.config = MenuBotConfiguration.get_solo()
+        self.config.mode = MenuBotConfiguration.MODE_MENU
+        self.config.max_attempts = 3
+        self.config.fallback_sector = self.geral
+        self.config.save()
+        MenuOption.objects.create(config=self.config, order=1, label='Financeiro', sector=self.financeiro)
+        MenuOption.objects.create(config=self.config, order=2, label='Vendas', sector=self.vendas)
+
+        self.contact = Contact.objects.create(name='Cliente', phone='5516999990000')
+        self.conv = Conversation.objects.create(
+            contact=self.contact, external_id='5516999990000', chat_type='private', status='open',
+        )
+
+    def _incoming(self, text):
+        return self.Message.objects.create(
+            conversation=self.conv, direction='in', message_type='text', text=text,
+        )
+
+    def _run(self):
+        from chatbot.handler import handle_incoming_for_menu
+        send_ok = SimpleNamespace(success=True, message_id='wamid-1', error=None)
+        with patch('wapi.client.send_text_message', return_value=send_ok) as mock_send:
+            handle_incoming_for_menu(self.conv.id)
+        return mock_send
+
+    def test_first_contact_sends_menu(self):
+        self._incoming('oi')
+        self._run()
+        # Uma mensagem automatica (menu) foi salva, sem encaminhar ainda.
+        out = self.Message.objects.filter(conversation=self.conv, direction='out', is_ai=True)
+        self.assertEqual(out.count(), 1)
+        self.assertIn('1 - Financeiro', out.first().text)
+        self.conv.refresh_from_db()
+        self.assertIsNone(self.conv.sector_id)
+
+    def test_valid_option_routes_to_sector(self):
+        # Menu ja apresentado, agora o cliente escolhe "1".
+        self.Message.objects.create(conversation=self.conv, direction='out',
+                                    message_type='text', text='menu...', is_ai=True)
+        self._incoming('1')
+        self._run()
+        self.conv.refresh_from_db()
+        self.assertEqual(self.conv.sector_id, self.financeiro.id)
+        self.assertEqual(self.conv.status, 'pending')
+        self.assertTrue(self.Message.objects.filter(
+            conversation=self.conv, message_type='system', text__icontains='Financeiro').exists())
+
+    def test_invalid_option_repeats_menu(self):
+        self.Message.objects.create(conversation=self.conv, direction='out',
+                                    message_type='text', text='menu...', is_ai=True)
+        self._incoming('abc')
+        self._run()
+        self.conv.refresh_from_db()
+        self.assertIsNone(self.conv.sector_id)
+        self.assertEqual(self.conv.ai_turns, 1)
+
+    def test_handoff_after_max_attempts(self):
+        # Ja houve o menu + 2 tentativas invalidas (ai_turns=2); a 3a estoura o limite.
+        self.Message.objects.create(conversation=self.conv, direction='out',
+                                    message_type='text', text='menu...', is_ai=True)
+        self.conv.ai_turns = 2
+        self.conv.save(update_fields=['ai_turns'])
+        self._incoming('xyz')
+        self._run()
+        self.conv.refresh_from_db()
+        self.assertEqual(self.conv.sector_id, self.geral.id)  # fallback
+        self.assertEqual(self.conv.status, 'pending')
+
+    def test_skips_when_mode_not_menu(self):
+        self.config.mode = self.MenuBotConfiguration.MODE_OFF
+        self.config.save(update_fields=['mode'])
+        self._incoming('oi')
+        mock_send = self._run()
+        mock_send.assert_not_called()
+
+    def test_skips_group(self):
+        self.conv.chat_type = 'group'
+        self.conv.contact = None
+        self.conv.save(update_fields=['chat_type', 'contact'])
+        self._incoming('oi')
+        mock_send = self._run()
+        mock_send.assert_not_called()
+
+    def test_skips_when_already_routed(self):
+        self.conv.sector = self.financeiro
+        self.conv.save(update_fields=['sector'])
+        self._incoming('oi')
+        mock_send = self._run()
+        mock_send.assert_not_called()
+
+    def test_skips_when_human_replied(self):
+        self.Message.objects.create(conversation=self.conv, direction='out',
+                                    message_type='text', text='sou o atendente', is_ai=False)
+        self._incoming('1')
+        mock_send = self._run()
+        mock_send.assert_not_called()

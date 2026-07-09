@@ -4,6 +4,7 @@
 {% block title %}Configuracoes WhatsApp | BEEZap{% endblock %}
 {% block extra_head %}
 <link rel="stylesheet" href="{% static 'css/dashboard.css' %}">
+<link rel="stylesheet" href="{% static 'css/settings_tabs.css' %}?v=1">
 <link rel="stylesheet" href="{% static 'css/wapi_settings.css' %}">
 {% endblock %}
 
@@ -50,6 +51,8 @@
         <a href="{% url 'logout' %}" class="logout-link">Sair</a>
       </div>
     </header>
+
+    {% include "accounts/_settings_tabs.html" %}
 
     <section class="settings-stack">
       <article class="settings-card settings-card-split wapi-card">

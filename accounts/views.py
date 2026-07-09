@@ -28,10 +28,12 @@ from .forms import (
     AttendantForm,
     InitialPasswordChangeForm,
     LoginForm,
+    MenuBotConfigurationForm,
     OpenAiConfigurationForm,
     PasswordRecoveryCodeForm,
     PasswordRecoveryNewPasswordForm,
     PasswordRecoveryRequestForm,
+    ReceptionModeForm,
     SectorForm,
     WapiConfigurationForm,
     WapiSendTextForm,
@@ -40,6 +42,8 @@ from .models import (
     Attendant,
     Contact,
     Conversation,
+    MenuBotConfiguration,
+    MenuOption,
     Message,
     OpenAiConfiguration,
     PasswordResetCode,
@@ -112,8 +116,18 @@ NAV_ITEMS = [
     {'label': 'Campanhas', 'required': 'usuario', 'url_name': None},
     {'label': 'Relatorios', 'required': 'leitor', 'url_name': None},
     {'label': 'Configuracoes', 'required': 'adm', 'url_name': 'wapi-settings'},
-    {'label': 'Inteligencia (IA)', 'required': 'adm', 'url_name': 'openai-settings'},
 ]
+
+
+# Abas da area de Configuracoes (barra horizontal no topo das telas de config).
+# WhatsApp (W-API) e Atendimento (chatbot de menu + IA). A aba Atendimento tem duas
+# sub-abas: Chatbot e Inteligencia (IA).
+def build_settings_tabs(active_tab, active_subtab=''):
+    return {
+        'active_tab': active_tab,
+        'active_subtab': active_subtab,
+        'reception_mode': MenuBotConfiguration.get_solo().mode,
+    }
 
 
 def build_nav_items(role, active_label):
@@ -441,8 +455,9 @@ def dashboard_view(request):
 
 @login_required
 def openai_settings_view(request):
-    """Tela Inteligencia (IA): cadastra a API Key do GPT, escolhe o modelo,
-    liga/desliga a IA e testa a conexao. Apenas ADM."""
+    """Sub-aba Inteligencia (IA) da area Atendimento: cadastra a API Key do GPT,
+    escolhe o modelo, edita o prompt e testa a conexao. A ATIVACAO (ligar a IA) e
+    feita pelo seletor de modo no topo da area Atendimento, nao mais aqui. Apenas ADM."""
     if request.user.role != 'adm':
         return HttpResponseForbidden('Acesso restrito.')
 
@@ -454,11 +469,11 @@ def openai_settings_view(request):
     )
 
     config = OpenAiConfiguration.get_solo()
+    menubot = MenuBotConfiguration.get_solo()
     config_form = OpenAiConfigurationForm(
         request.POST if request.POST.get('form_type') == 'config' else None,
         initial={
             'model': config.resolved_model(),
-            'enabled': config.enabled,
             'instructions': config.instructions,
             'max_turns': config.max_turns,
             'fallback_sector': config.fallback_sector_id,
@@ -472,7 +487,6 @@ def openai_settings_view(request):
             if new_key:
                 config.api_key = new_key
             config.model = (config_form.cleaned_data['model'] or 'gpt-4.1-nano').strip()
-            config.enabled = config_form.cleaned_data['enabled']
             config.instructions = (config_form.cleaned_data['instructions'] or '').strip()
             config.max_turns = config_form.cleaned_data['max_turns'] or 3
             config.fallback_sector = config_form.cleaned_data['fallback_sector']
@@ -505,7 +519,10 @@ def openai_settings_view(request):
         {
             'config_form': config_form,
             'config': config,
-            'nav_items': build_nav_items(request.user.role, 'Inteligencia (IA)'),
+            'nav_items': build_nav_items(request.user.role, 'Configuracoes'),
+            'settings_tabs': build_settings_tabs('atendimento', 'ia'),
+            'mode_form': ReceptionModeForm(initial={'mode': menubot.mode}),
+            'ai_active': menubot.mode == MenuBotConfiguration.MODE_AI,
             'role_label': request.user.get_role_display(),
             'user_initial': (request.user.first_name[:1] or request.user.email[:1]).upper(),
             'api_key_configured': config.has_api_key,
@@ -524,6 +541,113 @@ def openai_settings_view(request):
             'default_instructions': DEFAULT_INSTRUCTIONS,
         },
     )
+
+
+@login_required
+def atendimento_view(request):
+    """Sub-aba Chatbot da area Atendimento: configura o chatbot de menu (saudacao,
+    opcoes numeradas -> setor, tentativas, fallback) e mostra a previa do menu.
+    O seletor de modo (desligado/chatbot/IA) fica no topo. Apenas ADM."""
+    if request.user.role != 'adm':
+        return HttpResponseForbidden('Acesso restrito.')
+
+    from chatbot.handler import (
+        DEFAULT_CONFIRMATION_MESSAGE,
+        DEFAULT_GREETING,
+        DEFAULT_HANDOFF_MESSAGE,
+        DEFAULT_INVALID_MESSAGE,
+        DEFAULT_MENU_INTRO,
+        build_menu_text,
+    )
+
+    config = MenuBotConfiguration.get_solo()
+    config_form = MenuBotConfigurationForm(
+        request.POST if request.POST.get('form_type') == 'chatbot' else None,
+        initial={
+            'greeting': config.greeting,
+            'menu_intro': config.menu_intro,
+            'confirmation_message': config.confirmation_message,
+            'invalid_message': config.invalid_message,
+            'handoff_message': config.handoff_message,
+            'max_attempts': config.max_attempts,
+            'fallback_sector': config.fallback_sector_id,
+        },
+    )
+
+    if request.method == 'POST' and request.POST.get('form_type') == 'chatbot' and config_form.is_valid():
+        config.greeting = (config_form.cleaned_data['greeting'] or '').strip()
+        config.menu_intro = (config_form.cleaned_data['menu_intro'] or '').strip()
+        config.confirmation_message = (config_form.cleaned_data['confirmation_message'] or '').strip()
+        config.invalid_message = (config_form.cleaned_data['invalid_message'] or '').strip()
+        config.handoff_message = (config_form.cleaned_data['handoff_message'] or '').strip()
+        config.max_attempts = config_form.cleaned_data['max_attempts'] or 3
+        config.fallback_sector = config_form.cleaned_data['fallback_sector']
+        config.save()
+        _save_menu_options(config, request.POST)
+        messages.success(request, 'Configuracao do chatbot salva com sucesso.')
+        return redirect('atendimento')
+
+    return render(
+        request,
+        'accounts/chatbot_settings.html',
+        {
+            'config_form': config_form,
+            'config': config,
+            'options': config.ordered_options(),
+            'sectors': Sector.objects.all().order_by('name'),
+            'nav_items': build_nav_items(request.user.role, 'Configuracoes'),
+            'settings_tabs': build_settings_tabs('atendimento', 'chatbot'),
+            'mode_form': ReceptionModeForm(initial={'mode': config.mode}),
+            'menu_active': config.mode == MenuBotConfiguration.MODE_MENU,
+            'role_label': request.user.get_role_display(),
+            'user_initial': (request.user.first_name[:1] or request.user.email[:1]).upper(),
+            'menu_preview': build_menu_text(config),
+            'defaults': {
+                'greeting': DEFAULT_GREETING,
+                'menu_intro': DEFAULT_MENU_INTRO,
+                'confirmation_message': DEFAULT_CONFIRMATION_MESSAGE,
+                'invalid_message': DEFAULT_INVALID_MESSAGE,
+                'handoff_message': DEFAULT_HANDOFF_MESSAGE,
+            },
+        },
+    )
+
+
+def _save_menu_options(config, post):
+    """Reconstroi as opcoes do menu a partir dos arrays do formulario (rotulo +
+    setor por linha). Ignora linhas sem rotulo; numera na ordem enviada."""
+    labels = post.getlist('option_label')
+    sector_ids = post.getlist('option_sector')
+    config.options.all().delete()
+    order = 0
+    for label, sector_id in zip(labels, sector_ids):
+        label = (label or '').strip()
+        if not label:
+            continue
+        order += 1
+        sector = Sector.objects.filter(pk=sector_id).first() if sector_id else None
+        MenuOption.objects.create(config=config, order=order, label=label, sector=sector)
+
+
+@login_required
+@require_POST
+def atendimento_set_mode_view(request):
+    """Salva o MODO mestre de primeiro atendimento (desligado/chatbot/IA) e volta
+    para a sub-aba de origem. Apenas ADM."""
+    if request.user.role != 'adm':
+        return HttpResponseForbidden('Acesso restrito.')
+    config = MenuBotConfiguration.get_solo()
+    form = ReceptionModeForm(request.POST)
+    if form.is_valid():
+        config.mode = form.cleaned_data['mode']
+        config.save(update_fields=['mode', 'updated_at'])
+        # Mantem o interruptor antigo da IA coerente com o modo (compatibilidade).
+        ai = OpenAiConfiguration.get_solo()
+        ai.enabled = (config.mode == MenuBotConfiguration.MODE_AI)
+        ai.save(update_fields=['enabled', 'updated_at'])
+        messages.success(request, 'Modo de atendimento atualizado.')
+    dest = request.POST.get('next')
+    return redirect('openai-settings' if dest == 'ia' else 'atendimento')
 
 
 @login_required
@@ -578,6 +702,7 @@ def wapi_settings_view(request):
             'webhook_url': build_wapi_webhook_url(request),
             'latest_webhook_events': WapiWebhookEvent.objects.all()[:5],
             'nav_items': build_nav_items(request.user.role, 'Configuracoes'),
+            'settings_tabs': build_settings_tabs('whatsapp'),
             'role_label': request.user.get_role_display(),
             'user_initial': (request.user.first_name[:1] or request.user.email[:1]).upper(),
             'token_configured': config.has_token,

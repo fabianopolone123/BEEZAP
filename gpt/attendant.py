@@ -332,9 +332,16 @@ def _handoff_to_fallback(conversation, config):
 
 
 def _should_handle(conversation):
-    """Retorna a config se a IA deve atuar nesta conversa, senao None."""
+    """Retorna a config se a IA deve atuar nesta conversa, senao None.
+
+    A ativacao vem do MODO mestre (`MenuBotConfiguration.mode == 'ai'`), fonte unica
+    da verdade de qual atendimento automatico roda — nao mais do antigo
+    `OpenAiConfiguration.enabled`."""
+    from accounts.models import MenuBotConfiguration
     config = OpenAiConfiguration.get_solo()
-    if not config.enabled or not config.has_api_key:
+    if MenuBotConfiguration.get_solo().mode != MenuBotConfiguration.MODE_AI:
+        return None
+    if not config.has_api_key:
         return None
     if conversation.chat_type != 'private':
         return None

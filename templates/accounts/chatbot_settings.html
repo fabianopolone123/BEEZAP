@@ -1,0 +1,226 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Atendimento - Chatbot | BEEZap{% endblock %}
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/dashboard.css' %}">
+<link rel="stylesheet" href="{% static 'css/settings_tabs.css' %}?v=1">
+<link rel="stylesheet" href="{% static 'css/chatbot_settings.css' %}?v=1">
+{% endblock %}
+
+{% block content %}
+<main class="dashboard-shell">
+  <aside class="sidebar">
+    <div class="sidebar-brand">
+      <img src="{% static 'images/logo-transparent.png' %}" alt="BEEZap" class="sidebar-logo">
+      <div>
+        <strong>BEEZap</strong>
+        <span>Central de atendimento</span>
+      </div>
+    </div>
+
+    <nav class="sidebar-nav">
+      {% for item in nav_items %}
+        <a href="{% if item.href %}{% url item.href %}{% else %}#{% endif %}" class="nav-item {% if item.active %}active{% endif %}">
+          <span class="nav-dot"></span>
+          <span>{{ item.label }}</span>
+        </a>
+      {% endfor %}
+    </nav>
+  </aside>
+
+  <section class="dashboard-main dashboard-main-ai">
+    <div class="chatbot-settings-page">
+    <header class="topbar">
+      <div class="topbar-left">
+        <button class="icon-button" type="button" aria-label="Abrir menu">☰</button>
+        <div>
+          <p class="page-kicker">Configuracoes › Atendimento</p>
+          <h1>Chatbot de menu</h1>
+        </div>
+      </div>
+
+      <div class="topbar-right">
+        <div class="profile-chip">
+          <div class="profile-avatar">{{ user_initial }}</div>
+          <div>
+            <strong>{{ request.user.get_full_name|default:request.user.email }}</strong>
+            <span>{{ role_label }}</span>
+          </div>
+        </div>
+        <a href="{% url 'logout' %}" class="logout-link">Sair</a>
+      </div>
+    </header>
+
+    {% include "accounts/_settings_tabs.html" %}
+
+    <section class="settings-stack">
+      <form method="post" class="settings-card chatbot-config-card">
+        {% csrf_token %}
+        <input type="hidden" name="form_type" value="chatbot">
+
+        <div class="panel-head">
+          <div>
+            <h2>Menu de atendimento (sem IA)</h2>
+            <span>
+              O cliente recebe a saudacao + o menu e responde com o numero da opcao.
+              {% if menu_active %}
+                Este chatbot esta <strong>ativo</strong> como primeiro atendimento.
+              {% else %}
+                Para ligar, selecione "Chatbot de menu" no <strong>Modo</strong> acima.
+              {% endif %}
+            </span>
+          </div>
+        </div>
+
+        <div class="settings-field">
+          <label for="{{ config_form.greeting.id_for_label }}">Saudacao</label>
+          {{ config_form.greeting }}
+          <small class="field-help">
+            Use <code>{saudacao}</code> para inserir automaticamente "Bom dia", "Boa tarde"
+            ou "Boa noite" conforme o horario. Deixe em branco para usar o texto padrao.
+          </small>
+        </div>
+
+        <div class="settings-field">
+          <label for="{{ config_form.menu_intro.id_for_label }}">Introducao do menu</label>
+          {{ config_form.menu_intro }}
+          <small class="field-help">Texto curto antes da lista de opcoes.</small>
+        </div>
+
+        <div class="panel-head panel-head-sep">
+          <div>
+            <h2>Opcoes do menu</h2>
+            <span>Cada opcao vira uma linha numerada (1, 2, 3...) e encaminha para um setor.</span>
+          </div>
+        </div>
+
+        <div class="menu-options" id="menu-options">
+          {% for option in options %}
+            <div class="menu-option-row">
+              <span class="menu-option-num"></span>
+              <input type="text" name="option_label" value="{{ option.label }}"
+                     placeholder="Nome da opcao (ex.: Financeiro)" maxlength="100" class="menu-option-label">
+              <select name="option_sector" class="menu-option-sector">
+                <option value="">Setor...</option>
+                {% for sector in sectors %}
+                  <option value="{{ sector.id }}" {% if option.sector_id == sector.id %}selected{% endif %}>{{ sector.name }}</option>
+                {% endfor %}
+              </select>
+              <button type="button" class="menu-option-remove" aria-label="Remover opcao">✕</button>
+            </div>
+          {% endfor %}
+        </div>
+
+        <div class="menu-options-actions">
+          <button type="button" class="secondary-button" id="btn-add-option">+ Adicionar opcao</button>
+        </div>
+
+        <!-- Modelo de linha para o JS clonar (fora do fluxo) -->
+        <template id="menu-option-template">
+          <div class="menu-option-row">
+            <span class="menu-option-num"></span>
+            <input type="text" name="option_label" placeholder="Nome da opcao (ex.: Financeiro)" maxlength="100" class="menu-option-label">
+            <select name="option_sector" class="menu-option-sector">
+              <option value="">Setor...</option>
+              {% for sector in sectors %}
+                <option value="{{ sector.id }}">{{ sector.name }}</option>
+              {% endfor %}
+            </select>
+            <button type="button" class="menu-option-remove" aria-label="Remover opcao">✕</button>
+          </div>
+        </template>
+
+        <div class="panel-head panel-head-sep">
+          <div>
+            <h2>Mensagens e regras</h2>
+            <span>Textos usados durante o atendimento pelo menu.</span>
+          </div>
+        </div>
+
+        <div class="settings-field">
+          <label for="{{ config_form.confirmation_message.id_for_label }}">Confirmacao ao escolher uma opcao</label>
+          {{ config_form.confirmation_message }}
+          <small class="field-help">Use <code>{setor}</code> para inserir o nome do setor escolhido.</small>
+        </div>
+
+        <div class="settings-field">
+          <label for="{{ config_form.invalid_message.id_for_label }}">Mensagem de opcao invalida</label>
+          {{ config_form.invalid_message }}
+          <small class="field-help">Enviada quando o cliente digita algo fora do menu (o menu e reexibido em seguida).</small>
+        </div>
+
+        <div class="settings-field">
+          <label for="{{ config_form.handoff_message.id_for_label }}">Ao encaminhar para um atendente</label>
+          {{ config_form.handoff_message }}
+          <small class="field-help">Enviada quando o cliente erra o menu varias vezes, antes de chamar um atendente.</small>
+        </div>
+
+        <div class="field-row">
+          <div class="settings-field">
+            <label for="{{ config_form.max_attempts.id_for_label }}">Tentativas antes de chamar um atendente</label>
+            {{ config_form.max_attempts }}
+            <small class="field-help">Quantas escolhas invalidas seguidas antes do encaminhamento (padrao 3).</small>
+          </div>
+          <div class="settings-field">
+            <label for="{{ config_form.fallback_sector.id_for_label }}">Setor de fallback</label>
+            {{ config_form.fallback_sector }}
+            <small class="field-help">Para onde encaminhar quando o cliente nao acerta. Vazio = deixa aguardando.</small>
+          </div>
+        </div>
+
+        <div class="settings-actions">
+          <button type="submit" class="primary-button">Salvar configuracao</button>
+        </div>
+      </form>
+
+      <article class="settings-card preview-card">
+        <div class="panel-head">
+          <div>
+            <h2>Previa do menu</h2>
+            <span>E assim que a primeira mensagem chega ao cliente (F5 para atualizar apos salvar).</span>
+          </div>
+        </div>
+        <pre class="preview-text chatbot-preview">{{ menu_preview }}</pre>
+      </article>
+    </section>
+    </div>
+  </section>
+</main>
+
+<script>
+  (function () {
+    var list = document.getElementById('menu-options');
+    var tpl = document.getElementById('menu-option-template');
+    var addBtn = document.getElementById('btn-add-option');
+    if (!list || !tpl || !addBtn) return;
+
+    function renumber() {
+      var rows = list.querySelectorAll('.menu-option-row');
+      rows.forEach(function (row, i) {
+        var num = row.querySelector('.menu-option-num');
+        if (num) num.textContent = (i + 1);
+      });
+    }
+
+    list.addEventListener('click', function (e) {
+      var btn = e.target.closest('.menu-option-remove');
+      if (!btn) return;
+      var row = btn.closest('.menu-option-row');
+      if (row) row.remove();
+      renumber();
+    });
+
+    addBtn.addEventListener('click', function () {
+      var frag = tpl.content.cloneNode(true);
+      list.appendChild(frag);
+      renumber();
+      var rows = list.querySelectorAll('.menu-option-row');
+      var last = rows[rows.length - 1];
+      if (last) { var input = last.querySelector('.menu-option-label'); if (input) input.focus(); }
+    });
+
+    renumber();
+  }());
+</script>
+{% endblock %}

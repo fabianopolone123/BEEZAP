@@ -78,10 +78,6 @@ class OpenAiConfigurationForm(forms.Form):
         choices=GPT_MODEL_CHOICES,
         required=False,
     )
-    enabled = forms.BooleanField(
-        label='Ativar a inteligencia (GPT)',
-        required=False,
-    )
     instructions = forms.CharField(
         label='Prompt do atendente virtual',
         required=False,
@@ -104,6 +100,80 @@ class OpenAiConfigurationForm(forms.Form):
         queryset=Sector.objects.all().order_by('name'),
         required=False,
         empty_label='(deixar em aberto, sem setor)',
+    )
+
+
+class ReceptionModeForm(forms.Form):
+    """Seletor do MODO mestre de primeiro atendimento (desligado / chatbot / IA)."""
+    from .models import MenuBotConfiguration
+
+    mode = forms.ChoiceField(
+        label='Modo de primeiro atendimento',
+        choices=MenuBotConfiguration.MODE_CHOICES,
+        widget=forms.RadioSelect,
+    )
+
+
+class MenuBotConfigurationForm(forms.Form):
+    """Textos e regras do chatbot de menu (sem IA). As opcoes do menu (rotulo +
+    setor) sao tratadas a parte na view, a partir de arrays do formulario."""
+    greeting = forms.CharField(
+        label='Saudacao',
+        required=False,
+        widget=forms.Textarea(attrs={
+            'rows': 2,
+            'placeholder': 'Ex.: Ola, {saudacao}! Seja bem-vindo(a) a BEEZAP.',
+            'autocomplete': 'off',
+        }),
+    )
+    menu_intro = forms.CharField(
+        label='Introducao do menu',
+        required=False,
+        widget=forms.Textarea(attrs={
+            'rows': 2,
+            'placeholder': 'Ex.: Digite o numero da opcao desejada:',
+            'autocomplete': 'off',
+        }),
+    )
+    confirmation_message = forms.CharField(
+        label='Mensagem de confirmacao (ao escolher uma opcao)',
+        required=False,
+        widget=forms.Textarea(attrs={
+            'rows': 2,
+            'placeholder': 'Ex.: Certo! Vou te encaminhar para o setor {setor}.',
+            'autocomplete': 'off',
+        }),
+    )
+    invalid_message = forms.CharField(
+        label='Mensagem de opcao invalida',
+        required=False,
+        widget=forms.Textarea(attrs={
+            'rows': 2,
+            'placeholder': 'Ex.: Nao entendi. Digite o numero de uma das opcoes.',
+            'autocomplete': 'off',
+        }),
+    )
+    handoff_message = forms.CharField(
+        label='Mensagem ao encaminhar para um atendente',
+        required=False,
+        widget=forms.Textarea(attrs={
+            'rows': 2,
+            'placeholder': 'Ex.: Nao consegui entender. Vou chamar um atendente.',
+            'autocomplete': 'off',
+        }),
+    )
+    max_attempts = forms.IntegerField(
+        label='Tentativas antes de chamar um atendente',
+        required=False,
+        min_value=1,
+        max_value=10,
+        widget=forms.NumberInput(attrs={'autocomplete': 'off'}),
+    )
+    fallback_sector = forms.ModelChoiceField(
+        label='Setor de fallback (quando o cliente nao acerta o menu)',
+        queryset=Sector.objects.all().order_by('name'),
+        required=False,
+        empty_label='(deixar aguardando, sem setor)',
     )
 
 

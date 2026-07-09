@@ -1,0 +1,42 @@
+{% comment %}
+Barra de abas da area de Configuracoes, compartilhada pelas telas WhatsApp,
+Chatbot e Inteligencia (IA). Espera o contexto `settings_tabs`
+(active_tab: whatsapp|atendimento, active_subtab: chatbot|ia, reception_mode) e,
+na area Atendimento, o `mode_form` (seletor do modo mestre).
+{% endcomment %}
+<nav class="settings-tabs" aria-label="Configuracoes">
+  <a href="{% url 'wapi-settings' %}"
+     class="settings-tab {% if settings_tabs.active_tab == 'whatsapp' %}active{% endif %}">WhatsApp</a>
+  <a href="{% url 'atendimento' %}"
+     class="settings-tab {% if settings_tabs.active_tab == 'atendimento' %}active{% endif %}">Atendimento</a>
+</nav>
+
+{% if settings_tabs.active_tab == 'atendimento' %}
+  <div class="atendimento-head">
+    <form method="post" action="{% url 'atendimento-mode' %}" class="reception-mode" id="reception-mode-form">
+      {% csrf_token %}
+      <input type="hidden" name="next" value="{{ settings_tabs.active_subtab }}">
+      <span class="reception-mode-label">Modo de primeiro atendimento</span>
+      <div class="reception-mode-options">
+        {% for value, label in mode_form.mode.field.choices %}
+          <label class="reception-mode-option {% if settings_tabs.reception_mode == value %}selected{% endif %}">
+            <input type="radio" name="mode" value="{{ value }}"
+                   {% if settings_tabs.reception_mode == value %}checked{% endif %}>
+            <span>{{ label }}</span>
+          </label>
+        {% endfor %}
+      </div>
+      <button type="submit" class="secondary-button">Salvar modo</button>
+      <small class="reception-mode-help">
+        Escolha quem faz o primeiro atendimento das conversas diretas. So um roda por vez.
+      </small>
+    </form>
+
+    <nav class="settings-subtabs" aria-label="Atendimento">
+      <a href="{% url 'atendimento' %}"
+         class="settings-subtab {% if settings_tabs.active_subtab == 'chatbot' %}active{% endif %}">Chatbot de menu</a>
+      <a href="{% url 'openai-settings' %}"
+         class="settings-subtab {% if settings_tabs.active_subtab == 'ia' %}active{% endif %}">Inteligencia (IA)</a>
+    </nav>
+  </div>
+{% endif %}

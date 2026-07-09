@@ -24,6 +24,8 @@ config/            settings.py (env-driven), urls.py, wsgi.py
 accounts/          app principal: models, views, urls, forms, admin, middleware,
                    backends, management/commands/, templates de accounts
 wapi/              MÓDULO (não é app instalado): client.py, parser.py, services.py, formatting.py
+gpt/               MÓDULO (não é app): client.py, attendant.py (atendente virtual IA)
+chatbot/           MÓDULO (não é app): handler.py (chatbot de menu, sem IA)
 static/css/        CSS por página (dashboard.css, conversations.css, wapi_settings.css, ...)
 templates/         base.html + accounts/*.html
 docs/              documentação (este arquivo, DEPLOY.md, etc.)
@@ -33,7 +35,7 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
 > `wapi/` é um módulo Python comum (importa `accounts.models`); **não** está em
 > `INSTALLED_APPS`, por isso os models ficam em `accounts/models.py`.
 
-## 3. Modelos (`accounts/models.py`) — migração atual: `0022`
+## 3. Modelos (`accounts/models.py`) — migração atual: `0024`
 
 - **User** (AbstractUser, login por e-mail; `role`: `leitor`/`usuario`/`adm`).
 - **Attendant** (perfil de atendente, vínculo com User, troca de senha inicial).
@@ -53,7 +55,17 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
   identificar). **Contador de tokens**: `total_requests`, `total_prompt_tokens`,
   `total_completion_tokens`, `total_tokens`, `usage_since`, `last_used_at` —
   somados de forma atômica por `record_usage()` a cada chamada; `reset_usage()`
-  zera. Ver seção 13.
+  zera. Ver seção 13. **`enabled` ficou vestigial**: a ativação da IA agora vem do
+  **modo mestre** `MenuBotConfiguration.mode == 'ai'` (ver seção 14); `enabled` é
+  mantido em sincronia só por compatibilidade.
+- **MenuBotConfiguration** (singleton `get_solo()`): config do **chatbot de menu**
+  (atendimento automático **sem IA**) **e** o **MODO MESTRE** de primeiro atendimento
+  `mode` (`off`/`menu`/`ai`) — fonte única da verdade de qual motor atua. Campos de
+  texto editáveis (`greeting` com `{saudacao}`, `menu_intro`, `confirmation_message`
+  com `{setor}`, `invalid_message`, `handoff_message`), `max_attempts` (tentativas
+  inválidas antes do handoff) e `fallback_sector`. Ver seção 14.
+- **MenuOption**: uma opção do menu (`config` FK, `order` = número que o cliente
+  digita, `label`, `sector` FK). `key` = `order`.
 - **Contact**: `name`, `phone` (único, guardado **só em dígitos**), `display_name`,
   `initials`. É a base da tela **Contatos** e da resolução de nomes: criado
   **automaticamente** na 1ª mensagem de uma conversa **direta** (nome = pushName),
@@ -418,12 +430,14 @@ merge_contact_conversations [--apply]   # unifica conversas picotadas em 1 chat 
   recusada, 429/quota → sem créditos, modelo indisponível, etc.); log seguro no
   logger `beezap.gpt` (nunca expõe API Key/corpo/traceback). Nunca levanta exceção.
 - **Tela "Inteligência (IA)"** (`templates/accounts/openai_settings.html` +
-  `openai_settings.css`, escopo `.openai-settings-page`): item na barra lateral,
-  rota `configuracoes/ia/` (`openai-settings`), **só ADM** (`openai_settings_view`).
-  Campos (form `OpenAiConfigurationForm`): **API Key** (oculta), **Modelo** (select:
-  `gpt-4.1-nano` [padrão, mais barato] / `gpt-4o-mini` / `gpt-4.1-mini` / `gpt-4o`)
-  e **Ativar a inteligência** (liga/desliga). Card de **status** (API Key / modelo /
-  ligada) + botão **Testar conexão** (`form_type=test` → `gpt.client.test_connection`).
+  `openai_settings.css`, escopo `.openai-settings-page`): agora é a **sub-aba IA da
+  área Atendimento** (não é mais item solto na barra lateral), rota `configuracoes/ia/`
+  (`openai-settings`), **só ADM** (`openai_settings_view`). Campos (form
+  `OpenAiConfigurationForm`): **API Key** (oculta) e **Modelo** (select: `gpt-4.1-nano`
+  [padrão, mais barato] / `gpt-4o-mini` / `gpt-4.1-mini` / `gpt-4o`). **A ativação
+  (ligar a IA) NÃO é mais um checkbox aqui** — vem do **seletor de modo** no topo da
+  área Atendimento (ver seção 14). Card de **status** (API Key / modelo / ativa) +
+  botão **Testar conexão** (`form_type=test` → `gpt.client.test_connection`).
 - **Contador de consumo**: o OpenAI devolve `usage` (prompt/completion/total tokens)
   em cada resposta; `chat_completion` extrai e chama `OpenAiConfiguration.record_usage`
   (soma atômica com `F()`, segura para chamadas concorrentes). A tela mostra um card
@@ -481,3 +495,43 @@ ligado.** Roda **sempre em background** (thread), nunca trava o webhook.
   API Key). Para transparência total do que é (e do que não é) enviado.
 - **Variáveis** (`.env`, seção 7): `OPENAI_BASE_URL`, `OPENAI_API_KEY` (fallback
   opcional), `OPENAI_MODEL`, `OPENAI_TIMEOUT`. O normal é cadastrar a chave pela tela.
+
+## 14. Atendimento automático: modo mestre + Chatbot de menu (`chatbot/handler.py`)
+
+O **primeiro atendimento** de conversas **diretas** sem setor/atendente é feito por
+**um** de dois motores, escolhido pelo **modo mestre** `MenuBotConfiguration.mode`:
+
+- `off` — nenhum atendimento automático;
+- `menu` — **chatbot de menu** (fixo, sem IA, sem custo) — esta seção;
+- `ai` — **atendente virtual GPT** (seção 13).
+
+**Fonte única da verdade:** o webhook chama `_maybe_trigger_reception()`
+(`wapi/services.py`) que, conforme o `mode`, dispara `handle_incoming_for_ai_async`
+(IA), `handle_incoming_for_menu_async` (chatbot) ou nada. A guarda da IA
+(`gpt/attendant._should_handle`) lê o modo (não mais `OpenAiConfiguration.enabled`).
+
+**Chatbot de menu** (`chatbot/handler.py`, espelha o `gpt/attendant.py` — thread em
+background, lock por conversa, nunca levanta exceção):
+- 1º contato do atendimento → envia **saudação + menu** (`build_menu_text`: `{saudacao}`
+  vira Bom dia/tarde/noite; opções numeradas "1 - Financeiro").
+- Mensagens seguintes → `_match_option` interpreta o **número** digitado (ou o nome
+  exato do rótulo/setor): opção válida → envia a **confirmação** (`{setor}`) e
+  **encaminha para o setor** (`pending`, divisória "Encaminhado para o setor X pelo
+  chatbot"); opção inválida → reexibe o menu e **conta a tentativa** (`Conversation.ai_turns`).
+- Ao atingir `max_attempts` tentativas inválidas → **avisa** (`handoff_message`) e
+  encaminha para o `fallback_sector` (ou deixa `pending` sem setor).
+- **Guardas** (`_should_handle` + `_human_replied_in_segment`): pula se o modo não é
+  `menu`, se é grupo, `closed`, já tem setor/atendente, ou se um **humano já respondeu**
+  no atendimento atual. Estado por segmento (após a última divisória): `_menu_already_presented`
+  detecta se o menu já foi enviado (mensagem `out` automática `is_ai=True`).
+
+**Telas (área Configurações → abas):** a barra `_settings_tabs.html` (+ `settings_tabs.css`)
+dá as abas **[WhatsApp] [Atendimento]**; a aba Atendimento tem o **seletor de modo**
+no topo (endpoint `atendimento-mode`, POST) e as sub-abas **[Chatbot de menu]
+[Inteligência (IA)]**. A tela do chatbot (`atendimento_view`, `configuracoes/atendimento/`,
+`chatbot_settings.html` + `chatbot_settings.css`, escopo `.chatbot-settings-page`, **só
+ADM**) edita saudação/intro/opções (editor de linhas rótulo+setor com add/remove/renumerar
+por JS)/mensagens/tentativas/fallback e mostra a **prévia do menu**. As opções são
+reconstruídas no save a partir dos arrays `option_label[]`/`option_sector[]`
+(`_save_menu_options`, linhas vazias ignoradas, renumeradas por ordem). O chatbot vem
+**desligado** por padrão.

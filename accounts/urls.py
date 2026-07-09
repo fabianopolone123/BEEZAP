@@ -1,6 +1,8 @@
 from django.urls import path
 
 from .views import (
+    atendimento_view,
+    atendimento_set_mode_view,
     attendants_view,
     change_initial_password_view,
     conversation_list_view,
@@ -52,6 +54,8 @@ urlpatterns = [
     path('atendentes/', attendants_view, name='attendants'),
     path('trocar-senha-inicial/', change_initial_password_view, name='change-initial-password'),
     path('configuracoes/ia/', openai_settings_view, name='openai-settings'),
+    path('configuracoes/atendimento/', atendimento_view, name='atendimento'),
+    path('configuracoes/atendimento/modo/', atendimento_set_mode_view, name='atendimento-mode'),
     path('configuracoes/wapi/', wapi_settings_view, name='wapi-settings'),
     path('configuracoes/wapi/eventos/', wapi_webhook_events_view, name='wapi-webhook-events'),
     # Endpoint publico do webhook da W-API. Registrado tambem sob /beezap/ para

@@ -4,7 +4,8 @@
 {% block title %}Inteligencia (IA) | BEEZap{% endblock %}
 {% block extra_head %}
 <link rel="stylesheet" href="{% static 'css/dashboard.css' %}">
-<link rel="stylesheet" href="{% static 'css/openai_settings.css' %}?v=5">
+<link rel="stylesheet" href="{% static 'css/settings_tabs.css' %}?v=1">
+<link rel="stylesheet" href="{% static 'css/openai_settings.css' %}?v=6">
 {% endblock %}
 
 {% block content %}
@@ -34,7 +35,7 @@
       <div class="topbar-left">
         <button class="icon-button" type="button" aria-label="Abrir menu">☰</button>
         <div>
-          <p class="page-kicker">Configuracoes</p>
+          <p class="page-kicker">Configuracoes › Atendimento</p>
           <h1>Inteligencia (IA) / GPT</h1>
         </div>
       </div>
@@ -50,6 +51,8 @@
         <a href="{% url 'logout' %}" class="logout-link">Sair</a>
       </div>
     </header>
+
+    {% include "accounts/_settings_tabs.html" %}
 
     <section class="settings-stack">
       <!-- Conexao + Atendente virtual (um unico formulario) -->
@@ -86,11 +89,14 @@
             <small class="field-help">O modelo mais barato ja vem selecionado.</small>
           </div>
           <div class="settings-field settings-field-check">
-            <label class="ai-switch">
-              {{ config_form.enabled }}
-              <span>Ativar a inteligencia (GPT)</span>
-            </label>
-            <small class="field-help">Desligada, nada usa o GPT. Ligue quando estiver tudo testado.</small>
+            <span class="field-help">
+              {% if ai_active %}
+                A IA esta <strong>ativa</strong> como primeiro atendimento.
+              {% else %}
+                A IA esta <strong>desativada</strong>. Para ligar, selecione
+                "Inteligencia (IA)" no <strong>Modo de primeiro atendimento</strong> acima.
+              {% endif %}
+            </span>
           </div>
         </div>
 
@@ -159,7 +165,7 @@
           </div>
           <div class="ai-status-row">
             <span class="ai-status-label">Atendente virtual</span>
-            {% if config.enabled %}
+            {% if ai_active %}
               <span class="ai-badge ai-badge-on">Ligado</span>
             {% else %}
               <span class="ai-badge ai-badge-off">Desligado</span>

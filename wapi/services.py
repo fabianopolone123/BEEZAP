@@ -576,10 +576,12 @@ def retry_conversation_media_async(conversation_id, limit=8):
     return True
 
 
-def _maybe_trigger_ai(conversation, message):
-    """Dispara o atendente virtual (IA) em background para mensagens RECEBIDAS de
-    conversas diretas. So o webhook ao vivo deve chamar isto (nao a sincronizacao
-    de eventos antigos). Nunca quebra o recebimento."""
+def _maybe_trigger_reception(conversation, message):
+    """Dispara o atendimento automatico do PRIMEIRO contato em background para
+    mensagens RECEBIDAS de conversas diretas. O motor depende do MODO mestre
+    (`MenuBotConfiguration.mode`): `ai` -> atendente virtual GPT; `menu` -> chatbot
+    de menu; `off` -> nada. So o webhook ao vivo deve chamar isto (nao a
+    sincronizacao de eventos antigos). Nunca quebra o recebimento."""
     if message is None or message.direction != 'in':
         return
     if conversation.chat_type != 'private':
@@ -587,10 +589,16 @@ def _maybe_trigger_ai(conversation, message):
     if message.message_type in ('reaction', 'system'):
         return
     try:
-        from gpt.attendant import handle_incoming_for_ai_async
-        handle_incoming_for_ai_async(conversation.id)
+        from accounts.models import MenuBotConfiguration
+        mode = MenuBotConfiguration.get_solo().mode
+        if mode == MenuBotConfiguration.MODE_AI:
+            from gpt.attendant import handle_incoming_for_ai_async
+            handle_incoming_for_ai_async(conversation.id)
+        elif mode == MenuBotConfiguration.MODE_MENU:
+            from chatbot.handler import handle_incoming_for_menu_async
+            handle_incoming_for_menu_async(conversation.id)
     except Exception:
-        ingest_logger.exception('Falha ao disparar atendente virtual (conv=%s).', conversation.id)
+        ingest_logger.exception('Falha ao disparar atendimento automatico (conv=%s).', conversation.id)
 
 
 def save_incoming_message(conversation, ctx, message_type='text', text='',
@@ -702,7 +710,7 @@ def ingest_wapi_payload(payload, trigger_ai=True):
 
     def _finish(message):
         if trigger_ai:
-            _maybe_trigger_ai(conversation, message)
+            _maybe_trigger_reception(conversation, message)
         return message
 
     if message_type == 'text':

@@ -194,6 +194,88 @@ class OpenAiConfiguration(models.Model):
         return 'Configuracao OpenAI (GPT)'
 
 
+class MenuBotConfiguration(models.Model):
+    """Chatbot de menu (atendimento automatico SEM IA) + o MODO mestre de primeiro
+    atendimento. Singleton (pk=1).
+
+    O campo `mode` e a FONTE UNICA da verdade de qual atendimento automatico atua no
+    primeiro contato de uma conversa direta: `off` (nenhum), `menu` (este chatbot de
+    menu) ou `ai` (o atendente virtual GPT). O webhook dispara apenas o motor
+    correspondente ao modo escolhido — os dois nunca rodam juntos.
+
+    Os textos do menu sao editaveis na tela Atendimento. O placeholder `{saudacao}`
+    e trocado por "Bom dia/Boa tarde/Boa noite" conforme o horario; `{setor}` (na
+    mensagem de confirmacao) pelo nome do setor escolhido.
+    """
+    MODE_OFF = 'off'
+    MODE_MENU = 'menu'
+    MODE_AI = 'ai'
+    MODE_CHOICES = [
+        (MODE_OFF, 'Desligado'),
+        (MODE_MENU, 'Chatbot de menu'),
+        (MODE_AI, 'Inteligencia (IA)'),
+    ]
+
+    mode = models.CharField(max_length=10, choices=MODE_CHOICES, default=MODE_OFF)
+    greeting = models.TextField(blank=True, default='')
+    menu_intro = models.TextField(blank=True, default='')
+    invalid_message = models.TextField(blank=True, default='')
+    confirmation_message = models.TextField(blank=True, default='')
+    handoff_message = models.TextField(blank=True, default='')
+    # Tentativas invalidas seguidas antes de encaminhar para um atendente humano.
+    max_attempts = models.PositiveSmallIntegerField(default=3)
+    # Setor para onde encaminhar quando o cliente nao acerta o menu. Vazio = deixa
+    # a conversa aguardando (pending) sem setor.
+    fallback_sector = models.ForeignKey(
+        'Sector', null=True, blank=True, on_delete=models.SET_NULL,
+        related_name='menubot_fallback_configs',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'Configuracao do chatbot (menu)'
+        verbose_name_plural = 'Configuracoes do chatbot (menu)'
+
+    @classmethod
+    def get_solo(cls):
+        config, _ = cls.objects.get_or_create(pk=1)
+        return config
+
+    def ordered_options(self):
+        return list(self.options.select_related('sector').order_by('order', 'id'))
+
+    def __str__(self):
+        return 'Configuracao do chatbot (menu)'
+
+
+class MenuOption(models.Model):
+    """Uma opcao do menu do chatbot. O numero que o cliente digita e a `order`
+    (1, 2, 3...); cada opcao encaminha para um Setor."""
+    config = models.ForeignKey(
+        MenuBotConfiguration, on_delete=models.CASCADE, related_name='options'
+    )
+    order = models.PositiveSmallIntegerField(default=1)
+    label = models.CharField(max_length=100)
+    sector = models.ForeignKey(
+        'Sector', null=True, blank=True, on_delete=models.SET_NULL,
+        related_name='menu_options',
+    )
+
+    class Meta:
+        ordering = ('order', 'id')
+        verbose_name = 'Opcao do menu'
+        verbose_name_plural = 'Opcoes do menu'
+
+    @property
+    def key(self):
+        """Numero que o cliente digita para escolher esta opcao."""
+        return str(self.order)
+
+    def __str__(self):
+        return f'{self.order} - {self.label}'
+
+
 class WapiWebhookEvent(models.Model):
     event_type = models.CharField(max_length=80, default='unknown')
     instance_id = models.CharField(max_length=120, blank=True, default='')

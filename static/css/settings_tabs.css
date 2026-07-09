@@ -1,0 +1,118 @@
+/* Barra de abas da area de Configuracoes (WhatsApp / Atendimento) + o seletor do
+   modo de primeiro atendimento e as sub-abas (Chatbot / IA). Compartilhado pelas
+   telas de configuracao. */
+
+.settings-tabs {
+  display: flex;
+  gap: 6px;
+  border-bottom: 1px solid var(--card-border);
+  margin: 4px 0 12px;
+  flex-wrap: wrap;
+}
+
+.settings-tab {
+  padding: 10px 18px;
+  border-radius: 12px 12px 0 0;
+  font-weight: 600;
+  font-size: 0.95rem;
+  color: var(--muted);
+  text-decoration: none;
+  border: 1px solid transparent;
+  border-bottom: none;
+  margin-bottom: -1px;
+}
+
+.settings-tab:hover {
+  color: var(--text);
+}
+
+.settings-tab.active {
+  color: var(--primary-deep);
+  background: var(--card-bg);
+  border-color: var(--card-border);
+}
+
+/* Cabecalho da area Atendimento: seletor de modo + sub-abas. */
+.atendimento-head {
+  display: grid;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.reception-mode {
+  display: grid;
+  gap: 10px;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 16px;
+  box-shadow: var(--shadow);
+  padding: 16px 18px;
+}
+
+.reception-mode-label {
+  font-weight: 700;
+  color: var(--text);
+}
+
+.reception-mode-options {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.reception-mode-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 16px;
+  border-radius: 999px;
+  border: 1px solid var(--card-border);
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--muted);
+  user-select: none;
+}
+
+.reception-mode-option input {
+  accent-color: var(--primary);
+}
+
+.reception-mode-option.selected {
+  color: var(--primary-deep);
+  border-color: var(--primary);
+  background: rgba(33, 194, 94, 0.10);
+}
+
+.reception-mode .secondary-button {
+  justify-self: start;
+}
+
+.reception-mode-help {
+  color: var(--muted);
+}
+
+.settings-subtabs {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.settings-subtab {
+  padding: 8px 16px;
+  border-radius: 999px;
+  font-weight: 600;
+  font-size: 0.92rem;
+  color: var(--muted);
+  text-decoration: none;
+  border: 1px solid var(--card-border);
+}
+
+.settings-subtab:hover {
+  color: var(--text);
+}
+
+.settings-subtab.active {
+  color: #fff;
+  background: var(--primary);
+  border-color: var(--primary);
+}

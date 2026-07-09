@@ -1,0 +1,174 @@
+/* Tela Atendimento - Chatbot de menu. Escopo em .chatbot-settings-page (padrao de
+   CSS por pagina). Reusa o visual dos cards de configuracao das outras telas. */
+
+.chatbot-settings-page {
+  display: grid;
+  gap: 8px;
+  align-content: start;
+  grid-auto-rows: max-content;
+}
+
+/* Sem caret piscando em elementos nao editaveis. */
+.chatbot-settings-page :where(:not(input):not(textarea):not(select):not([contenteditable="true"])) {
+  caret-color: transparent;
+}
+.chatbot-settings-page :where(input, textarea, select, [contenteditable="true"]) {
+  caret-color: auto;
+}
+
+.chatbot-settings-page .settings-stack {
+  display: grid;
+  gap: 14px;
+  margin-top: 0;
+}
+
+.chatbot-settings-page .settings-card {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 22px;
+  box-shadow: var(--shadow);
+  padding: 20px;
+}
+
+.chatbot-settings-page .panel-head h2 {
+  margin: 0;
+  font-size: 1.1rem;
+  color: var(--text);
+}
+
+.chatbot-settings-page .panel-head span {
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.chatbot-settings-page .panel-head-sep {
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 1px solid var(--card-border);
+}
+
+.chatbot-settings-page .settings-field {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.chatbot-settings-page .settings-field label {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.chatbot-settings-page textarea,
+.chatbot-settings-page input[type="text"],
+.chatbot-settings-page input[type="number"],
+.chatbot-settings-page select {
+  width: 100%;
+  padding: 11px 13px;
+  border-radius: 12px;
+  border: 1px solid var(--card-border);
+  background: #fff;
+  color: var(--text);
+  font: inherit;
+  box-sizing: border-box;
+}
+
+.chatbot-settings-page textarea {
+  resize: vertical;
+}
+
+.chatbot-settings-page .field-help {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.chatbot-settings-page code {
+  background: rgba(100, 116, 139, 0.14);
+  padding: 1px 6px;
+  border-radius: 6px;
+  font-size: 0.85em;
+}
+
+.chatbot-settings-page .field-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 18px;
+}
+
+/* Editor de opcoes do menu */
+.menu-options {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.menu-option-row {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) minmax(0, 220px) 40px;
+  gap: 10px;
+  align-items: center;
+}
+
+.menu-option-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  background: rgba(33, 194, 94, 0.12);
+  color: var(--primary-deep);
+  font-weight: 700;
+}
+
+.menu-option-remove {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  border: 1px solid var(--card-border);
+  background: #fff;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.menu-option-remove:hover {
+  color: #b91c1c;
+  border-color: #fca5a5;
+}
+
+.menu-options-actions {
+  margin-top: 12px;
+}
+
+.chatbot-settings-page .settings-actions {
+  margin-top: 22px;
+}
+
+.chatbot-preview {
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: #f6f8fb;
+  border: 1px solid var(--card-border);
+  border-radius: 14px;
+  padding: 16px;
+  color: var(--text);
+  font-size: 0.95rem;
+  line-height: 1.5;
+  margin: 0;
+}
+
+@media (max-width: 720px) {
+  .chatbot-settings-page .field-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .menu-option-row {
+    grid-template-columns: 28px minmax(0, 1fr) 36px;
+    grid-template-areas:
+      "num label remove"
+      "num sector remove";
+  }
+  .menu-option-num { grid-area: num; }
+  .menu-option-label { grid-area: label; }
+  .menu-option-sector { grid-area: sector; }
+  .menu-option-remove { grid-area: remove; }
+}
