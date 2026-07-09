@@ -1163,6 +1163,40 @@ class AiAttendantFlowTests(TestCase):
                                     message_type='text', text='oi de novo')
         self.assertIn('dia(s)', _time_since_previous_text(self.conv))
 
+    def test_records_last_exchange(self):
+        import json as _json
+        from accounts.models import OpenAiConfiguration
+        from gpt import client as gpt_client
+
+        class _FakeResp:
+            status = 200
+            headers = {}
+
+            def __init__(self, body):
+                self._body = body.encode('utf-8')
+
+            def read(self):
+                return self._body
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+        body = _json.dumps({
+            'choices': [{'message': {'content': '{"mensagem":"oi","setor":"","atendente":""}'}}],
+            'usage': {'prompt_tokens': 5, 'completion_tokens': 3, 'total_tokens': 8},
+        })
+        with patch.object(gpt_client.request, 'urlopen', return_value=_FakeResp(body)):
+            result = gpt_client.chat_completion([{'role': 'user', 'content': 'ola tudo bem'}])
+        self.assertTrue(result.success)
+        cfg = OpenAiConfiguration.get_solo()
+        # O request guardado contem a mensagem enviada; o response guardado, o corpo cru.
+        self.assertIn('ola tudo bem', cfg.last_request)
+        self.assertIn('mensagem', cfg.last_response)
+        self.assertIsNotNone(cfg.last_exchange_at)
+
     def test_system_prompt_rules(self):
         from gpt.attendant import build_system_prompt
         self.config.fallback_sector = self.geral

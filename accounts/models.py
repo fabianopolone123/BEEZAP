@@ -122,6 +122,12 @@ class OpenAiConfiguration(models.Model):
     total_tokens = models.PositiveBigIntegerField(default=0)
     usage_since = models.DateTimeField(null=True, blank=True)
     last_used_at = models.DateTimeField(null=True, blank=True)
+    # Diagnostico: conteudo COMPLETO da ultima chamada ao GPT (o que foi enviado e
+    # o que voltou), para o ADM inspecionar exatamente o contexto. Nunca contem a
+    # API Key (ela vai so no header, nao no corpo).
+    last_request = models.TextField(blank=True, default='')
+    last_response = models.TextField(blank=True, default='')
+    last_exchange_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -161,6 +167,15 @@ class OpenAiConfiguration(models.Model):
             total_completion_tokens=F('total_completion_tokens') + completion_tokens,
             total_tokens=F('total_tokens') + total_tokens,
             last_used_at=now,
+        )
+
+    @classmethod
+    def record_last_exchange(cls, request_text, response_text):
+        """Guarda o conteudo completo da ultima chamada ao GPT (diagnostico)."""
+        cls.objects.filter(pk=1).update(
+            last_request=(request_text or '')[:20000],
+            last_response=(response_text or '')[:20000],
+            last_exchange_at=timezone.now(),
         )
 
     def reset_usage(self):

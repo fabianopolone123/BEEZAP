@@ -4,7 +4,7 @@
 {% block title %}Inteligencia (IA) | BEEZap{% endblock %}
 {% block extra_head %}
 <link rel="stylesheet" href="{% static 'css/dashboard.css' %}">
-<link rel="stylesheet" href="{% static 'css/openai_settings.css' %}?v=3">
+<link rel="stylesheet" href="{% static 'css/openai_settings.css' %}?v=4">
 {% endblock %}
 
 {% block content %}
@@ -200,6 +200,34 @@
           <span class="preview-label">4. Historico e tempo</span>
           <p class="field-help">As ultimas ~5 trocas (ate 10 mensagens) entre o cliente e a IA, mais a mensagem atual do cliente, sao anexadas automaticamente em cada atendimento (se nao houver mensagens anteriores, tudo bem). A IA tambem recebe a hora atual (para a saudacao certa) e ha quanto tempo foi a mensagem anterior (para se reapresentar quando faz tempo).</p>
         </div>
+      </article>
+
+      <!-- Diagnostico: ultima chamada real a IA (request e response completos) -->
+      <article class="settings-card debug-card">
+        <div class="panel-head">
+          <div>
+            <h2>Última chamada à IA (diagnóstico)</h2>
+            <span>
+              Conteúdo exato da última vez que a IA foi acionada: tudo que foi
+              <strong>enviado</strong> (seu prompt + o contexto automático) e tudo que
+              <strong>voltou</strong>. Recarregue a página (F5) para ver a mais recente.
+            </span>
+          </div>
+        </div>
+
+        {% if last_exchange_at %}
+          <p class="field-help">Última chamada em {{ last_exchange_at|date:"d/m/Y H:i:s" }}.</p>
+          <div class="debug-block">
+            <span class="preview-label">Enviado para a IA (request)</span>
+            <pre class="debug-text">{{ last_request }}</pre>
+          </div>
+          <div class="debug-block">
+            <span class="preview-label">Resposta da IA (response)</span>
+            <pre class="debug-text">{{ last_response }}</pre>
+          </div>
+        {% else %}
+          <p class="field-help">Nenhuma chamada à IA ainda. Assim que a IA for acionada (ou você clicar em "Testar conexão"), o conteúdo aparece aqui.</p>
+        {% endif %}
       </article>
 
       <!-- Consumo de tokens -->

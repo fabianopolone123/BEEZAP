@@ -128,10 +128,17 @@ def chat_completion(messages, *, model=None, temperature=0.3, max_tokens=None,
         },
     )
 
+    # Diagnostico: guarda o conteudo COMPLETO enviado (so as mensagens, sem a API
+    # Key) e o que voltou, para o ADM inspecionar na tela. Nunca derruba a resposta.
+    request_text = json.dumps(payload, ensure_ascii=False, indent=2)
+    response_text = ''
+    result = None
+
     timeout = timeout or settings.OPENAI_TIMEOUT
     try:
         with request.urlopen(http_request, timeout=timeout) as response:
             response_body = response.read().decode('utf-8', 'ignore')
+            response_text = response_body
             parsed_body = json.loads(response_body) if response_body else {}
             if 200 <= response.status < 300:
                 text = _extract_reply_text(parsed_body)
@@ -142,32 +149,43 @@ def chat_completion(messages, *, model=None, temperature=0.3, max_tokens=None,
                     except Exception:
                         # O contador nunca pode derrubar a resposta do GPT.
                         gpt_logger.warning('Falha ao registrar consumo de tokens.', exc_info=False)
-                return GptResult(
+                result = GptResult(
                     success=True, text=text, model=used_model, status_code=response.status,
                     prompt_tokens=prompt_tokens, completion_tokens=completion_tokens,
                     total_tokens=total_tokens,
                 )
-            gpt_logger.warning('GPT falhou: status=%s modelo=%s corpo=%s', response.status, used_model, response_body[:400])
-            return GptResult(
-                success=False, model=used_model, status_code=response.status,
-                error=_friendly_http_error(response.status, response_body),
-            )
+            else:
+                gpt_logger.warning('GPT falhou: status=%s modelo=%s corpo=%s', response.status, used_model, response_body[:400])
+                result = GptResult(
+                    success=False, model=used_model, status_code=response.status,
+                    error=_friendly_http_error(response.status, response_body),
+                )
     except error.HTTPError as exc:
         try:
-            error_body = exc.read().decode('utf-8', 'ignore')[:400]
+            error_body = exc.read().decode('utf-8', 'ignore')
         except Exception:
             error_body = ''
-        gpt_logger.warning('GPT falhou: HTTP %s modelo=%s corpo=%s', exc.code, used_model, error_body)
-        return GptResult(
+        response_text = error_body
+        gpt_logger.warning('GPT falhou: HTTP %s modelo=%s corpo=%s', exc.code, used_model, error_body[:400])
+        result = GptResult(
             success=False, model=used_model, status_code=exc.code,
             error=_friendly_http_error(exc.code, error_body),
         )
     except error.URLError as exc:
+        response_text = f'(sem conexao) {getattr(exc, "reason", exc)}'
         gpt_logger.warning('GPT sem conexao: %s', getattr(exc, 'reason', exc))
-        return GptResult(success=False, model=used_model, error=GPT_GENERIC_ERROR)
+        result = GptResult(success=False, model=used_model, error=GPT_GENERIC_ERROR)
     except json.JSONDecodeError:
+        response_text = response_text or '(resposta nao-JSON)'
         gpt_logger.warning('GPT retornou resposta nao-JSON.')
-        return GptResult(success=False, model=used_model, error=GPT_GENERIC_ERROR)
+        result = GptResult(success=False, model=used_model, error=GPT_GENERIC_ERROR)
+    finally:
+        try:
+            OpenAiConfiguration.record_last_exchange(request_text, response_text)
+        except Exception:
+            gpt_logger.warning('Falha ao registrar ultima chamada da IA (diagnostico).')
+
+    return result
 
 
 def test_connection():

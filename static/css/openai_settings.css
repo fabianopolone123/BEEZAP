@@ -259,6 +259,33 @@
   overflow-wrap: anywhere;
 }
 
+/* Painel de diagnostico (ultima chamada a IA): conteudo longo, com rolagem. */
+.openai-settings-page .debug-card {
+  display: grid;
+  gap: 12px;
+}
+
+.openai-settings-page .debug-block {
+  display: grid;
+  gap: 8px;
+}
+
+.openai-settings-page .debug-text {
+  margin: 0;
+  max-height: 320px;
+  overflow: auto;
+  padding: 14px 16px;
+  border: 1px solid rgba(100, 116, 139, 0.16);
+  border-radius: 16px;
+  background: rgba(15, 23, 42, 0.04);
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 /* Card de consumo de tokens. */
 .openai-settings-page .usage-grid {
   display: grid;

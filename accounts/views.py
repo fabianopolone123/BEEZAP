@@ -516,6 +516,10 @@ def openai_settings_view(request):
             'preview_instructions': resolved_instructions(config),
             'preview_sectors': sectors_context_text(),
             'preview_attendants': attendants_context_text(),
+            # Diagnostico: conteudo completo da ultima chamada real ao GPT.
+            'last_request': config.last_request,
+            'last_response': config.last_response,
+            'last_exchange_at': config.last_exchange_at,
         },
     )
 

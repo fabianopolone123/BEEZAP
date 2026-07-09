@@ -471,7 +471,11 @@ ligado.** Roda **sempre em background** (thread), nunca trava o webhook.
   respondeu** no atendimento atual (mensagem `out` com `is_ai=False` após a última
   divisória). Lock por conversa evita processar rajadas em paralelo.
 - **Tela**: além da conexão, tem o **prompt** editável, **limite de respostas**,
-  **setor de fallback** e um painel **"O que é enviado para a IA"** (mostra o
-  prompt + setores + atendentes + nota do histórico), para transparência total.
+  **setor de fallback**, um painel **"O que é enviado para a IA"** (mostra o
+  prompt + setores + atendentes + nota do histórico) e um painel **"Última chamada
+  à IA (diagnóstico)"** que mostra o **request e o response completos** da última
+  chamada real ao GPT (`OpenAiConfiguration.last_request/last_response/last_exchange_at`,
+  gravados por `record_last_exchange` dentro de `chat_completion`; nunca contém a
+  API Key). Para transparência total do que é (e do que não é) enviado.
 - **Variáveis** (`.env`, seção 7): `OPENAI_BASE_URL`, `OPENAI_API_KEY` (fallback
   opcional), `OPENAI_MODEL`, `OPENAI_TIMEOUT`. O normal é cadastrar a chave pela tela.
