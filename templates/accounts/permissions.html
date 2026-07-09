@@ -1,10 +1,10 @@
 {% extends "base.html" %}
 {% load static %}
 
-{% block title %}Permissoes | BEEZap{% endblock %}
+{% block title %}Permissões | BEEZap{% endblock %}
 {% block extra_head %}
 <link rel="stylesheet" href="{% static 'css/dashboard.css' %}">
-<link rel="stylesheet" href="{% static 'css/permissions.css' %}?v=1">
+<link rel="stylesheet" href="{% static 'css/permissions.css' %}?v=2">
 {% endblock %}
 
 {% block content %}
@@ -34,7 +34,7 @@
           <button class="icon-button" type="button" aria-label="Abrir menu">☰</button>
           <div>
             <p class="page-kicker">Administrativo</p>
-            <h1>Permissoes</h1>
+            <h1>Permissões</h1>
           </div>
         </div>
         <div class="topbar-right">
@@ -49,16 +49,18 @@
         </div>
       </header>
 
-      <section class="settings-stack">
+      <nav class="perm-tabs" role="tablist">
+        <button type="button" class="perm-tab {% if active_tab == 'perfis' %}is-active{% endif %}" data-tab="perfis">Botões do perfil</button>
+        <button type="button" class="perm-tab {% if active_tab == 'grupos' %}is-active{% endif %}" data-tab="grupos">Grupos</button>
+      </nav>
 
-        <!-- ===== Por perfil ===== -->
+      <!-- ============ ABA: BOTÕES DO PERFIL ============ -->
+      <section class="perm-panel {% if active_tab == 'perfis' %}is-active{% endif %}" data-panel="perfis">
         <form method="post" class="perm-card">
           {% csrf_token %}
           <input type="hidden" name="form_type" value="roles">
 
-          <div class="perm-head">
-            <h2>Botoes por perfil</h2>
-          </div>
+          <div class="perm-head"><h2>Botões por perfil</h2></div>
 
           <div class="perm-role perm-role-locked">
             <div class="perm-role-title">
@@ -88,6 +90,12 @@
                   <span class="perm-switch" aria-hidden="true"></span>
                 </label>
               {% endfor %}
+              <label class="perm-toggle perm-toggle-history {% if role.full_history %}is-on{% endif %}">
+                <input type="checkbox" name="role__{{ role.role }}__full_history" {% if role.full_history %}checked{% endif %}>
+                <span class="perm-ico">🕓</span>
+                <span class="perm-label">Ver conversa inteira</span>
+                <span class="perm-switch" aria-hidden="true"></span>
+              </label>
             </div>
           </div>
           {% endfor %}
@@ -97,15 +105,12 @@
           </div>
         </form>
 
-        <!-- ===== Por usuario ===== -->
         <article class="perm-card">
-          <div class="perm-head">
-            <h2>Personalizar um usuario</h2>
-          </div>
+          <div class="perm-head"><h2>Personalizar um usuário</h2></div>
 
           <form method="get" class="perm-user-picker">
             <select name="user" class="perm-select" onchange="this.form.submit()">
-              <option value="">Selecione um usuario...</option>
+              <option value="">Selecione um usuário...</option>
               {% for u in users %}
                 <option value="{{ u.id }}" {% if selected_user and selected_user.id == u.id %}selected{% endif %}>
                   {{ u.name }} ({{ u.role_label }}){% if u.custom %} • personalizado{% endif %}
@@ -119,7 +124,6 @@
             {% csrf_token %}
             <input type="hidden" name="form_type" value="user">
             <input type="hidden" name="user_id" value="{{ selected_user.id }}">
-
             <div class="perm-grid">
               {% for f in selected_user.features %}
                 <label class="perm-toggle {% if f.checked %}is-on{% endif %}">
@@ -129,8 +133,13 @@
                   <span class="perm-switch" aria-hidden="true"></span>
                 </label>
               {% endfor %}
+              <label class="perm-toggle perm-toggle-history {% if selected_user.full_history %}is-on{% endif %}">
+                <input type="checkbox" name="userkey__full_history" {% if selected_user.full_history %}checked{% endif %}>
+                <span class="perm-ico">🕓</span>
+                <span class="perm-label">Ver conversa inteira</span>
+                <span class="perm-switch" aria-hidden="true"></span>
+              </label>
             </div>
-
             <div class="perm-actions">
               <button type="submit" class="primary-button">Salvar {{ selected_user.name }}</button>
             </div>
@@ -140,23 +149,93 @@
             {% csrf_token %}
             <input type="hidden" name="form_type" value="user-reset">
             <input type="hidden" name="user_id" value="{{ selected_user.id }}">
-            <button type="submit" class="secondary-button">Voltar ao padrao do perfil</button>
+            <button type="submit" class="secondary-button">Voltar ao padrão do perfil</button>
           </form>
           {% endif %}
           {% endif %}
         </article>
-
       </section>
+
+      <!-- ============ ABA: GRUPOS ============ -->
+      <section class="perm-panel {% if active_tab == 'grupos' %}is-active{% endif %}" data-panel="grupos">
+        <form method="post" class="perm-card">
+          {% csrf_token %}
+          <input type="hidden" name="form_type" value="groups">
+
+          <div class="perm-head">
+            <h2>Acesso aos grupos</h2>
+          </div>
+
+          {% if not has_sectors %}
+            <p class="perm-note">Cadastre setores primeiro (menu Setores) para liberar por setor.</p>
+          {% endif %}
+
+          {% for g in groups %}
+          <div class="perm-group">
+            <div class="perm-group-title">
+              <span class="perm-ico">👥</span>
+              <span>{{ g.title }}</span>
+            </div>
+
+            <div class="perm-group-block">
+              <span class="perm-block-label">Setores</span>
+              <div class="perm-chips">
+                {% for s in g.sectors %}
+                  <label class="perm-chip {% if s.checked %}is-on{% endif %}">
+                    <input type="checkbox" name="group__{{ g.id }}__sector" value="{{ s.id }}" {% if s.checked %}checked{% endif %}>
+                    <span>{{ s.name }}</span>
+                  </label>
+                {% empty %}
+                  <span class="perm-empty">Nenhum setor.</span>
+                {% endfor %}
+              </div>
+            </div>
+
+            <div class="perm-group-block">
+              <span class="perm-block-label">Usuários</span>
+              <div class="perm-chips">
+                {% for u in g.users %}
+                  <label class="perm-chip {% if u.checked %}is-on{% endif %}">
+                    <input type="checkbox" name="group__{{ g.id }}__user" value="{{ u.id }}" {% if u.checked %}checked{% endif %}>
+                    <span>{{ u.name }}</span>
+                  </label>
+                {% empty %}
+                  <span class="perm-empty">Nenhum atendente.</span>
+                {% endfor %}
+              </div>
+            </div>
+          </div>
+          {% empty %}
+          <p class="perm-note">Nenhum grupo detectado ainda. Os grupos aparecem aqui assim que chegam mensagens deles.</p>
+          {% endfor %}
+
+          {% if groups %}
+          <div class="perm-actions">
+            <button type="submit" class="primary-button">Salvar grupos</button>
+          </div>
+          {% endif %}
+        </form>
+      </section>
+
     </div>
   </section>
 </main>
 
 <script>
   (function () {
-    // Feedback visual imediato do toggle (a classe is-on segue o checkbox).
-    document.querySelectorAll('.perm-toggle input[type="checkbox"]').forEach(function (cb) {
+    var tabs = document.querySelectorAll('.perm-tab');
+    var panels = document.querySelectorAll('.perm-panel');
+    tabs.forEach(function (tab) {
+      tab.addEventListener('click', function () {
+        var key = tab.dataset.tab;
+        tabs.forEach(function (t) { t.classList.toggle('is-active', t === tab); });
+        panels.forEach(function (p) { p.classList.toggle('is-active', p.dataset.panel === key); });
+      });
+    });
+    // Feedback visual imediato dos toggles/chips.
+    document.querySelectorAll('.perm-toggle input, .perm-chip input').forEach(function (cb) {
       cb.addEventListener('change', function () {
-        cb.closest('.perm-toggle').classList.toggle('is-on', cb.checked);
+        cb.closest('.perm-toggle, .perm-chip').classList.toggle('is-on', cb.checked);
       });
     });
   }());

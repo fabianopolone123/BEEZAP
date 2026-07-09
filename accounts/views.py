@@ -42,6 +42,7 @@ from .models import (
     Attendant,
     Contact,
     Conversation,
+    GroupAccess,
     MenuBotConfiguration,
     MenuOption,
     Message,
@@ -132,6 +133,14 @@ def require_feature(request, key):
     from .permissions import user_can_access
     if not user_can_access(request.user, key):
         return HttpResponseForbidden('Acesso restrito.')
+    return None
+
+
+def deny_conversation_json(request, conversation):
+    """Retorna 403 JSON se o usuario nao pode ver a conversa; senao None."""
+    from .permissions import can_see_conversation
+    if not can_see_conversation(request.user, conversation):
+        return JsonResponse({'ok': False, 'error': 'Acesso restrito.'}, status=403)
     return None
 
 
@@ -516,7 +525,7 @@ def openai_settings_view(request):
         {
             'config_form': config_form,
             'config': config,
-            'nav_items': build_nav_items(request.user, 'Configuracoes'),
+            'nav_items': build_nav_items(request.user, 'Configurações'),
             'settings_tabs': build_settings_tabs('atendimento', 'ia'),
             'mode_form': ReceptionModeForm(initial={'mode': menubot.mode}),
             'ai_active': menubot.mode == MenuBotConfiguration.MODE_AI,
@@ -596,7 +605,7 @@ def atendimento_view(request):
             'sectors': sectors,
             # Setores em JSON para o preenchimento automatico (JS monta as opcoes).
             'sectors_json': [{'id': s.id, 'name': s.name} for s in sectors],
-            'nav_items': build_nav_items(request.user, 'Configuracoes'),
+            'nav_items': build_nav_items(request.user, 'Configurações'),
             'settings_tabs': build_settings_tabs('atendimento', 'chatbot'),
             'mode_form': ReceptionModeForm(initial={'mode': config.mode}),
             'menu_active': config.mode == MenuBotConfiguration.MODE_MENU,
@@ -663,9 +672,8 @@ def permissions_view(request):
 
     from .permissions import (
         EDITABLE_ROLES, MENU_FEATURES, ALL_FEATURE_KEYS,
-        role_allowed_keys, allowed_keys_for,
+        role_allowed_keys, allowed_keys_for, history_full_for,
     )
-    valid_keys = set(ALL_FEATURE_KEYS)
 
     if request.method == 'POST':
         form_type = request.POST.get('form_type')
@@ -676,7 +684,12 @@ def permissions_view(request):
                 chosen = [k for k in ALL_FEATURE_KEYS
                           if request.POST.get(f'role__{role}__{k}') == 'on']
                 RoleMenuPermission.objects.update_or_create(
-                    role=role, defaults={'allowed_keys': chosen})
+                    role=role,
+                    defaults={
+                        'allowed_keys': chosen,
+                        'full_history': request.POST.get(f'role__{role}__full_history') == 'on',
+                    },
+                )
             messages.success(request, 'Permissoes dos perfis salvas.')
             return redirect('permissions')
 
@@ -689,7 +702,12 @@ def permissions_view(request):
             chosen = [k for k in ALL_FEATURE_KEYS
                       if request.POST.get(f'userkey__{k}') == 'on']
             UserMenuPermission.objects.update_or_create(
-                user=target, defaults={'allowed_keys': chosen})
+                user=target,
+                defaults={
+                    'allowed_keys': chosen,
+                    'full_history': request.POST.get('userkey__full_history') == 'on',
+                },
+            )
             messages.success(request, f'Permissoes de {target.email} salvas.')
             return redirect(f'{reverse("permissions")}?user={target.id}')
 
@@ -699,13 +717,35 @@ def permissions_view(request):
             messages.success(request, 'Personalizacao removida (voltou ao padrao do perfil).')
             return redirect('permissions')
 
+        if form_type == 'groups':
+            group_ids = Conversation.objects.filter(chat_type='group').values_list('id', flat=True)
+            valid_sector_ids = set(Sector.objects.values_list('id', flat=True))
+            attendant_user_ids = set(
+                User.objects.filter(attendant_profile__isnull=False).values_list('id', flat=True)
+            )
+            for gid in group_ids:
+                sec_ids = [int(s) for s in request.POST.getlist(f'group__{gid}__sector')
+                           if s.isdigit() and int(s) in valid_sector_ids]
+                usr_ids = [int(u) for u in request.POST.getlist(f'group__{gid}__user')
+                           if u.isdigit() and int(u) in attendant_user_ids]
+                access, _ = GroupAccess.objects.get_or_create(conversation_id=gid)
+                access.sectors.set(sec_ids)
+                access.users.set(usr_ids)
+            messages.success(request, 'Acessos aos grupos salvos.')
+            return redirect(f'{reverse("permissions")}?tab=grupos')
+
     # ----- GET -----
+    def role_history(role):
+        row = RoleMenuPermission.objects.filter(role=role).first()
+        return bool(row.full_history) if row else False
+
     roles_ctx = []
     for entry in EDITABLE_ROLES:
         keys = role_allowed_keys(entry['role'])
         roles_ctx.append({
             'role': entry['role'],
             'label': entry['label'],
+            'full_history': role_history(entry['role']),
             'features': [
                 {**f, 'checked': f['key'] in keys} for f in MENU_FEATURES
             ],
@@ -734,20 +774,50 @@ def permissions_view(request):
             'name': selected.get_full_name() or selected.email,
             'role_label': selected.get_role_display(),
             'custom': selected.id in override_ids,
+            'full_history': history_full_for(selected),
             'features': [{**f, 'checked': f['key'] in keys} for f in MENU_FEATURES],
         }
+
+    # ----- Aba Grupos -----
+    sectors = list(Sector.objects.all().order_by('name'))
+    attendant_users = list(
+        User.objects.filter(attendant_profile__isnull=False, is_active=True)
+        .select_related('attendant_profile').order_by('email')
+    )
+    groups = (
+        Conversation.objects.filter(chat_type='group')
+        .prefetch_related('access__sectors', 'access__users')
+        .order_by('name', 'external_id')
+    )
+    groups_ctx = []
+    for g in groups:
+        access = getattr(g, 'access', None)
+        sec_ids = set(access.sectors.values_list('id', flat=True)) if access else set()
+        usr_ids = set(access.users.values_list('id', flat=True)) if access else set()
+        groups_ctx.append({
+            'id': g.id,
+            'title': g.display_title,
+            'sectors': [{'id': s.id, 'name': s.name, 'checked': s.id in sec_ids} for s in sectors],
+            'users': [{'id': u.id, 'name': (u.attendant_profile.name or u.email),
+                       'checked': u.id in usr_ids} for u in attendant_users],
+        })
+
+    active_tab = 'grupos' if request.GET.get('tab') == 'grupos' else 'perfis'
 
     return render(
         request,
         'accounts/permissions.html',
         {
-            'nav_items': build_nav_items(request.user, 'Permissoes'),
+            'nav_items': build_nav_items(request.user, 'Permissões'),
             'role_label': request.user.get_role_display(),
             'user_initial': (request.user.first_name[:1] or request.user.email[:1]).upper(),
             'features': MENU_FEATURES,
             'roles': roles_ctx,
             'users': users_ctx,
             'selected_user': selected_ctx,
+            'groups': groups_ctx,
+            'has_sectors': bool(sectors),
+            'active_tab': active_tab,
         },
     )
 
@@ -804,7 +874,7 @@ def wapi_settings_view(request):
             'config': config,
             'webhook_url': build_wapi_webhook_url(request),
             'latest_webhook_events': WapiWebhookEvent.objects.all()[:5],
-            'nav_items': build_nav_items(request.user, 'Configuracoes'),
+            'nav_items': build_nav_items(request.user, 'Configurações'),
             'settings_tabs': build_settings_tabs('whatsapp'),
             'role_label': request.user.get_role_display(),
             'user_initial': (request.user.first_name[:1] or request.user.email[:1]).upper(),
@@ -1111,14 +1181,14 @@ def _filter_conversations_by_type(queryset, tipo):
     return queryset  # 'todas'
 
 
-def _conversation_counts():
+def _conversation_counts(base=None):
     # Totais reais por status; usa o mesmo filtro da listagem para nunca divergir.
-    base = Conversation.objects.all()
+    base = base if base is not None else Conversation.objects.all()
     return {slug: _filter_conversations_by_status(base, slug).count() for slug, _ in CONVERSATION_FILTERS}
 
 
-def _conversation_type_counts():
-    base = Conversation.objects.all()
+def _conversation_type_counts(base=None):
+    base = base if base is not None else Conversation.objects.all()
     return {slug: _filter_conversations_by_type(base, slug).count() for slug, _ in CONVERSATION_TYPE_FILTERS}
 
 
@@ -1127,16 +1197,18 @@ def conversations_view(request):
     forbidden = require_feature(request, 'conversations')
     if forbidden:
         return forbidden
+    from .permissions import visible_conversations
     role = request.user.role
-    conversations = (
-        Conversation.objects.select_related('contact', 'assigned_attendant', 'sector').all()
+    conversations = visible_conversations(
+        request.user,
+        Conversation.objects.select_related('contact', 'assigned_attendant', 'sector'),
     )
-    counts = _conversation_counts()
+    counts = _conversation_counts(conversations)
     filter_chips = [
         {'key': slug, 'label': label, 'count': counts.get(slug, 0), 'active': slug == 'todas'}
         for slug, label in CONVERSATION_FILTERS
     ]
-    type_counts = _conversation_type_counts()
+    type_counts = _conversation_type_counts(conversations)
     type_tabs = [
         {'key': slug, 'label': label, 'count': type_counts.get(slug, 0), 'active': slug == 'todas'}
         for slug, label in CONVERSATION_TYPE_FILTERS
@@ -1213,15 +1285,19 @@ def contacts_view(request):
 def conversation_list_view(request):
     status = (request.GET.get('status') or 'todas').strip()
     tipo = (request.GET.get('tipo') or 'todas').strip()
+    from .permissions import visible_conversations
     term = (request.GET.get('q') or '').strip()
-    queryset = Conversation.objects.select_related('contact', 'assigned_attendant', 'sector')
-    queryset = _filter_conversations_by_type(queryset, tipo)
+    base = visible_conversations(
+        request.user,
+        Conversation.objects.select_related('contact', 'assigned_attendant', 'sector'),
+    )
+    queryset = _filter_conversations_by_type(base, tipo)
     queryset = _filter_conversations_by_status(queryset, status)
     queryset = _search_conversations(queryset, term)
     return JsonResponse({
         'ok': True,
-        'counts': _conversation_counts(),
-        'type_counts': _conversation_type_counts(),
+        'counts': _conversation_counts(base),
+        'type_counts': _conversation_type_counts(base),
         'conversations': [_serialize_conversation_item(c) for c in queryset],
     })
 
@@ -1232,6 +1308,9 @@ def conversation_messages_view(request, conversation_id):
         Conversation.objects.select_related('contact', 'assigned_attendant', 'sector'),
         pk=conversation_id,
     )
+    from .permissions import can_see_conversation, history_full_for
+    if not can_see_conversation(request.user, conversation):
+        return JsonResponse({'ok': False, 'error': 'Acesso restrito.'}, status=403)
     # Ao abrir a conversa, zera as nao lidas.
     if conversation.unread_count:
         conversation.unread_count = 0
@@ -1244,6 +1323,15 @@ def conversation_messages_view(request, conversation_id):
         retry_conversation_media_async(conversation.id)
 
     messages_qs = conversation.messages.all()
+    # Escopo do historico: quem nao tem "conversa inteira" ve so o atendimento atual
+    # (mensagens a partir da ultima divisoria de sistema).
+    if not history_full_for(request.user):
+        last_divider = (
+            conversation.messages.filter(message_type='system')
+            .order_by('-created_at').first()
+        )
+        if last_divider:
+            messages_qs = messages_qs.filter(created_at__gte=last_divider.created_at)
     sectors = Sector.objects.all()
     attendants = Attendant.objects.select_related('user').filter(user__is_active=True)
     name_map = _build_name_map(conversation) if conversation.is_group else None
@@ -1263,6 +1351,9 @@ def conversation_send_view(request, conversation_id):
     conversation = get_object_or_404(
         Conversation.objects.select_related('contact'), pk=conversation_id
     )
+    denied = deny_conversation_json(request, conversation)
+    if denied:
+        return denied
     text = (request.POST.get('text') or '').strip()
     if not text:
         return JsonResponse({'ok': False, 'error': 'Digite uma mensagem para enviar.'}, status=400)
@@ -1371,6 +1462,9 @@ def conversation_send_media_view(request, conversation_id):
     conversation = get_object_or_404(
         Conversation.objects.select_related('contact'), pk=conversation_id
     )
+    denied = deny_conversation_json(request, conversation)
+    if denied:
+        return denied
     media_type = (request.POST.get('media_type') or '').strip()
     caption = (request.POST.get('caption') or '').strip()
     uploaded = request.FILES.get('file')
@@ -1502,6 +1596,9 @@ def conversation_name_contact_view(request):
 @require_POST
 def conversation_transfer_view(request, conversation_id):
     conversation = get_object_or_404(Conversation, pk=conversation_id)
+    denied = deny_conversation_json(request, conversation)
+    if denied:
+        return denied
     update_fields = {'updated_at'}
 
     if 'attendant_id' in request.POST:
@@ -1533,6 +1630,9 @@ def conversation_transfer_view(request, conversation_id):
 @require_POST
 def conversation_take_view(request, conversation_id):
     conversation = get_object_or_404(Conversation, pk=conversation_id)
+    denied = deny_conversation_json(request, conversation)
+    if denied:
+        return denied
     attendant = getattr(request.user, 'attendant_profile', None)
     if attendant is None and request.user.role == User.Role.ADM:
         # O admin sempre pode assumir: provisiona o perfil de atendente na hora
@@ -1556,6 +1656,9 @@ def conversation_take_view(request, conversation_id):
 @require_POST
 def conversation_close_view(request, conversation_id):
     conversation = get_object_or_404(Conversation, pk=conversation_id)
+    denied = deny_conversation_json(request, conversation)
+    if denied:
+        return denied
     # Divisoria no chat marcando o fim do atendimento (o chat permanece; padrao
     # WhatsApp = um unico chat por pessoa com todo o historico).
     save_system_message(conversation, SYSTEM_CLOSE_TEXT)

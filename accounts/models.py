@@ -282,6 +282,9 @@ class RoleMenuPermission(models.Model):
     Sem linha, vale o padrao definido em `accounts/permissions.py`."""
     role = models.CharField(max_length=20, unique=True)
     allowed_keys = models.JSONField(default=list)
+    # Ao abrir uma conversa, ve a conversa inteira (True) ou so o atendimento atual
+    # (False, padrao) — o trecho apos a ultima divisoria.
+    full_history = models.BooleanField(default=False)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -297,6 +300,7 @@ class UserMenuPermission(models.Model):
     A existencia da linha significa que o usuario tem um conjunto proprio de botoes."""
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='menu_permission')
     allowed_keys = models.JSONField(default=list)
+    full_history = models.BooleanField(default=False)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -305,6 +309,25 @@ class UserMenuPermission(models.Model):
 
     def __str__(self):
         return f'Permissoes de {self.user.email}'
+
+
+class GroupAccess(models.Model):
+    """Quem pode ver um GRUPO do WhatsApp. Sem regra cadastrada, o grupo fica
+    visivel apenas para o administrador (que ve tudo). Liberacao por setor e/ou por
+    usuario especifico."""
+    conversation = models.OneToOneField(
+        'Conversation', on_delete=models.CASCADE, related_name='access'
+    )
+    sectors = models.ManyToManyField('Sector', blank=True, related_name='group_accesses')
+    users = models.ManyToManyField(User, blank=True, related_name='group_accesses')
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'Acesso a grupo'
+        verbose_name_plural = 'Acessos a grupos'
+
+    def __str__(self):
+        return f'Acesso ao grupo {self.conversation_id}'
 
 
 class WapiWebhookEvent(models.Model):

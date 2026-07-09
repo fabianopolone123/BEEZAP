@@ -883,6 +883,11 @@ class ConversationTransferViewTests(TestCase):
         self.assertEqual(data['sector'], 'Vendas')
 
     def test_attendant_can_take_conversation(self):
+        # O atendente so ve/assume conversas do setor dele (ou atribuidas a ele).
+        self.attendant.sectors.add(self.sector)
+        self.conversation.sector = self.sector
+        self.conversation.status = 'pending'
+        self.conversation.save(update_fields=['sector', 'status'])
         self.client.force_login(self.attendant_user)
 
         response = self.client.post(reverse('conversation-take', args=[self.conversation.id]))
@@ -1477,3 +1482,89 @@ class MenuPermissionsTests(TestCase):
             'form_type': 'user-reset', 'user_id': str(self.user.id),
         })
         self.assertFalse(UserMenuPermission.objects.filter(user=self.user).exists())
+
+
+class ConversationVisibilityTests(TestCase):
+    """Separacao das conversas: quem ve quais chats + escopo do historico."""
+
+    def setUp(self):
+        from accounts.models import Contact, Conversation, Sector
+        self.Conversation = Conversation
+        self.admin = User.objects.create_user(email='adm@x.com', password='x', role=User.Role.ADM)
+        self.uuser = User.objects.create_user(email='joao@x.com', password='x', role=User.Role.USUARIO)
+        self.att = Attendant.objects.create(user=self.uuser, name='Joao', must_change_password=False)
+        self.vendas = Sector.objects.create(name='Vendas')
+        self.compras = Sector.objects.create(name='Compras')
+        self.att.sectors.add(self.vendas)
+
+        c1 = Contact.objects.create(name='A', phone='5511111111111')
+        self.direct_vendas = Conversation.objects.create(
+            contact=c1, external_id='5511111111111', chat_type='private',
+            status='pending', sector=self.vendas)
+        c2 = Contact.objects.create(name='B', phone='5522222222222')
+        self.direct_compras = Conversation.objects.create(
+            contact=c2, external_id='5522222222222', chat_type='private',
+            status='pending', sector=self.compras)
+        self.group = Conversation.objects.create(
+            external_id='123@g.us', chat_type='group', name='Grupo X', status='open')
+
+    def _visible_ids(self, user):
+        from accounts.permissions import visible_conversations
+        return set(visible_conversations(user, self.Conversation.objects.all())
+                   .values_list('id', flat=True))
+
+    def test_admin_sees_all(self):
+        self.assertEqual(len(self._visible_ids(self.admin)), 3)
+
+    def test_user_sees_only_own_sector_direct(self):
+        ids = self._visible_ids(self.uuser)
+        self.assertIn(self.direct_vendas.id, ids)
+        self.assertNotIn(self.direct_compras.id, ids)
+        self.assertNotIn(self.group.id, ids)  # grupo sem liberacao
+
+    def test_group_access_by_sector(self):
+        from accounts.models import GroupAccess
+        acc = GroupAccess.objects.create(conversation=self.group)
+        acc.sectors.add(self.vendas)
+        self.assertIn(self.group.id, self._visible_ids(self.uuser))
+
+    def test_group_access_by_user(self):
+        from accounts.models import GroupAccess
+        acc = GroupAccess.objects.create(conversation=self.group)
+        acc.users.add(self.uuser)
+        self.assertIn(self.group.id, self._visible_ids(self.uuser))
+
+    def test_messages_gate_403_for_other_sector(self):
+        self.client.force_login(self.uuser)
+        self.assertEqual(
+            self.client.get(reverse('conversation-messages', args=[self.direct_compras.id])).status_code, 403)
+        self.assertEqual(
+            self.client.get(reverse('conversation-messages', args=[self.direct_vendas.id])).status_code, 200)
+
+    def test_history_scope(self):
+        from datetime import timedelta
+        from django.utils import timezone
+        from accounts.models import Message, RoleMenuPermission
+        base = timezone.now()
+        old = Message.objects.create(conversation=self.direct_vendas, direction='in',
+                                     message_type='text', text='mensagem antiga')
+        div = Message.objects.create(conversation=self.direct_vendas, direction='out',
+                                     message_type='system', text='Novo atendimento iniciado')
+        new = Message.objects.create(conversation=self.direct_vendas, direction='in',
+                                     message_type='text', text='mensagem nova')
+        Message.objects.filter(pk=old.pk).update(created_at=base - timedelta(hours=2))
+        Message.objects.filter(pk=div.pk).update(created_at=base - timedelta(hours=1))
+        Message.objects.filter(pk=new.pk).update(created_at=base)
+
+        self.client.force_login(self.uuser)
+        # Padrao: so o atendimento atual (apos a divisoria) — nao ve a "mensagem antiga".
+        data = self.client.get(reverse('conversation-messages', args=[self.direct_vendas.id])).json()
+        texts = [m['text'] for m in data['messages']]
+        self.assertIn('mensagem nova', texts)
+        self.assertNotIn('mensagem antiga', texts)
+        # Com "conversa inteira" no perfil, ve tudo.
+        RoleMenuPermission.objects.update_or_create(
+            role='usuario', defaults={'allowed_keys': ['conversations'], 'full_history': True})
+        data = self.client.get(reverse('conversation-messages', args=[self.direct_vendas.id])).json()
+        texts = [m['text'] for m in data['messages']]
+        self.assertIn('mensagem antiga', texts)

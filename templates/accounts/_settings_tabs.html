@@ -28,7 +28,7 @@ na area Atendimento, o `mode_form` (seletor do modo mestre).
       </div>
       <button type="submit" class="secondary-button">Salvar modo</button>
       <small class="reception-mode-help">
-        Escolha quem faz o primeiro atendimento das conversas diretas. So um roda por vez.
+        Escolha quem faz o primeiro atendimento das conversas diretas. Só um roda por vez.
       </small>
     </form>
 
@@ -36,7 +36,7 @@ na area Atendimento, o `mode_form` (seletor do modo mestre).
       <a href="{% url 'atendimento' %}"
          class="settings-subtab {% if settings_tabs.active_subtab == 'chatbot' %}active{% endif %}">Chatbot de menu</a>
       <a href="{% url 'openai-settings' %}"
-         class="settings-subtab {% if settings_tabs.active_subtab == 'ia' %}active{% endif %}">Inteligencia (IA)</a>
+         class="settings-subtab {% if settings_tabs.active_subtab == 'ia' %}active{% endif %}">Inteligência (IA)</a>
     </nav>
   </div>
 {% endif %}

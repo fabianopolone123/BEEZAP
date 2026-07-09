@@ -35,7 +35,7 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
 > `wapi/` é um módulo Python comum (importa `accounts.models`); **não** está em
 > `INSTALLED_APPS`, por isso os models ficam em `accounts/models.py`.
 
-## 3. Modelos (`accounts/models.py`) — migração atual: `0026`
+## 3. Modelos (`accounts/models.py`) — migração atual: `0027`
 
 - **User** (AbstractUser, login por e-mail; `role`: `leitor`/`usuario`/`adm`).
 - **Attendant** (perfil de atendente, vínculo com User, troca de senha inicial).
@@ -47,7 +47,10 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
   os admins. `conversation_take_view` também provisiona na hora (rede de segurança) e
   a edição de atendente **não rebaixa** um adm.
 - **RoleMenuPermission** / **UserMenuPermission**: permissões de menu (quais botões
-  cada perfil vê/acessa, e personalização por usuário). Ver seção 15.
+  cada perfil vê/acessa, e personalização por usuário) + `full_history` (ver a
+  conversa inteira ou só o atendimento atual). Ver seção 15.
+- **GroupAccess**: quem pode ver um grupo do WhatsApp (M2M com setores e usuários).
+  Sem regra, o grupo só aparece para o admin. Ver seção 15.
 - **Sector** (setores; M2M com Attendant; usado em transferência/roteamento manual).
   Na tela Setores, um atendente pode ficar em **vários setores** (fica sempre na
   coluna "disponíveis"; arrastar/"+ Adicionar" inclui, ✕ remove; cada card mostra
@@ -571,7 +574,22 @@ esconder o botão também bloqueia a URL.
 - **Landing pós-login**: quem não tem Dashboard cai na 1ª tela disponível
   (`first_landing_url_name`; `dashboard_view` redireciona).
 - **Tela Permissões** (`permissions_view`, rota `permissoes/`, `permissions.html` +
-  `permissions.css`, **só ADM**): toggles (switches) por perfil (Administrador
-  mostrado travado como "acesso total") + seção "Personalizar um usuário" (select →
-  toggles do usuário; "Voltar ao padrão do perfil" remove a personalização).
+  `permissions.css`, **só ADM**) — em **abas**:
+  - **Botões do perfil**: toggles por perfil (Administrador travado como "acesso
+    total") + seção "Personalizar um usuário" (select → toggles). Cada perfil/usuário
+    tem também o toggle **"Ver conversa inteira"** (`full_history`).
+  - **Grupos**: lista os grupos detectados (Conversation `chat_type='group'`) e libera
+    cada um por **setor** e/ou **usuário** (grava em `GroupAccess`).
   `build_nav_items(user, active_label)` monta o menu a partir dessas regras.
+
+### Separação das conversas (quem vê quais chats)
+- `visible_conversations(user, qs)` / `can_see_conversation(user, conv)` em
+  `accounts/permissions.py`. **Admin vê tudo.** Não-admin vê: **diretas** atribuídas a
+  ele OU do(s) setor(es) dele; **grupos** liberados para o(s) setor(es) dele OU para
+  ele (via `GroupAccess`). Um usuário novo/sem setor **não vê nada** ("zerado").
+- Aplicado na lista (`conversations_view`, `conversation_list_view` — inclusive os
+  contadores) e nas ações (`conversation-messages/send/take/transfer/close/send-media`
+  retornam 403 se o usuário não pode ver a conversa).
+- **Escopo do histórico** (`history_full_for`): ao abrir uma conversa, quem não tem
+  "Ver conversa inteira" vê só o **atendimento atual** (mensagens a partir da última
+  divisória); admin/`full_history` vê tudo.

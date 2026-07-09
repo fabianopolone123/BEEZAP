@@ -19,16 +19,16 @@ MENU_FEATURES = [
     {'key': 'contacts',      'label': 'Contatos',       'url_name': 'contacts',      'icon': '👥'},
     {'key': 'attendants',    'label': 'Atendentes',     'url_name': 'attendants',    'icon': '🎧'},
     {'key': 'sectors',       'label': 'Setores',        'url_name': 'sectors',       'icon': '🗂️'},
-    {'key': 'settings',      'label': 'Configuracoes',  'url_name': 'wapi-settings', 'icon': '⚙️'},
+    {'key': 'settings',      'label': 'Configurações',  'url_name': 'wapi-settings', 'icon': '⚙️'},
 ]
 ALL_FEATURE_KEYS = [f['key'] for f in MENU_FEATURES]
 
 # Item exclusivo do admin (fora da matriz de toggles).
-PERMISSIONS_ITEM = {'label': 'Permissoes', 'url_name': 'permissions'}
+PERMISSIONS_ITEM = {'label': 'Permissões', 'url_name': 'permissions'}
 
 # Perfis que aparecem na tela para edicao (o admin e sempre acesso total).
 EDITABLE_ROLES = [
-    {'role': 'usuario', 'label': 'Usuario'},
+    {'role': 'usuario', 'label': 'Usuário'},
     {'role': 'leitor', 'label': 'Leitor'},
 ]
 
@@ -110,3 +110,65 @@ def first_landing_url_name(user):
         if user_can_access(user, f['key']):
             return f['url_name']
     return 'conversations'
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Visibilidade das CONVERSAS (quem ve quais chats) + escopo do historico.
+# ─────────────────────────────────────────────────────────────────────────────
+
+def user_sector_ids(user):
+    """IDs dos setores dos quais o usuario faz parte (via perfil de atendente)."""
+    from .models import Sector
+    return list(Sector.objects.filter(attendants__user=user).values_list('id', flat=True))
+
+
+def visible_conversations_q(user):
+    """Q das conversas que um usuario NAO-admin pode ver:
+    - diretas: atribuidas a ele OU do(s) setor(es) dele;
+    - grupos: liberados para o(s) setor(es) dele OU para ele (GroupAccess)."""
+    from django.db.models import Q
+    sector_ids = user_sector_ids(user)
+    direct = Q(chat_type='private') & (
+        Q(assigned_attendant__user=user) | Q(sector_id__in=sector_ids)
+    )
+    group = Q(chat_type='group') & (
+        Q(access__sectors__id__in=sector_ids) | Q(access__users=user)
+    )
+    return direct | group
+
+
+def visible_conversations(user, queryset):
+    """Filtra um queryset de Conversation pelo que o usuario pode ver. Admin = tudo."""
+    if not getattr(user, 'is_authenticated', False):
+        return queryset.none()
+    if user.role == 'adm':
+        return queryset
+    return queryset.filter(visible_conversations_q(user)).distinct()
+
+
+def can_see_conversation(user, conversation):
+    if not getattr(user, 'is_authenticated', False):
+        return False
+    if user.role == 'adm':
+        return True
+    from .models import Conversation
+    return visible_conversations(
+        user, Conversation.objects.filter(pk=conversation.pk)
+    ).exists()
+
+
+def history_full_for(user):
+    """O usuario ve a conversa INTEIRA (True) ou so o atendimento atual (False)?
+    Admin sempre ve tudo. Personalizacao do usuario > perfil > padrao (False)."""
+    if not getattr(user, 'is_authenticated', False):
+        return False
+    if user.role == 'adm':
+        return True
+    from .models import RoleMenuPermission, UserMenuPermission
+    override = UserMenuPermission.objects.filter(user=user).first()
+    if override is not None:
+        return bool(override.full_history)
+    row = RoleMenuPermission.objects.filter(role=user.role).first()
+    if row is not None:
+        return bool(row.full_history)
+    return False
