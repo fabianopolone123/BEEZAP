@@ -668,14 +668,16 @@ class AttendantsViewTests(TestCase):
             follow=True,
         )
 
-        self.assertRedirects(response, reverse('dashboard'))
+        # O usuario comum nao tem Dashboard por padrao: apos trocar a senha ele cai
+        # na primeira tela disponivel (Conversas).
+        self.assertRedirects(response, reverse('conversations'))
         attendant.refresh_from_db()
         attendant_user.refresh_from_db()
         self.assertFalse(attendant.must_change_password)
         self.assertTrue(attendant_user.check_password('SenhaNova123'))
         self.client.logout()
         self.assertTrue(self.client.login(email='trocasenha@beezap.com', password='SenhaNova123'))
-        response = self.client.get(reverse('dashboard'))
+        response = self.client.get(reverse('conversations'))
         self.assertEqual(response.status_code, 200)
 
     def test_admin_without_attendant_profile_is_not_forced_to_change_password(self):
@@ -1408,3 +1410,70 @@ class AdminAttendantTests(TestCase):
         conv.refresh_from_db()
         self.assertEqual(conv.assigned_attendant_id, self.admin.attendant_profile.id)
         self.assertEqual(conv.status, 'open')
+
+
+class MenuPermissionsTests(TestCase):
+    """Permissoes de menu: padrao por perfil, telas gateadas, concessao por perfil
+    e personalizacao por usuario."""
+
+    def setUp(self):
+        self.admin = User.objects.create_user(email='adm@x.com', password='x', role=User.Role.ADM)
+        self.user = User.objects.create_user(email='joao@x.com', password='x', role=User.Role.USUARIO)
+
+    def test_usuario_default_menu(self):
+        self.client.force_login(self.user)
+        # Sem Dashboard (redireciona) e sem Setores (403); Conversas ok.
+        self.assertEqual(self.client.get(reverse('dashboard')).status_code, 302)
+        self.assertEqual(self.client.get(reverse('sectors')).status_code, 403)
+        self.assertEqual(self.client.get(reverse('conversations')).status_code, 200)
+        nav = self.client.get(reverse('conversations')).content.decode()
+        self.assertNotIn('>Setores<', nav)
+        self.assertNotIn('>Dashboard<', nav)
+
+    def test_admin_sees_permissions_page(self):
+        self.client.force_login(self.admin)
+        self.assertEqual(self.client.get(reverse('permissions')).status_code, 200)
+        self.assertEqual(self.client.get(reverse('sectors')).status_code, 200)
+
+    def test_usuario_cannot_open_permissions(self):
+        self.client.force_login(self.user)
+        self.assertEqual(self.client.get(reverse('permissions')).status_code, 403)
+
+    def test_grant_sector_to_role(self):
+        self.client.force_login(self.admin)
+        self.client.post(reverse('permissions'), {
+            'form_type': 'roles',
+            'role__usuario__conversations': 'on',
+            'role__usuario__sectors': 'on',
+        })
+        self.client.force_login(self.user)
+        self.assertEqual(self.client.get(reverse('sectors')).status_code, 200)
+
+    def test_user_override(self):
+        from accounts.models import UserMenuPermission
+        self.client.force_login(self.admin)
+        # Concede tudo ao perfil, mas restringe o usuario so a Conversas.
+        self.client.post(reverse('permissions'), {
+            'form_type': 'roles',
+            'role__usuario__conversations': 'on',
+            'role__usuario__contacts': 'on',
+            'role__usuario__sectors': 'on',
+        })
+        self.client.post(reverse('permissions'), {
+            'form_type': 'user', 'user_id': str(self.user.id),
+            'userkey__conversations': 'on',
+        })
+        self.assertTrue(UserMenuPermission.objects.filter(user=self.user).exists())
+        self.client.force_login(self.user)
+        self.assertEqual(self.client.get(reverse('sectors')).status_code, 403)
+        self.assertEqual(self.client.get(reverse('contacts')).status_code, 403)
+        self.assertEqual(self.client.get(reverse('conversations')).status_code, 200)
+
+    def test_user_override_reset(self):
+        from accounts.models import UserMenuPermission
+        UserMenuPermission.objects.create(user=self.user, allowed_keys=['conversations'])
+        self.client.force_login(self.admin)
+        self.client.post(reverse('permissions'), {
+            'form_type': 'user-reset', 'user_id': str(self.user.id),
+        })
+        self.assertFalse(UserMenuPermission.objects.filter(user=self.user).exists())

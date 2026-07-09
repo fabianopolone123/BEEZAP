@@ -1,0 +1,164 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Permissoes | BEEZap{% endblock %}
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/dashboard.css' %}">
+<link rel="stylesheet" href="{% static 'css/permissions.css' %}?v=1">
+{% endblock %}
+
+{% block content %}
+<main class="dashboard-shell">
+  <aside class="sidebar">
+    <div class="sidebar-brand">
+      <img src="{% static 'images/logo-transparent.png' %}" alt="BEEZap" class="sidebar-logo">
+      <div>
+        <strong>BEEZap</strong>
+        <span>Central de atendimento</span>
+      </div>
+    </div>
+    <nav class="sidebar-nav">
+      {% for item in nav_items %}
+        <a href="{% if item.href %}{% url item.href %}{% else %}#{% endif %}" class="nav-item {% if item.active %}active{% endif %}">
+          <span class="nav-dot"></span>
+          <span>{{ item.label }}</span>
+        </a>
+      {% endfor %}
+    </nav>
+  </aside>
+
+  <section class="dashboard-main dashboard-main-ai">
+    <div class="permissions-page">
+      <header class="topbar">
+        <div class="topbar-left">
+          <button class="icon-button" type="button" aria-label="Abrir menu">☰</button>
+          <div>
+            <p class="page-kicker">Administrativo</p>
+            <h1>Permissoes</h1>
+          </div>
+        </div>
+        <div class="topbar-right">
+          <div class="profile-chip">
+            <div class="profile-avatar">{{ user_initial }}</div>
+            <div>
+              <strong>{{ request.user.get_full_name|default:request.user.email }}</strong>
+              <span>{{ role_label }}</span>
+            </div>
+          </div>
+          <a href="{% url 'logout' %}" class="logout-link">Sair</a>
+        </div>
+      </header>
+
+      <section class="settings-stack">
+
+        <!-- ===== Por perfil ===== -->
+        <form method="post" class="perm-card">
+          {% csrf_token %}
+          <input type="hidden" name="form_type" value="roles">
+
+          <div class="perm-head">
+            <h2>Botoes por perfil</h2>
+          </div>
+
+          <div class="perm-role perm-role-locked">
+            <div class="perm-role-title">
+              <span>Administrador</span>
+              <span class="perm-role-tag">Acesso total</span>
+            </div>
+            <div class="perm-grid">
+              {% for f in features %}
+                <div class="perm-toggle is-on is-locked" title="Administrador tem acesso total">
+                  <span class="perm-ico">{{ f.icon }}</span>
+                  <span class="perm-label">{{ f.label }}</span>
+                  <span class="perm-switch" aria-hidden="true"></span>
+                </div>
+              {% endfor %}
+            </div>
+          </div>
+
+          {% for role in roles %}
+          <div class="perm-role">
+            <div class="perm-role-title"><span>{{ role.label }}</span></div>
+            <div class="perm-grid">
+              {% for f in role.features %}
+                <label class="perm-toggle {% if f.checked %}is-on{% endif %}">
+                  <input type="checkbox" name="role__{{ role.role }}__{{ f.key }}" {% if f.checked %}checked{% endif %}>
+                  <span class="perm-ico">{{ f.icon }}</span>
+                  <span class="perm-label">{{ f.label }}</span>
+                  <span class="perm-switch" aria-hidden="true"></span>
+                </label>
+              {% endfor %}
+            </div>
+          </div>
+          {% endfor %}
+
+          <div class="perm-actions">
+            <button type="submit" class="primary-button">Salvar perfis</button>
+          </div>
+        </form>
+
+        <!-- ===== Por usuario ===== -->
+        <article class="perm-card">
+          <div class="perm-head">
+            <h2>Personalizar um usuario</h2>
+          </div>
+
+          <form method="get" class="perm-user-picker">
+            <select name="user" class="perm-select" onchange="this.form.submit()">
+              <option value="">Selecione um usuario...</option>
+              {% for u in users %}
+                <option value="{{ u.id }}" {% if selected_user and selected_user.id == u.id %}selected{% endif %}>
+                  {{ u.name }} ({{ u.role_label }}){% if u.custom %} • personalizado{% endif %}
+                </option>
+              {% endfor %}
+            </select>
+          </form>
+
+          {% if selected_user %}
+          <form method="post" class="perm-user-form">
+            {% csrf_token %}
+            <input type="hidden" name="form_type" value="user">
+            <input type="hidden" name="user_id" value="{{ selected_user.id }}">
+
+            <div class="perm-grid">
+              {% for f in selected_user.features %}
+                <label class="perm-toggle {% if f.checked %}is-on{% endif %}">
+                  <input type="checkbox" name="userkey__{{ f.key }}" {% if f.checked %}checked{% endif %}>
+                  <span class="perm-ico">{{ f.icon }}</span>
+                  <span class="perm-label">{{ f.label }}</span>
+                  <span class="perm-switch" aria-hidden="true"></span>
+                </label>
+              {% endfor %}
+            </div>
+
+            <div class="perm-actions">
+              <button type="submit" class="primary-button">Salvar {{ selected_user.name }}</button>
+            </div>
+          </form>
+          {% if selected_user.custom %}
+          <form method="post" class="perm-reset-form">
+            {% csrf_token %}
+            <input type="hidden" name="form_type" value="user-reset">
+            <input type="hidden" name="user_id" value="{{ selected_user.id }}">
+            <button type="submit" class="secondary-button">Voltar ao padrao do perfil</button>
+          </form>
+          {% endif %}
+          {% endif %}
+        </article>
+
+      </section>
+    </div>
+  </section>
+</main>
+
+<script>
+  (function () {
+    // Feedback visual imediato do toggle (a classe is-on segue o checkbox).
+    document.querySelectorAll('.perm-toggle input[type="checkbox"]').forEach(function (cb) {
+      cb.addEventListener('change', function () {
+        cb.closest('.perm-toggle').classList.toggle('is-on', cb.checked);
+      });
+    });
+  }());
+</script>
+{% endblock %}

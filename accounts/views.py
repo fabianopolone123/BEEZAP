@@ -47,8 +47,10 @@ from .models import (
     Message,
     OpenAiConfiguration,
     PasswordResetCode,
+    RoleMenuPermission,
     Sector,
     User,
+    UserMenuPermission,
     WapiConfiguration,
     WapiWebhookEvent,
 )
@@ -106,18 +108,6 @@ ROLE_RANK = {
     'adm': 3,
 }
 
-NAV_ITEMS = [
-    {'label': 'Dashboard', 'required': 'leitor', 'url_name': 'dashboard'},
-    {'label': 'Conversas', 'required': 'leitor', 'url_name': 'conversations'},
-    {'label': 'Atendimentos', 'required': 'leitor', 'url_name': None},
-    {'label': 'Contatos', 'required': 'leitor', 'url_name': 'contacts'},
-    {'label': 'Atendentes', 'required': 'adm', 'url_name': 'attendants'},
-    {'label': 'Setores', 'required': 'adm', 'url_name': 'sectors'},
-    {'label': 'Campanhas', 'required': 'usuario', 'url_name': None},
-    {'label': 'Relatorios', 'required': 'leitor', 'url_name': None},
-    {'label': 'Configuracoes', 'required': 'adm', 'url_name': 'wapi-settings'},
-]
-
 
 # Abas da area de Configuracoes (barra horizontal no topo das telas de config).
 # WhatsApp (W-API) e Atendimento (chatbot de menu + IA). A aba Atendimento tem duas
@@ -130,17 +120,19 @@ def build_settings_tabs(active_tab, active_subtab=''):
     }
 
 
-def build_nav_items(role, active_label):
-    role_rank = ROLE_RANK.get(role, 1)
-    items = []
-    for item in NAV_ITEMS:
-        if role_rank >= ROLE_RANK[item['required']]:
-            items.append({
-                **item,
-                'active': item['label'] == active_label,
-                'href': item['url_name'],
-            })
-    return items
+def build_nav_items(user, active_label):
+    """Itens do menu conforme as PERMISSOES do usuario (ver accounts/permissions.py)."""
+    from .permissions import nav_items_for
+    return nav_items_for(user, active_label)
+
+
+def require_feature(request, key):
+    """Retorna 403 se o usuario nao pode acessar a feature/botao `key` (o admin
+    sempre pode). Retorna None quando o acesso e permitido."""
+    from .permissions import user_can_access
+    if not user_can_access(request.user, key):
+        return HttpResponseForbidden('Acesso restrito.')
+    return None
 
 
 def split_name_parts(full_name):
@@ -411,6 +403,10 @@ def password_recovery_set_password_view(request):
 
 @login_required
 def dashboard_view(request):
+    # Quem nao tem o botao Dashboard cai na primeira tela disponivel (ex.: Conversas).
+    from .permissions import user_can_access, first_landing_url_name
+    if not user_can_access(request.user, 'dashboard'):
+        return redirect(first_landing_url_name(request.user))
     role = request.user.role
     role_rank = ROLE_RANK.get(role, 1)
 
@@ -445,7 +441,7 @@ def dashboard_view(request):
             'role': role,
             'role_label': request.user.get_role_display(),
             'user_initial': (request.user.first_name[:1] or request.user.email[:1]).upper(),
-            'nav_items': build_nav_items(role, 'Dashboard'),
+            'nav_items': build_nav_items(request.user, 'Dashboard'),
             'quick_actions': visible_actions,
             'stats': stats,
             'table_rows': table_rows,
@@ -458,8 +454,9 @@ def openai_settings_view(request):
     """Sub-aba Inteligencia (IA) da area Atendimento: cadastra a API Key do GPT,
     escolhe o modelo, edita o prompt e testa a conexao. A ATIVACAO (ligar a IA) e
     feita pelo seletor de modo no topo da area Atendimento, nao mais aqui. Apenas ADM."""
-    if request.user.role != 'adm':
-        return HttpResponseForbidden('Acesso restrito.')
+    forbidden = require_feature(request, 'settings')
+    if forbidden:
+        return forbidden
 
     from gpt.attendant import (
         DEFAULT_INSTRUCTIONS,
@@ -519,7 +516,7 @@ def openai_settings_view(request):
         {
             'config_form': config_form,
             'config': config,
-            'nav_items': build_nav_items(request.user.role, 'Configuracoes'),
+            'nav_items': build_nav_items(request.user, 'Configuracoes'),
             'settings_tabs': build_settings_tabs('atendimento', 'ia'),
             'mode_form': ReceptionModeForm(initial={'mode': menubot.mode}),
             'ai_active': menubot.mode == MenuBotConfiguration.MODE_AI,
@@ -548,8 +545,9 @@ def atendimento_view(request):
     """Sub-aba Chatbot da area Atendimento: configura o chatbot de menu (saudacao,
     opcoes numeradas -> setor, tentativas, fallback) e mostra a previa do menu.
     O seletor de modo (desligado/chatbot/IA) fica no topo. Apenas ADM."""
-    if request.user.role != 'adm':
-        return HttpResponseForbidden('Acesso restrito.')
+    forbidden = require_feature(request, 'settings')
+    if forbidden:
+        return forbidden
 
     from chatbot.handler import (
         DEFAULT_CONFIRMATION_MESSAGE,
@@ -598,7 +596,7 @@ def atendimento_view(request):
             'sectors': sectors,
             # Setores em JSON para o preenchimento automatico (JS monta as opcoes).
             'sectors_json': [{'id': s.id, 'name': s.name} for s in sectors],
-            'nav_items': build_nav_items(request.user.role, 'Configuracoes'),
+            'nav_items': build_nav_items(request.user, 'Configuracoes'),
             'settings_tabs': build_settings_tabs('atendimento', 'chatbot'),
             'mode_form': ReceptionModeForm(initial={'mode': config.mode}),
             'menu_active': config.mode == MenuBotConfiguration.MODE_MENU,
@@ -637,8 +635,9 @@ def _save_menu_options(config, post):
 def atendimento_set_mode_view(request):
     """Salva o MODO mestre de primeiro atendimento (desligado/chatbot/IA) e volta
     para a sub-aba de origem. Apenas ADM."""
-    if request.user.role != 'adm':
-        return HttpResponseForbidden('Acesso restrito.')
+    forbidden = require_feature(request, 'settings')
+    if forbidden:
+        return forbidden
     config = MenuBotConfiguration.get_solo()
     form = ReceptionModeForm(request.POST)
     if form.is_valid():
@@ -654,9 +653,110 @@ def atendimento_set_mode_view(request):
 
 
 @login_required
+def permissions_view(request):
+    """Tela Permissoes (so ADM): define quais botoes do menu cada PERFIL ve/acessa
+    e permite personalizar um USUARIO especifico. O Administrador tem sempre acesso
+    total (nao editavel)."""
+    forbidden = require_feature(request, 'permissions')
+    if forbidden:
+        return forbidden
+
+    from .permissions import (
+        EDITABLE_ROLES, MENU_FEATURES, ALL_FEATURE_KEYS,
+        role_allowed_keys, allowed_keys_for,
+    )
+    valid_keys = set(ALL_FEATURE_KEYS)
+
+    if request.method == 'POST':
+        form_type = request.POST.get('form_type')
+
+        if form_type == 'roles':
+            for entry in EDITABLE_ROLES:
+                role = entry['role']
+                chosen = [k for k in ALL_FEATURE_KEYS
+                          if request.POST.get(f'role__{role}__{k}') == 'on']
+                RoleMenuPermission.objects.update_or_create(
+                    role=role, defaults={'allowed_keys': chosen})
+            messages.success(request, 'Permissoes dos perfis salvas.')
+            return redirect('permissions')
+
+        if form_type == 'user':
+            user_id = (request.POST.get('user_id') or '').strip()
+            target = User.objects.filter(pk=user_id).first() if user_id else None
+            if not target or target.role == 'adm':
+                messages.error(request, 'Selecione um usuario valido.')
+                return redirect('permissions')
+            chosen = [k for k in ALL_FEATURE_KEYS
+                      if request.POST.get(f'userkey__{k}') == 'on']
+            UserMenuPermission.objects.update_or_create(
+                user=target, defaults={'allowed_keys': chosen})
+            messages.success(request, f'Permissoes de {target.email} salvas.')
+            return redirect(f'{reverse("permissions")}?user={target.id}')
+
+        if form_type == 'user-reset':
+            user_id = (request.POST.get('user_id') or '').strip()
+            UserMenuPermission.objects.filter(user_id=user_id).delete()
+            messages.success(request, 'Personalizacao removida (voltou ao padrao do perfil).')
+            return redirect('permissions')
+
+    # ----- GET -----
+    roles_ctx = []
+    for entry in EDITABLE_ROLES:
+        keys = role_allowed_keys(entry['role'])
+        roles_ctx.append({
+            'role': entry['role'],
+            'label': entry['label'],
+            'features': [
+                {**f, 'checked': f['key'] in keys} for f in MENU_FEATURES
+            ],
+        })
+
+    users = list(
+        User.objects.exclude(role='adm').filter(is_active=True).order_by('email')
+    )
+    override_ids = set(
+        UserMenuPermission.objects.values_list('user_id', flat=True)
+    )
+    users_ctx = [
+        {'id': u.id, 'email': u.email, 'name': u.get_full_name() or u.email,
+         'role_label': u.get_role_display(), 'custom': u.id in override_ids}
+        for u in users
+    ]
+
+    selected_id = (request.GET.get('user') or '').strip()
+    selected = User.objects.filter(pk=selected_id).exclude(role='adm').first() if selected_id else None
+    selected_ctx = None
+    if selected:
+        keys = allowed_keys_for(selected)
+        selected_ctx = {
+            'id': selected.id,
+            'email': selected.email,
+            'name': selected.get_full_name() or selected.email,
+            'role_label': selected.get_role_display(),
+            'custom': selected.id in override_ids,
+            'features': [{**f, 'checked': f['key'] in keys} for f in MENU_FEATURES],
+        }
+
+    return render(
+        request,
+        'accounts/permissions.html',
+        {
+            'nav_items': build_nav_items(request.user, 'Permissoes'),
+            'role_label': request.user.get_role_display(),
+            'user_initial': (request.user.first_name[:1] or request.user.email[:1]).upper(),
+            'features': MENU_FEATURES,
+            'roles': roles_ctx,
+            'users': users_ctx,
+            'selected_user': selected_ctx,
+        },
+    )
+
+
+@login_required
 def wapi_settings_view(request):
-    if request.user.role != 'adm':
-        return HttpResponseForbidden('Acesso restrito.')
+    forbidden = require_feature(request, 'settings')
+    if forbidden:
+        return forbidden
 
     config = WapiConfiguration.get_solo()
     config_form = WapiConfigurationForm(
@@ -704,7 +804,7 @@ def wapi_settings_view(request):
             'config': config,
             'webhook_url': build_wapi_webhook_url(request),
             'latest_webhook_events': WapiWebhookEvent.objects.all()[:5],
-            'nav_items': build_nav_items(request.user.role, 'Configuracoes'),
+            'nav_items': build_nav_items(request.user, 'Configuracoes'),
             'settings_tabs': build_settings_tabs('whatsapp'),
             'role_label': request.user.get_role_display(),
             'user_initial': (request.user.first_name[:1] or request.user.email[:1]).upper(),
@@ -730,8 +830,9 @@ def wapi_webhook_events_view(request):
 
 @login_required
 def attendants_view(request):
-    if request.user.role != 'adm':
-        return HttpResponseForbidden('Acesso restrito.')
+    forbidden = require_feature(request, 'attendants')
+    if forbidden:
+        return forbidden
 
     attendants = Attendant.objects.select_related('user').all()
     form = AttendantForm()
@@ -802,7 +903,7 @@ def attendants_view(request):
             'form': form,
             'show_modal': show_modal,
             'modal_mode': modal_mode,
-            'nav_items': build_nav_items(request.user.role, 'Atendentes'),
+            'nav_items': build_nav_items(request.user, 'Atendentes'),
             'role_label': request.user.get_role_display(),
             'user_initial': (request.user.first_name[:1] or request.user.email[:1]).upper(),
         },
@@ -1023,6 +1124,9 @@ def _conversation_type_counts():
 
 @login_required
 def conversations_view(request):
+    forbidden = require_feature(request, 'conversations')
+    if forbidden:
+        return forbidden
     role = request.user.role
     conversations = (
         Conversation.objects.select_related('contact', 'assigned_attendant', 'sector').all()
@@ -1042,7 +1146,7 @@ def conversations_view(request):
         'accounts/conversations.html',
         {
             'role': role,
-            'nav_items': build_nav_items(role, 'Conversas'),
+            'nav_items': build_nav_items(request.user, 'Conversas'),
             'role_label': request.user.get_role_display(),
             'user_initial': (request.user.first_name[:1] or request.user.email[:1]).upper(),
             'conversations': [_serialize_conversation_item(c) for c in conversations],
@@ -1056,6 +1160,9 @@ def conversations_view(request):
 def contacts_view(request):
     """Lista/gerencia os contatos (nome + telefone). Os nomes salvos aqui aparecem
     no lugar do numero nas mensagens de grupo (remetente e mencoes)."""
+    forbidden = require_feature(request, 'contacts')
+    if forbidden:
+        return forbidden
     if request.method == 'POST':
         action = (request.POST.get('action') or '').strip()
         if action == 'delete':
@@ -1095,7 +1202,7 @@ def contacts_view(request):
             'contacts': contacts,
             'search_term': term,
             'total_contacts': Contact.objects.count(),
-            'nav_items': build_nav_items(request.user.role, 'Contatos'),
+            'nav_items': build_nav_items(request.user, 'Contatos'),
             'role_label': request.user.get_role_display(),
             'user_initial': (request.user.first_name[:1] or request.user.email[:1]).upper(),
         },
@@ -1463,8 +1570,9 @@ def conversation_close_view(request, conversation_id):
 
 @login_required
 def sectors_view(request):
-    if request.user.role != 'adm':
-        return HttpResponseForbidden('Acesso restrito.')
+    forbidden = require_feature(request, 'sectors')
+    if forbidden:
+        return forbidden
 
     sectors = Sector.objects.prefetch_related('attendants__user').all()
     attendants = Attendant.objects.select_related('user').filter(user__is_active=True)
@@ -1533,7 +1641,7 @@ def sectors_view(request):
         'accounts/sectors.html',
         {
             'role': request.user.role,
-            'nav_items': build_nav_items(request.user.role, 'Setores'),
+            'nav_items': build_nav_items(request.user, 'Setores'),
             'role_label': request.user.get_role_display(),
             'user_initial': (request.user.first_name[:1] or request.user.email[:1]).upper(),
             'sectors': sectors,
@@ -1552,7 +1660,8 @@ def sectors_view(request):
 def sectors_save_organization_view(request):
     if not request.user.is_authenticated:
         return JsonResponse({'ok': False, 'error': 'Sessão expirada. Faça login novamente.'}, status=401)
-    if request.user.role != 'adm':
+    from .permissions import user_can_access
+    if not user_can_access(request.user, 'sectors'):
         return JsonResponse({'ok': False, 'error': 'Acesso restrito.'}, status=403)
 
     try:

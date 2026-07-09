@@ -276,6 +276,37 @@ class MenuOption(models.Model):
         return f'{self.order} - {self.label}'
 
 
+class RoleMenuPermission(models.Model):
+    """Botoes do menu liberados para um PERFIL (role). Uma linha por perfil editavel
+    (`usuario`/`leitor`). O admin nao e armazenado aqui (tem sempre acesso total).
+    Sem linha, vale o padrao definido em `accounts/permissions.py`."""
+    role = models.CharField(max_length=20, unique=True)
+    allowed_keys = models.JSONField(default=list)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'Permissao de menu (perfil)'
+        verbose_name_plural = 'Permissoes de menu (perfis)'
+
+    def __str__(self):
+        return f'Permissoes do perfil {self.role}'
+
+
+class UserMenuPermission(models.Model):
+    """Personalizacao de menu de um USUARIO especifico (sobrepoe o padrao do perfil).
+    A existencia da linha significa que o usuario tem um conjunto proprio de botoes."""
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='menu_permission')
+    allowed_keys = models.JSONField(default=list)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'Permissao de menu (usuario)'
+        verbose_name_plural = 'Permissoes de menu (usuarios)'
+
+    def __str__(self):
+        return f'Permissoes de {self.user.email}'
+
+
 class WapiWebhookEvent(models.Model):
     event_type = models.CharField(max_length=80, default='unknown')
     instance_id = models.CharField(max_length=120, blank=True, default='')

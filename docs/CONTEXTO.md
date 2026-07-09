@@ -35,7 +35,7 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
 > `wapi/` é um módulo Python comum (importa `accounts.models`); **não** está em
 > `INSTALLED_APPS`, por isso os models ficam em `accounts/models.py`.
 
-## 3. Modelos (`accounts/models.py`) — migração atual: `0025`
+## 3. Modelos (`accounts/models.py`) — migração atual: `0026`
 
 - **User** (AbstractUser, login por e-mail; `role`: `leitor`/`usuario`/`adm`).
 - **Attendant** (perfil de atendente, vínculo com User, troca de senha inicial).
@@ -46,6 +46,8 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
   ao criar/salvar um setor; a organização por arrastar-e-soltar dos setores re-inclui
   os admins. `conversation_take_view` também provisiona na hora (rede de segurança) e
   a edição de atendente **não rebaixa** um adm.
+- **RoleMenuPermission** / **UserMenuPermission**: permissões de menu (quais botões
+  cada perfil vê/acessa, e personalização por usuário). Ver seção 15.
 - **Sector** (setores; M2M com Attendant; usado em transferência/roteamento manual).
   Na tela Setores, um atendente pode ficar em **vários setores** (fica sempre na
   coluna "disponíveis"; arrastar/"+ Adicionar" inclui, ✕ remove; cada card mostra
@@ -549,3 +551,27 @@ nome do setor) e preenche todos os textos com o padrão (dados via `json_script`
 reconstruídas no save a partir dos arrays `option_label[]`/`option_sector[]`
 (`_save_menu_options`, linhas vazias ignoradas, renumeradas por ordem). O chatbot vem
 **desligado** por padrão.
+
+## 15. Permissões de menu (`accounts/permissions.py`)
+
+Controla **quais botões da barra lateral cada perfil vê e acessa** — não é só
+visual: as views são gateadas (`require_feature` / `user_can_access`), então
+esconder o botão também bloqueia a URL.
+
+- **Features** (botões reais, com ícone) em `MENU_FEATURES`: `dashboard`,
+  `conversations`, `contacts`, `attendants`, `sectors`, `settings`. O botão
+  **Permissões** (`permissions`) é exclusivo do ADM e fica fora da matriz. Os
+  placeholders antigos (Atendimentos/Campanhas/Relatórios) foram **removidos** do menu.
+- **Administrador**: sempre **acesso total** (não editável — nunca se tranca fora).
+- **Padrão** dos demais (`DEFAULT_ROLE_KEYS`): `usuario`/`leitor` = `conversations` +
+  `contacts` (sem Dashboard). Ajustável na tela.
+- **Efetivo por usuário** (`allowed_keys_for`): adm → tudo; senão a personalização do
+  usuário (`UserMenuPermission`, se houver) **sobrepõe** o padrão do perfil
+  (`RoleMenuPermission` ou o padrão do código).
+- **Landing pós-login**: quem não tem Dashboard cai na 1ª tela disponível
+  (`first_landing_url_name`; `dashboard_view` redireciona).
+- **Tela Permissões** (`permissions_view`, rota `permissoes/`, `permissions.html` +
+  `permissions.css`, **só ADM**): toggles (switches) por perfil (Administrador
+  mostrado travado como "acesso total") + seção "Personalizar um usuário" (select →
+  toggles do usuário; "Voltar ao padrão do perfil" remove a personalização).
+  `build_nav_items(user, active_label)` monta o menu a partir dessas regras.
