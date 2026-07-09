@@ -269,6 +269,29 @@
   text-overflow: ellipsis;
 }
 
+/* Selo "Admin" ao lado do nome do atendente administrador. */
+.sec-att-admin-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: #7c3aed;
+  background: rgba(124, 58, 237, 0.12);
+  vertical-align: middle;
+}
+
+/* Indicador "em N setores" na coluna de disponiveis. */
+.sec-att-sectors {
+  display: block;
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: #0d8d43;
+}
+
 .sec-drag-handle {
   font-size: 0.85rem;
   color: #cbd5e1;

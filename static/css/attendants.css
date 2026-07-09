@@ -3,6 +3,21 @@
   grid-auto-rows: max-content;
 }
 
+/* Selo "Administrador" ao lado do nome (o admin tambem atua como atendente). */
+.attendant-admin-badge {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: #7c3aed;
+  background: rgba(124, 58, 237, 0.12);
+  vertical-align: middle;
+}
+
 .attendants-page {
   display: grid;
   gap: 18px;

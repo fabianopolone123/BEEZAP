@@ -5,7 +5,7 @@
 
 {% block extra_head %}
 <link rel="stylesheet" href="{% static 'css/dashboard.css' %}">
-<link rel="stylesheet" href="{% static 'css/sectors.css' %}">
+<link rel="stylesheet" href="{% static 'css/sectors.css' %}?v=2">
 {% endblock %}
 
 {% block content %}
@@ -60,7 +60,8 @@
     <div class="sec-actions-bar">
       <div class="sec-hint">
         <span class="sec-hint-icon" aria-hidden="true">&#9432;</span>
-        Arraste os atendentes para os setores desejados.
+        Um atendente pode ficar em v&aacute;rios setores. Arraste (ou use <strong>+ Adicionar atendente</strong>)
+        para inclu&iacute;-lo em cada setor; clique no &times; para remover.
       </div>
       <div class="sec-actions-right">
         <span class="sec-dirty-msg" id="sec-dirty-msg" aria-live="polite">Existem alterações não salvas.</span>
@@ -102,8 +103,12 @@
               role="listitem">
             <div class="sec-att-avatar" aria-hidden="true">{{ att.name|first|upper }}</div>
             <div class="sec-att-info">
-              <span class="sec-att-name">{{ att.name }}</span>
+              <span class="sec-att-name">
+                {{ att.name }}
+                {% if att.user.role == 'adm' %}<span class="sec-att-admin-badge">Admin</span>{% endif %}
+              </span>
               <span class="sec-att-email">{{ att.user.email }}</span>
+              <span class="sec-att-sectors" data-count-for="{{ att.id }}"></span>
             </div>
             <span class="sec-drag-handle" aria-hidden="true">&#8942;&#8942;</span>
           </li>
@@ -150,16 +155,17 @@
           <ul class="sector-att-list" data-sector-id="{{ sector.id }}" role="list">
             {% for att in sector.attendants.all %}
             <li class="sec-att-card sec-att-in-sector"
-                draggable="true"
                 data-attendant-id="{{ att.id }}"
                 data-attendant-name="{{ att.name|escapejs }}"
                 data-attendant-email="{{ att.user.email|escapejs }}"
-                data-source="sector"
                 data-sector-id="{{ sector.id }}"
                 role="listitem">
               <div class="sec-att-avatar" aria-hidden="true">{{ att.name|first|upper }}</div>
               <div class="sec-att-info">
-                <span class="sec-att-name">{{ att.name }}</span>
+                <span class="sec-att-name">
+                  {{ att.name }}
+                  {% if att.user.role == 'adm' %}<span class="sec-att-admin-badge">Admin</span>{% endif %}
+                </span>
                 <span class="sec-att-email">{{ att.user.email }}</span>
               </div>
               <button type="button" class="sec-remove-btn"
@@ -373,31 +379,22 @@
     dirtyEl.style.display = isDirty() ? '' : 'none';
   }
 
-  /* ─── Disponibilidade na coluna de atendentes ───────── */
-  function isInAnySector(attId) {
+  /* ─── Indicador "em N setores" na coluna de disponiveis ──
+     O atendente NUNCA sai da lista de disponiveis: ele pode ser colocado em
+     quantos setores quiser. So mostramos em quantos setores ele ja esta. */
+  function sectorsCountFor(attId) {
     const id = parseInt(attId);
-    return Object.values(state).some(function (set) { return set.has(id); });
+    let n = 0;
+    for (const set of Object.values(state)) { if (set.has(id)) n++; }
+    return n;
   }
 
-  function hideFromAvailable(attId) {
-    const card = document.querySelector(
-      '#sec-available-list [data-attendant-id="' + attId + '"]'
-    );
-    if (!card) return;
-    card.dataset.inSector = '1';
-    card.style.display = 'none';
-  }
-
-  function showInAvailable(attId) {
-    const card = document.querySelector(
-      '#sec-available-list [data-attendant-id="' + attId + '"]'
-    );
-    if (!card) return;
-    delete card.dataset.inSector;
-    const q = (document.getElementById('sec-search').value || '').toLowerCase().trim();
-    const name  = (card.dataset.attendantName  || '').toLowerCase();
-    const email = (card.dataset.attendantEmail || '').toLowerCase();
-    card.style.display = (!q || name.includes(q) || email.includes(q)) ? '' : 'none';
+  function updateAvailableBadges() {
+    document.querySelectorAll('#sec-available-list [data-count-for]').forEach(function (el) {
+      const n = sectorsCountFor(el.getAttribute('data-count-for'));
+      el.textContent = n ? ('em ' + n + (n > 1 ? ' setores' : ' setor')) : '';
+      el.style.display = n ? '' : 'none';
+    });
   }
 
   /* ─── Contadores e zonas de drop ────────────────────── */
@@ -419,23 +416,21 @@
     if (!att) return null;
     const li = document.createElement('li');
     li.className = 'sec-att-card sec-att-in-sector';
-    li.draggable = true;
     li.dataset.attendantId = attId;
     li.dataset.attendantName = att.name;
     li.dataset.attendantEmail = att.email;
-    li.dataset.source = 'sector';
     li.dataset.sectorId = sectorId;
     li.setAttribute('role', 'listitem');
+    const adminBadge = att.is_admin ? '<span class="sec-att-admin-badge">Admin</span>' : '';
     li.innerHTML =
       '<div class="sec-att-avatar" aria-hidden="true">' + escHtml(att.initials) + '</div>' +
       '<div class="sec-att-info">' +
-        '<span class="sec-att-name">' + escHtml(att.name) + '</span>' +
+        '<span class="sec-att-name">' + escHtml(att.name) + adminBadge + '</span>' +
         '<span class="sec-att-email">' + escHtml(att.email) + '</span>' +
       '</div>' +
       '<button type="button" class="sec-remove-btn" ' +
         'data-attendant-id="' + attId + '" data-sector-id="' + sectorId + '" ' +
         'aria-label="Remover ' + escHtml(att.name) + ' do setor">✕</button>';
-    initDraggable(li);
     li.querySelector('.sec-remove-btn').addEventListener('click', function () {
       removeFromSector(attId, sectorId, li);
     });
@@ -447,9 +442,9 @@
     const aid = parseInt(attId);
     if (state[sid]) state[sid].delete(aid);
     if (cardEl) cardEl.remove();
-    if (!isInAnySector(aid)) showInAvailable(aid);
     updateCount(sid);
     updateDropZone(sid);
+    updateAvailableBadges();
     refreshDirty();
   }
 
@@ -488,37 +483,21 @@
       e.preventDefault();
       sectorCard.classList.remove('drag-over');
 
-      const attId       = parseInt(e.dataTransfer.getData('attendant-id'));
-      const sourceType  = e.dataTransfer.getData('source-type');
-      const sourceSec   = e.dataTransfer.getData('source-sector');
-      const sourceSid   = sourceSec ? parseInt(sourceSec) : null;
+      const attId = parseInt(e.dataTransfer.getData('attendant-id'));
 
       if (!attId) return;
       if (!state[sectorId]) state[sectorId] = new Set();
-      if (state[sectorId].has(attId)) return; /* já está aqui */
+      if (state[sectorId].has(attId)) return; /* já está neste setor */
 
-      /* Adiciona ao setor alvo */
+      /* Adiciona ao setor alvo (o atendente CONTINUA disponivel para outros setores) */
       state[sectorId].add(attId);
       const list = sectorCard.querySelector('.sector-att-list');
       const card = createSectorCard(attId, sectorId);
       if (card) list.appendChild(card);
 
-      /* Remove do setor de origem (se veio de outro setor) */
-      if (sourceType === 'sector' && sourceSid && sourceSid !== sectorId) {
-        if (state[sourceSid]) state[sourceSid].delete(attId);
-        const srcCard = sectorCard.closest('.sec-area')
-          .querySelector('.sector-card[data-sector-id="' + sourceSid + '"] ' +
-                         '.sec-att-in-sector[data-attendant-id="' + attId + '"]');
-        if (srcCard) srcCard.remove();
-        updateCount(sourceSid);
-        updateDropZone(sourceSid);
-      }
-
-      /* Oculta da lista de disponíveis se veio da coluna de disponíveis */
-      if (sourceType === 'available') hideFromAvailable(attId);
-
       updateCount(sectorId);
       updateDropZone(sectorId);
+      updateAvailableBadges();
       refreshDirty();
     });
   }
@@ -643,10 +622,11 @@
       li.className = 'sec-add-item';
       li.setAttribute('role', 'button');
       li.setAttribute('tabindex', '0');
+      const adminBadge = att.is_admin ? '<span class="sec-att-admin-badge">Admin</span>' : '';
       li.innerHTML =
         '<div class="sec-att-avatar" aria-hidden="true">' + escHtml(att.initials) + '</div>' +
         '<div class="sec-att-info">' +
-          '<span class="sec-att-name">' + escHtml(att.name) + '</span>' +
+          '<span class="sec-att-name">' + escHtml(att.name) + adminBadge + '</span>' +
           '<span class="sec-att-email">' + escHtml(att.email) + '</span>' +
         '</div>';
 
@@ -692,9 +672,9 @@
       const card = createSectorCard(attId, sectorId);
       if (card) list.appendChild(card);
     }
-    hideFromAvailable(attId);
     updateCount(sectorId);
     updateDropZone(sectorId);
+    updateAvailableBadges();
     refreshDirty();
   }
 
@@ -702,7 +682,6 @@
   document.getElementById('sec-search').addEventListener('input', function () {
     const q = this.value.toLowerCase().trim();
     document.querySelectorAll('#sec-available-list .sec-att-card').forEach(function (card) {
-      if (card.dataset.inSector) return;
       const name  = (card.dataset.attendantName  || '').toLowerCase();
       const email = (card.dataset.attendantEmail || '').toLowerCase();
       card.style.display = (!q || name.includes(q) || email.includes(q)) ? '' : 'none';
@@ -721,10 +700,8 @@
     });
   });
 
-  /* Oculta atendentes já alocados em algum setor ao carregar */
-  for (const ids of Object.values(INIT_STATE)) {
-    ids.forEach(function (id) { hideFromAvailable(id); });
-  }
+  /* Mostra em quantos setores cada atendente ja esta (ele fica sempre disponivel). */
+  updateAvailableBadges();
 
   /* ─── Abrir modal se houver erros de form ───────────── */
   {% if show_modal %}

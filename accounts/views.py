@@ -1523,6 +1523,7 @@ def sectors_view(request):
             'name': att.name,
             'email': att.user.email,
             'initials': att.name[0].upper() if att.name else '?',
+            'is_admin': att.user.role == User.Role.ADM,
         }
         for att in attendants
     }

@@ -47,6 +47,10 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
   os admins. `conversation_take_view` também provisiona na hora (rede de segurança) e
   a edição de atendente **não rebaixa** um adm.
 - **Sector** (setores; M2M com Attendant; usado em transferência/roteamento manual).
+  Na tela Setores, um atendente pode ficar em **vários setores** (fica sempre na
+  coluna "disponíveis"; arrastar/"+ Adicionar" inclui, ✕ remove; cada card mostra
+  "em N setores"). O selo **Admin/Administrador** identifica o admin em Setores e
+  Atendentes.
 - **PasswordResetCode** (recuperação de senha por código no WhatsApp).
 - **WapiConfiguration** (singleton `get_solo()`): `instance_id`, `token`,
   `webhook_token`. Credenciais reais ficam **aqui (no banco)**, editadas na tela

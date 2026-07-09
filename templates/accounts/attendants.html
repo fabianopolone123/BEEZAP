@@ -4,7 +4,7 @@
 {% block title %}Atendentes | BEEZap{% endblock %}
 {% block extra_head %}
 <link rel="stylesheet" href="{% static 'css/dashboard.css' %}">
-<link rel="stylesheet" href="{% static 'css/attendants.css' %}">
+<link rel="stylesheet" href="{% static 'css/attendants.css' %}?v=2">
 {% endblock %}
 
 {% block content %}
@@ -64,7 +64,10 @@
             <article class="attendant-row">
               <div class="attendant-cell">
                 <span class="attendant-label">Nome</span>
-                <strong>{{ attendant.name }}</strong>
+                <strong>
+                  {{ attendant.name }}
+                  {% if attendant.user.role == 'adm' %}<span class="attendant-admin-badge">Administrador</span>{% endif %}
+                </strong>
               </div>
               <div class="attendant-cell">
                 <span class="attendant-label">E-mail</span>
