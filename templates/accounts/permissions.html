@@ -4,7 +4,7 @@
 {% block title %}Permissões | BEEZap{% endblock %}
 {% block extra_head %}
 <link rel="stylesheet" href="{% static 'css/dashboard.css' %}">
-<link rel="stylesheet" href="{% static 'css/permissions.css' %}?v=4">
+<link rel="stylesheet" href="{% static 'css/permissions.css' %}?v=5">
 {% endblock %}
 
 {% block content %}
@@ -181,6 +181,8 @@
                        aria-label="Nome do grupo">
                 <span class="perm-group-jid">{{ g.jid }}</span>
               </div>
+              <button type="button" class="perm-group-remove" data-group-id="{{ g.id }}"
+                      title="Remover grupo da lista" aria-label="Remover grupo">✕</button>
             </div>
 
             <div class="perm-group-block">
@@ -307,6 +309,27 @@
       }
       input.addEventListener('blur', saveName);
       input.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); input.blur(); } });
+    });
+
+    /* ── Remover grupo da lista ── */
+    document.querySelectorAll('.perm-group-remove').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        if (!window.confirm('Remover este grupo da lista? O histórico dele será apagado. Se chegar uma nova mensagem, ele volta a aparecer.')) return;
+        var body = new FormData();
+        body.append('form_type', 'group-remove');
+        body.append('group_id', btn.dataset.groupId);
+        fetch(location.pathname, {
+          method: 'POST',
+          headers: {'X-Requested-With': 'XMLHttpRequest', 'X-CSRFToken': getCookie('csrftoken')},
+          body: body,
+        }).then(function (r) { return r.json(); }).then(function (d) {
+          if (d && d.ok) {
+            var row = btn.closest('.perm-group');
+            if (row) row.remove();
+            toast('success', 'Grupo removido.');
+          } else { toast('error', 'Nao foi possivel remover.'); }
+        }).catch(function () { toast('error', 'Nao foi possivel remover.'); });
+      });
     });
 
     /* ── Atualizar nomes dos grupos ── */

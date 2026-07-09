@@ -260,6 +260,22 @@
   word-break: break-all;
 }
 
+.perm-group-remove {
+  flex-shrink: 0;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  border: 1px solid var(--card-border);
+  background: #fff;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+.perm-group-remove:hover {
+  color: #b91c1c;
+  border-color: #fca5a5;
+}
+
 .perm-group-block { margin: 8px 0; }
 
 .perm-block-label {

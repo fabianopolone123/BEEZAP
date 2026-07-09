@@ -735,6 +735,16 @@ def permissions_view(request):
                 return JsonResponse({'ok': conv is not None})
             return redirect(f'{reverse("permissions")}?tab=grupos')
 
+        if form_type == 'group-remove':
+            gid = (request.POST.get('group_id') or '').strip()
+            deleted = 0
+            if gid:
+                deleted, _ = Conversation.objects.filter(pk=gid, chat_type='group').delete()
+            if is_ajax:
+                return JsonResponse({'ok': bool(deleted)})
+            messages.success(request, 'Grupo removido da lista.')
+            return redirect(f'{reverse("permissions")}?tab=grupos')
+
         if form_type == 'groups':
             group_ids = Conversation.objects.filter(chat_type='group').values_list('id', flat=True)
             valid_sector_ids = set(Sector.objects.values_list('id', flat=True))

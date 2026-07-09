@@ -583,7 +583,11 @@ esconder o botão também bloqueia a URL.
     cada um por **setor** e/ou **usuário** (grava em `GroupAccess`); botão **"Atualizar
     nomes"** chama `conversation-sync-groups` (nome real do grupo via W-API). O **nome
     do grupo é editável inline** (campo por grupo, `form_type=group-name` → `Conversation.name`;
-    o JID vem como subtítulo) para corrigir quando a W-API não traz o nome.
+    o JID vem como subtítulo) para corrigir quando a W-API não traz o nome. Botão
+    **"Remover"** (X) por grupo apaga a conversa do grupo (`form_type=group-remove`).
+    A lista de grupos é **dirigida por mensagem recebida** (um grupo aparece quando
+    chega mensagem dele; não vem do `get-all-groups`), então grupos onde o número saiu
+    podem ser removidos daqui; se chegar nova mensagem, o grupo reaparece.
   **Sem botão "Salvar"**: as alterações (perfis, usuário e grupos) são **salvas
   automaticamente** ao clicar (fetch AJAX → `permissions_view` responde JSON quando
   `X-Requested-With`; toast de confirmação).
