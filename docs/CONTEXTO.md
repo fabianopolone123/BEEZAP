@@ -445,10 +445,13 @@ ligado.** Roda **sempre em background** (thread), nunca trava o webhook.
   vivo** usa `True`; o comando `sync_wapi_events_to_conversations` usa **`False`**
   (não responde mensagens históricas).
 - **Contexto montado automaticamente** (`build_system_prompt`): o **prompt/persona**
-  (`instructions`, com default) + **data/hora** (saudação certa) + **setores**
-  (nome + descrição) + **atendentes** (nome + setor) + **regra de formato JSON** +
-  o **histórico** das últimas ~5 trocas (até `CONTEXT_MESSAGES=10` mensagens) mapeado
-  em turnos `user`/`assistant`, terminando na mensagem atual do cliente.
+  (`instructions`, com default) + **data/hora** (saudação certa) + **tempo desde a
+  mensagem anterior** (`_time_since_previous_text`: "primeira mensagem" / "há poucos
+  minutos" / "há X hora(s)" / "há X dia(s) — nova conversa", para a IA reapresentar
+  quando faz tempo) + **setores** (nome + descrição) + **atendentes** (nome + setor)
+  + **regra de formato JSON** + o **histórico** das últimas ~5 trocas (até
+  `CONTEXT_MESSAGES=10` mensagens) mapeado em turnos `user`/`assistant`, terminando
+  na mensagem atual do cliente.
 - **Decisão via JSON** (`response_format={'type':'json_object'}`): o modelo devolve
   `{"mensagem", "setor", "atendente"}`. `atendente` casado → `_route_to_attendant`
   (assign + setor do atendente + `open`); `setor` casado → `_route_to_sector`

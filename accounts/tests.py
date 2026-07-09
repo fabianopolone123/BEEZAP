@@ -1147,3 +1147,18 @@ class AiAttendantFlowTests(TestCase):
         self.conv.save(update_fields=['status'])
         mock_gpt, _ = self._run(self._gpt(mensagem='x'))
         mock_gpt.assert_not_called()
+
+    def test_time_since_previous_text(self):
+        from datetime import timedelta
+        from django.utils import timezone
+        from gpt.attendant import _time_since_previous_text
+        # So a mensagem atual -> primeira mensagem (apresente-se).
+        self.assertIn('primeira mensagem', _time_since_previous_text(self.conv))
+        # Mensagem anterior ha 2 dias -> a IA e avisada que vale reapresentar.
+        old = self.conv.messages.first()
+        self.Message.objects.filter(pk=old.pk).update(
+            created_at=timezone.now() - timedelta(days=2)
+        )
+        self.Message.objects.create(conversation=self.conv, direction='in',
+                                    message_type='text', text='oi de novo')
+        self.assertIn('dia(s)', _time_since_previous_text(self.conv))

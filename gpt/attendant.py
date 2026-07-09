@@ -115,14 +115,39 @@ def resolved_instructions(config):
     return (config.instructions or '').strip() or DEFAULT_INSTRUCTIONS
 
 
-def build_system_prompt(config, now=None):
-    """Monta o prompt de sistema: persona + horario + setores + atendentes + formato."""
+def _time_since_previous_text(conversation):
+    """Tempo desde a mensagem ANTERIOR (a penultima), para a IA decidir se deve
+    reapresentar apos um tempo. A ultima mensagem e a atual do cliente."""
+    recent = list(
+        conversation.messages.exclude(message_type='system')
+        .order_by('-created_at')[:2]
+    )
+    if len(recent) < 2:
+        return 'Esta e a primeira mensagem desta conversa (apresente-se).'
+    delta = recent[0].created_at - recent[1].created_at
+    secs = max(0, int(delta.total_seconds()))
+    if secs < 3600:
+        return 'A mensagem anterior foi ha poucos minutos (mesma conversa em andamento).'
+    if secs < 86400:
+        return f'A mensagem anterior foi ha cerca de {secs // 3600} hora(s).'
+    return (f'A mensagem anterior foi ha cerca de {secs // 86400} dia(s) — '
+            'provavelmente uma nova conversa, vale se reapresentar.')
+
+
+def build_system_prompt(config, now=None, context_note=''):
+    """Monta o prompt de sistema: persona + horario + tempo desde a ultima msg +
+    setores + atendentes + formato."""
     now = now or timezone.localtime()
     greeting = _greeting_for(now)
+    time_line = (
+        f'Data e hora atual: {now.strftime("%d/%m/%Y %H:%M")}. '
+        f'Saudacao adequada para agora: "{greeting}".'
+    )
+    if context_note:
+        time_line += ' ' + context_note
     return '\n\n'.join([
         resolved_instructions(config),
-        f'Data e hora atual: {now.strftime("%d/%m/%Y %H:%M")}. '
-        f'Saudacao adequada para agora: "{greeting}".',
+        time_line,
         'Setores disponiveis para transferencia:\n' + sectors_context_text(),
         'Atendentes cadastrados:\n' + attendants_context_text(),
         OUTPUT_RULE,
@@ -313,7 +338,10 @@ def handle_incoming_for_ai(conversation_id):
     if not history:
         return
 
-    messages = [{'role': 'system', 'content': build_system_prompt(config)}] + history
+    system_prompt = build_system_prompt(
+        config, context_note=_time_since_previous_text(conversation)
+    )
+    messages = [{'role': 'system', 'content': system_prompt}] + history
 
     from gpt.client import chat_completion
     result = chat_completion(
