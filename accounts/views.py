@@ -724,6 +724,17 @@ def permissions_view(request):
             messages.success(request, 'Personalizacao removida (voltou ao padrao do perfil).')
             return redirect('permissions')
 
+        if form_type == 'group-name':
+            gid = (request.POST.get('group_id') or '').strip()
+            name = (request.POST.get('name') or '').strip()
+            conv = Conversation.objects.filter(pk=gid, chat_type='group').first() if gid else None
+            if conv is not None:
+                conv.name = name
+                conv.save(update_fields=['name', 'updated_at'])
+            if is_ajax:
+                return JsonResponse({'ok': conv is not None})
+            return redirect(f'{reverse("permissions")}?tab=grupos')
+
         if form_type == 'groups':
             group_ids = Conversation.objects.filter(chat_type='group').values_list('id', flat=True)
             valid_sector_ids = set(Sector.objects.values_list('id', flat=True))
@@ -806,6 +817,8 @@ def permissions_view(request):
         groups_ctx.append({
             'id': g.id,
             'title': g.display_title,
+            'name': g.name,
+            'jid': g.external_id,
             'sectors': [{'id': s.id, 'name': s.name, 'checked': s.id in sec_ids} for s in sectors],
             'users': [{'id': u.id, 'name': (u.attendant_profile.name or u.email),
                        'checked': u.id in usr_ids} for u in attendant_users],

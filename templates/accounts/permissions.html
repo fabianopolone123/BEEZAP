@@ -4,7 +4,7 @@
 {% block title %}Permissões | BEEZap{% endblock %}
 {% block extra_head %}
 <link rel="stylesheet" href="{% static 'css/dashboard.css' %}">
-<link rel="stylesheet" href="{% static 'css/permissions.css' %}?v=3">
+<link rel="stylesheet" href="{% static 'css/permissions.css' %}?v=4">
 {% endblock %}
 
 {% block content %}
@@ -173,9 +173,14 @@
 
           {% for g in groups %}
           <div class="perm-group">
-            <div class="perm-group-title">
+            <div class="perm-group-head">
               <span class="perm-ico">👥</span>
-              <span>{{ g.title }}</span>
+              <div class="perm-group-name-wrap">
+                <input type="text" class="perm-group-name" value="{{ g.name }}"
+                       placeholder="Nome do grupo" maxlength="200" data-group-id="{{ g.id }}"
+                       aria-label="Nome do grupo">
+                <span class="perm-group-jid">{{ g.jid }}</span>
+              </div>
             </div>
 
             <div class="perm-group-block">
@@ -280,6 +285,28 @@
           scheduleSave(form);
         }
       });
+    });
+
+    /* ── Renomear grupo manualmente (salva ao sair do campo) ── */
+    document.querySelectorAll('.perm-group-name').forEach(function (input) {
+      var last = input.value;
+      function saveName() {
+        if (input.value === last) return;
+        last = input.value;
+        var body = new FormData();
+        body.append('form_type', 'group-name');
+        body.append('group_id', input.dataset.groupId);
+        body.append('name', input.value);
+        fetch(location.pathname, {
+          method: 'POST',
+          headers: {'X-Requested-With': 'XMLHttpRequest', 'X-CSRFToken': getCookie('csrftoken')},
+          body: body,
+        }).then(function (r) { return r.json(); }).then(function (d) {
+          toast(d && d.ok ? 'success' : 'error', d && d.ok ? 'Nome do grupo salvo.' : 'Nao foi possivel salvar.');
+        }).catch(function () { toast('error', 'Nao foi possivel salvar.'); });
+      }
+      input.addEventListener('blur', saveName);
+      input.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); input.blur(); } });
     });
 
     /* ── Atualizar nomes dos grupos ── */

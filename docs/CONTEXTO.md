@@ -580,7 +580,9 @@ esconder o botão também bloqueia a URL.
     tem também o toggle **"Ver conversa inteira"** (`full_history`).
   - **Grupos**: lista os grupos detectados (Conversation `chat_type='group'`) e libera
     cada um por **setor** e/ou **usuário** (grava em `GroupAccess`); botão **"Atualizar
-    nomes"** chama `conversation-sync-groups` (nome real do grupo via W-API).
+    nomes"** chama `conversation-sync-groups` (nome real do grupo via W-API). O **nome
+    do grupo é editável inline** (campo por grupo, `form_type=group-name` → `Conversation.name`;
+    o JID vem como subtítulo) para corrigir quando a W-API não traz o nome.
   **Sem botão "Salvar"**: as alterações (perfis, usuário e grupos) são **salvas
   automaticamente** ao clicar (fetch AJAX → `permissions_view` responde JSON quando
   `X-Requested-With`; toast de confirmação).
