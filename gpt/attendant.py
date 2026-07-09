@@ -198,12 +198,19 @@ def _message_role_text(message):
 
 
 def build_history(conversation):
-    """Ultimas CONTEXT_MESSAGES mensagens reais (sem divisorias) em ordem cronologica."""
-    messages = list(
-        conversation.messages
-        .exclude(message_type='system')
-        .order_by('-created_at')[:CONTEXT_MESSAGES]
+    """Mensagens do ATENDIMENTO ATUAL (apos a ultima divisoria), sem as divisorias,
+    em ordem cronologica, limitado a CONTEXT_MESSAGES.
+
+    Escopo por segmento: ao Encerrar/reabrir, a IA comeca com contexto limpo, sem
+    arrastar mensagens de atendimentos anteriores."""
+    last_divider = (
+        conversation.messages.filter(message_type='system')
+        .order_by('-created_at').first()
     )
+    qs = conversation.messages.exclude(message_type='system')
+    if last_divider:
+        qs = qs.filter(created_at__gt=last_divider.created_at)
+    messages = list(qs.order_by('-created_at')[:CONTEXT_MESSAGES])
     messages.reverse()
     history = []
     for message in messages:

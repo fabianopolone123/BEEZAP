@@ -452,9 +452,11 @@ ligado.** Roda **sempre em background** (thread), nunca trava o webhook.
   anterior** (`_time_since_previous_text`: "primeira mensagem" / "há poucos minutos" /
   "há X hora(s)" / "há X dia(s) — nova conversa") + **setores** (nome + descrição) +
   **atendentes** (nome + setor) + **qual é o setor geral/curinga** (fallback) + a
-  **regra de formato JSON** (obrigatória para o parsing) + o **histórico** das últimas
-  ~5 trocas (até `CONTEXT_MESSAGES=10` mensagens) em turnos `user`/`assistant`,
-  terminando na mensagem atual. A tela tem botão **"Restaurar prompt padrão"**.
+  **regra de formato JSON** (obrigatória para o parsing) + o **histórico** do
+  **atendimento atual** (`build_history` pega só as mensagens **após a última
+  divisória**, até `CONTEXT_MESSAGES=10`) em turnos `user`/`assistant`, terminando
+  na mensagem atual — ao Encerrar/reabrir, o contexto começa limpo. A tela tem botão
+  **"Restaurar prompt padrão"**.
 - **Decisão via JSON** (`response_format={'type':'json_object'}`): o modelo devolve
   `{"mensagem", "setor", "atendente"}`. `atendente` casado → `_route_to_attendant`
   (assign + setor do atendente + `open`); `setor` casado → `_route_to_sector`

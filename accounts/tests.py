@@ -1197,6 +1197,19 @@ class AiAttendantFlowTests(TestCase):
         self.assertIn('mensagem', cfg.last_response)
         self.assertIsNotNone(cfg.last_exchange_at)
 
+    def test_history_scoped_to_current_segment(self):
+        # Mensagens antes da ultima divisoria (atendimento anterior) nao entram no contexto.
+        from gpt.attendant import build_history
+        from wapi.services import save_system_message
+        old = self.conv.messages.first()  # 'oi, preciso de ajuda' (do setUp)
+        save_system_message(self.conv, 'Novo atendimento iniciado')  # divisoria
+        self.Message.objects.create(conversation=self.conv, direction='in',
+                                    message_type='text', text='mensagem nova')
+        history = build_history(self.conv)
+        texts = [h['content'] for h in history]
+        self.assertIn('mensagem nova', texts)
+        self.assertNotIn(old.text, texts)  # mensagem do atendimento anterior fica de fora
+
     def test_default_prompt_has_behavior_rules(self):
         # Com o prompt padrao (instructions vazio), as REGRAS DE COMPORTAMENTO ficam
         # no texto editavel (nao mais auto-injetadas).
