@@ -1568,3 +1568,34 @@ class ConversationVisibilityTests(TestCase):
         data = self.client.get(reverse('conversation-messages', args=[self.direct_vendas.id])).json()
         texts = [m['text'] for m in data['messages']]
         self.assertIn('mensagem antiga', texts)
+
+
+class DashboardTests(TestCase):
+    """Dashboard com dados reais + comando de dados de demonstracao."""
+
+    def test_seed_and_dashboard(self):
+        from django.core.management import call_command
+        from accounts.models import Conversation, Sector
+        admin = User.objects.create_user(email='adm@x.com', password='x', role=User.Role.ADM)
+        call_command('seed_demo_data', verbosity=0)
+
+        self.assertEqual(Sector.objects.count(), 5)
+        self.assertEqual(Conversation.objects.count(), 36)
+        self.assertEqual(Conversation.objects.filter(status='closed').count(), 18)
+        self.assertEqual(Conversation.objects.exclude(status='closed').count(), 18)
+
+        self.client.force_login(admin)
+        resp = self.client.get(reverse('dashboard'))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'Atendimentos por setor')
+        self.assertContains(resp, 'Atendimentos em andamento')
+        # Os atalhos foram removidos do dashboard.
+        self.assertNotContains(resp, 'Fila de atendimento')
+
+    def test_dashboard_empty_ok(self):
+        # Sem dados, o dashboard ainda renderiza (tempo medio placeholder, listas vazias).
+        admin = User.objects.create_user(email='adm@x.com', password='x', role=User.Role.ADM)
+        self.client.force_login(admin)
+        resp = self.client.get(reverse('dashboard'))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'Conversas ativas')

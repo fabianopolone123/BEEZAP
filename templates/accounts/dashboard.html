@@ -40,7 +40,7 @@
       <div class="topbar-right">
         <div class="date-chip">
           <span>Hoje</span>
-          <strong>25/06/2026</strong>
+          <strong>{{ today_str }}</strong>
         </div>
         <div class="profile-chip">
           <div class="profile-avatar">{{ user_initial }}</div>
@@ -53,21 +53,11 @@
       </div>
     </header>
 
-    <section class="action-row">
-      {% for action in quick_actions %}
-        <a href="#" class="action-card action-{{ action.tone }}">
-          <span class="action-icon">●</span>
-          <span>{{ action.label }}</span>
-        </a>
-      {% endfor %}
-    </section>
-
     <section class="stats-grid">
       {% for stat in stats %}
         <article class="stat-card">
           <p>{{ stat.label }}</p>
           <strong>{{ stat.value }}</strong>
-          <span class="{{ stat.delta_class }}">{{ stat.delta }} vs. ontem</span>
         </article>
       {% endfor %}
     </section>
@@ -85,18 +75,17 @@
               <stop offset="100%" stop-color="#0d8d43" />
             </linearGradient>
           </defs>
-          <polyline points="40,220 120,190 200,145 280,152 360,85 440,178 520,140 600,96 660,42"
+          <polyline points="{{ chart_polyline }}"
             fill="none" stroke="url(#lineGradient)" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" />
           <g class="chart-dots">
-            <circle cx="40" cy="220" r="7" />
-            <circle cx="120" cy="190" r="7" />
-            <circle cx="200" cy="145" r="7" />
-            <circle cx="280" cy="152" r="7" />
-            <circle cx="360" cy="85" r="7" />
-            <circle cx="440" cy="178" r="7" />
-            <circle cx="520" cy="140" r="7" />
-            <circle cx="600" cy="96" r="7" />
-            <circle cx="660" cy="42" r="7" />
+            {% for p in chart_points %}
+              <circle cx="{{ p.x }}" cy="{{ p.y }}" r="7"><title>{{ p.label }}: {{ p.value }}</title></circle>
+            {% endfor %}
+          </g>
+          <g class="chart-labels">
+            {% for p in chart_points %}
+              <text x="{{ p.x }}" y="268" text-anchor="middle">{{ p.label }}</text>
+            {% endfor %}
           </g>
         </svg>
       </article>
@@ -107,12 +96,13 @@
           <span>Distribuição</span>
         </div>
         <div class="donut-wrap">
-          <div class="donut-chart"></div>
+          <div class="donut-chart" style="background: {{ donut_gradient }};"></div>
           <ul class="legend">
-            <li><span class="legend-dot green"></span> Vendas (45%)</li>
-            <li><span class="legend-dot blue"></span> Suporte (30%)</li>
-            <li><span class="legend-dot yellow"></span> Financeiro (15%)</li>
-            <li><span class="legend-dot red"></span> Outros (10%)</li>
+            {% for s in sector_legend %}
+              <li><span class="legend-dot" style="background: {{ s.color }};"></span> {{ s.name }} ({{ s.pct }}%)</li>
+            {% empty %}
+              <li>Sem dados de setor ainda.</li>
+            {% endfor %}
           </ul>
         </div>
       </article>
@@ -121,7 +111,7 @@
     <section class="panel table-panel">
       <div class="panel-head">
         <h2>Atendimentos em andamento</h2>
-        <a href="#">Ver todos</a>
+        <a href="{% url 'conversations' %}">Ver todos</a>
       </div>
 
       <div class="table-wrap">
@@ -131,19 +121,21 @@
               <th>Cliente</th>
               <th>Setor</th>
               <th>Atendente</th>
-              <th>Tempo</th>
+              <th>Última atividade</th>
               <th>Última mensagem</th>
             </tr>
           </thead>
           <tbody>
-            {% for row in table_rows %}
+            {% for row in andamento %}
               <tr>
-                <td>{{ row.0 }}</td>
-                <td>{{ row.1 }}</td>
-                <td>{{ row.2 }}</td>
-                <td>{{ row.3 }}</td>
-                <td>{{ row.4 }}</td>
+                <td>{{ row.cliente }}</td>
+                <td>{{ row.setor }}</td>
+                <td>{{ row.atendente }}</td>
+                <td>{{ row.tempo }}</td>
+                <td>{{ row.ultima|truncatechars:60 }}</td>
               </tr>
+            {% empty %}
+              <tr><td colspan="5">Nenhum atendimento em andamento.</td></tr>
             {% endfor %}
           </tbody>
         </table>

@@ -369,6 +369,7 @@ cleanup_status_messages [--delete]      # remove mensagens de Status que viraram
 cleanup_unknown_messages [--delete]     # remove mensagens de tipo 'unknown' (sistema)
 cleanup_nonpersonal_conversations [--delete]  # remove conversas de canal/transmissão/"status"
 merge_contact_conversations [--apply]   # unifica conversas picotadas em 1 chat por pessoa/grupo (dry-run)
+seed_demo_data [--no-clear]             # popula DEMO: 5 setores/atendentes + conversas 7 dias (preserva admin/config)
 ```
 > Os `cleanup_*` e o `inspect_*` são **dry-run por padrão** (só listam); `--delete`
 > aplica. Úteis para limpar lixo antigo (status/canal/sistema) após um deploy do fix.

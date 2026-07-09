@@ -374,6 +374,11 @@ a {
   stroke-width: 4;
 }
 
+.chart-labels text {
+  fill: var(--muted);
+  font-size: 15px;
+}
+
 .donut-wrap {
   display: grid;
   grid-template-columns: 220px 1fr;
