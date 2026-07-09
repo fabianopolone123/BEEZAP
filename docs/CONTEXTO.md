@@ -449,9 +449,12 @@ ligado.** Roda **sempre em background** (thread), nunca trava o webhook.
   mensagem anterior** (`_time_since_previous_text`: "primeira mensagem" / "há poucos
   minutos" / "há X hora(s)" / "há X dia(s) — nova conversa", para a IA reapresentar
   quando faz tempo) + **setores** (nome + descrição) + **atendentes** (nome + setor)
-  + **regra de formato JSON** + o **histórico** das últimas ~5 trocas (até
-  `CONTEXT_MESSAGES=10` mensagens) mapeado em turnos `user`/`assistant`, terminando
-  na mensagem atual do cliente.
+  + **regras operacionais** (`_operational_rules`: ser breve [1–2 frases], iniciar
+  a 1ª mensagem com a saudação do horário e não repetir depois, não inventar
+  conteúdo/procedimentos, e **encaminhar para o setor geral/fallback quando o pedido
+  não se encaixa em nenhum setor específico** — ex.: vaga de emprego) + **regra de
+  formato JSON** + o **histórico** das últimas ~5 trocas (até `CONTEXT_MESSAGES=10`
+  mensagens) mapeado em turnos `user`/`assistant`, terminando na mensagem atual.
 - **Decisão via JSON** (`response_format={'type':'json_object'}`): o modelo devolve
   `{"mensagem", "setor", "atendente"}`. `atendente` casado → `_route_to_attendant`
   (assign + setor do atendente + `open`); `setor` casado → `_route_to_sector`

@@ -1162,3 +1162,14 @@ class AiAttendantFlowTests(TestCase):
         self.Message.objects.create(conversation=self.conv, direction='in',
                                     message_type='text', text='oi de novo')
         self.assertIn('dia(s)', _time_since_previous_text(self.conv))
+
+    def test_system_prompt_rules(self):
+        from gpt.attendant import build_system_prompt
+        self.config.fallback_sector = self.geral
+        self.config.save()
+        prompt = build_system_prompt(self.config)
+        # Saudacao do horario, brevidade e roteamento para o geral aparecem no prompt.
+        self.assertTrue(any(g in prompt for g in ('Bom dia', 'Boa tarde', 'Boa noite')))
+        self.assertIn('BREVE', prompt)
+        self.assertIn('Geral', prompt)  # setor curinga citado nas regras
+        self.assertIn('NUNCA inventa', prompt)

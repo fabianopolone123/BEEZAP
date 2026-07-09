@@ -134,9 +134,31 @@ def _time_since_previous_text(conversation):
             'provavelmente uma nova conversa, vale se reapresentar.')
 
 
+def _operational_rules(config, greeting):
+    """Regras operacionais anexadas automaticamente (reforcam brevidade, saudacao
+    correta, nao-invencao e o roteamento para o setor geral quando nada especifico
+    se encaixa). Ficam separadas da persona editavel do usuario."""
+    rules = [
+        '- Seja BREVE: no maximo 1 ou 2 frases curtas por mensagem, em tom de WhatsApp. '
+        'Nao liste opcoes nem escreva paragrafos longos.',
+        f'- Inicie a PRIMEIRA mensagem do atendimento com a saudacao do horario '
+        f'("{greeting}!"); nao use apenas "Ola" e nao repita a saudacao nas mensagens seguintes.',
+        '- Voce faz APENAS a recepcao: nao resolve o assunto e NUNCA inventa informacoes, '
+        'precos, prazos, links ou procedimentos. Se o assunto precisa de uma pessoa, encaminhe.',
+    ]
+    general = _resolve_fallback_sector(config)
+    if general:
+        rules.append(
+            f'- Se a necessidade do cliente NAO se encaixar em nenhum setor especifico da lista '
+            f'(ex.: vagas de emprego, parcerias, ou assunto que voce nao deve responder), '
+            f'encaminhe para o setor "{general.name}" em vez de tentar responder o conteudo.'
+        )
+    return 'Regras de atendimento:\n' + '\n'.join(rules)
+
+
 def build_system_prompt(config, now=None, context_note=''):
     """Monta o prompt de sistema: persona + horario + tempo desde a ultima msg +
-    setores + atendentes + formato."""
+    regras operacionais + setores + atendentes + formato."""
     now = now or timezone.localtime()
     greeting = _greeting_for(now)
     time_line = (
@@ -148,6 +170,7 @@ def build_system_prompt(config, now=None, context_note=''):
     return '\n\n'.join([
         resolved_instructions(config),
         time_line,
+        _operational_rules(config, greeting),
         'Setores disponiveis para transferencia:\n' + sectors_context_text(),
         'Atendentes cadastrados:\n' + attendants_context_text(),
         OUTPUT_RULE,
