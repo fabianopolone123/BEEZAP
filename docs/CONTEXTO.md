@@ -33,7 +33,7 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
 > `wapi/` é um módulo Python comum (importa `accounts.models`); **não** está em
 > `INSTALLED_APPS`, por isso os models ficam em `accounts/models.py`.
 
-## 3. Modelos (`accounts/models.py`) — migração atual: `0020`
+## 3. Modelos (`accounts/models.py`) — migração atual: `0021`
 
 - **User** (AbstractUser, login por e-mail; `role`: `leitor`/`usuario`/`adm`).
 - **Attendant** (perfil de atendente, vínculo com User, troca de senha inicial).
@@ -47,7 +47,10 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
   (padrão `gpt-4.1-nano`), `enabled`. Guarda a **API Key do GPT no banco**
   (editada na tela **Inteligência (IA)**; nunca no código e não reexibida após
   salva). `resolved_api_key()`/`resolved_model()` caem para env
-  (`OPENAI_API_KEY`/`OPENAI_MODEL`) se vazios. Ver seção 13.
+  (`OPENAI_API_KEY`/`OPENAI_MODEL`) se vazios. **Contador de tokens**:
+  `total_requests`, `total_prompt_tokens`, `total_completion_tokens`,
+  `total_tokens`, `usage_since`, `last_used_at` — somados de forma atômica por
+  `record_usage()` a cada chamada; `reset_usage()` zera. Ver seção 13.
 - **Contact**: `name`, `phone` (único, guardado **só em dígitos**), `display_name`,
   `initials`. É a base da tela **Contatos** e da resolução de nomes: criado
   **automaticamente** na 1ª mensagem de uma conversa **direta** (nome = pushName),
@@ -415,5 +418,11 @@ merge_contact_conversations [--apply]   # unifica conversas picotadas em 1 chat 
   `gpt-4.1-nano` [padrão, mais barato] / `gpt-4o-mini` / `gpt-4.1-mini` / `gpt-4o`)
   e **Ativar a inteligência** (liga/desliga). Card de **status** (API Key / modelo /
   ligada) + botão **Testar conexão** (`form_type=test` → `gpt.client.test_connection`).
+- **Contador de consumo**: o OpenAI devolve `usage` (prompt/completion/total tokens)
+  em cada resposta; `chat_completion` extrai e chama `OpenAiConfiguration.record_usage`
+  (soma atômica com `F()`, segura para chamadas concorrentes). A tela mostra um card
+  **"Consumo de tokens"** (total, entrada, saída, nº de chamadas, "contando desde" /
+  "último uso") com botão **"Zerar contador"** (`form_type=reset-usage`). O teste de
+  conexão também conta (gasto mínimo). CSS `openai_settings.css?v=2`.
 - **Variáveis** (`.env`, seção 7): `OPENAI_BASE_URL`, `OPENAI_API_KEY` (fallback
   opcional), `OPENAI_MODEL`, `OPENAI_TIMEOUT`. O normal é cadastrar a chave pela tela.

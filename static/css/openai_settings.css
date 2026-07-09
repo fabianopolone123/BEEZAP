@@ -201,10 +201,61 @@
   color: var(--muted);
 }
 
+/* Card de consumo de tokens. */
+.openai-settings-page .usage-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: 14px;
+}
+
+.openai-settings-page .usage-tile {
+  display: grid;
+  gap: 6px;
+  padding: 16px;
+  border: 1px solid rgba(100, 116, 139, 0.16);
+  border-radius: 18px;
+  background: rgba(248, 250, 252, 0.92);
+}
+
+.openai-settings-page .usage-tile-main {
+  background: rgba(33, 194, 94, 0.1);
+  border-color: rgba(33, 194, 94, 0.25);
+}
+
+.openai-settings-page .usage-label {
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.openai-settings-page .usage-value {
+  font-size: 1.5rem;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+.openai-settings-page .usage-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-top: 16px;
+  flex-wrap: wrap;
+}
+
+.openai-settings-page .usage-foot .field-help {
+  margin: 0;
+}
+
 @media (max-width: 1200px) {
   .openai-settings-page .settings-card-split {
     grid-template-columns: 1fr;
     gap: 22px;
+  }
+
+  .openai-settings-page .usage-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .openai-settings-page .settings-column-divider {
@@ -218,6 +269,10 @@
 @media (max-width: 760px) {
   .dashboard-main.dashboard-main-ai {
     padding-top: 8px;
+  }
+
+  .openai-settings-page .usage-grid {
+    grid-template-columns: 1fr;
   }
 
   .openai-settings-page .primary-button,

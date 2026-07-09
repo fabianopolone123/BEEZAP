@@ -102,6 +102,14 @@ class OpenAiConfiguration(models.Model):
     api_key = models.CharField(max_length=255, blank=True)
     model = models.CharField(max_length=80, blank=True, default='gpt-4.1-nano')
     enabled = models.BooleanField(default=False)
+    # Contador de consumo (acumulado). O OpenAI devolve `usage` em cada resposta;
+    # o cliente soma aqui de forma atomica. Serve para controle de gasto.
+    total_requests = models.PositiveBigIntegerField(default=0)
+    total_prompt_tokens = models.PositiveBigIntegerField(default=0)
+    total_completion_tokens = models.PositiveBigIntegerField(default=0)
+    total_tokens = models.PositiveBigIntegerField(default=0)
+    usage_since = models.DateTimeField(null=True, blank=True)
+    last_used_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -123,6 +131,37 @@ class OpenAiConfiguration(models.Model):
 
     def resolved_model(self):
         return (self.model or settings.OPENAI_MODEL or 'gpt-4.1-nano').strip()
+
+    @classmethod
+    def record_usage(cls, prompt_tokens=0, completion_tokens=0, total_tokens=0):
+        """Soma o consumo de uma chamada ao GPT de forma atomica (F()), segura
+        para chamadas concorrentes (ex.: threads em background)."""
+        from django.db.models import F
+        now = timezone.now()
+        prompt_tokens = int(prompt_tokens or 0)
+        completion_tokens = int(completion_tokens or 0)
+        total_tokens = int(total_tokens or prompt_tokens + completion_tokens)
+        # Marca o inicio da contagem apenas na 1a chamada apos um reset (usage_since nulo).
+        cls.objects.filter(pk=1, usage_since__isnull=True).update(usage_since=now)
+        cls.objects.filter(pk=1).update(
+            total_requests=F('total_requests') + 1,
+            total_prompt_tokens=F('total_prompt_tokens') + prompt_tokens,
+            total_completion_tokens=F('total_completion_tokens') + completion_tokens,
+            total_tokens=F('total_tokens') + total_tokens,
+            last_used_at=now,
+        )
+
+    def reset_usage(self):
+        self.total_requests = 0
+        self.total_prompt_tokens = 0
+        self.total_completion_tokens = 0
+        self.total_tokens = 0
+        self.usage_since = None
+        self.last_used_at = None
+        self.save(update_fields=[
+            'total_requests', 'total_prompt_tokens', 'total_completion_tokens',
+            'total_tokens', 'usage_since', 'last_used_at',
+        ])
 
     def __str__(self):
         return 'Configuracao OpenAI (GPT)'

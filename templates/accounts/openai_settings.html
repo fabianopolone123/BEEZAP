@@ -4,7 +4,7 @@
 {% block title %}Inteligencia (IA) | BEEZap{% endblock %}
 {% block extra_head %}
 <link rel="stylesheet" href="{% static 'css/dashboard.css' %}">
-<link rel="stylesheet" href="{% static 'css/openai_settings.css' %}?v=1">
+<link rel="stylesheet" href="{% static 'css/openai_settings.css' %}?v=2">
 {% endblock %}
 
 {% block content %}
@@ -142,6 +142,52 @@
             <small class="field-help">
               O teste envia uma mensagem minima ao GPT (gasta pouquissimo credito) so para confirmar que esta tudo certo.
             </small>
+          </form>
+        </div>
+      </article>
+
+      <article class="settings-card usage-card">
+        <div class="panel-head">
+          <div>
+            <h2>Consumo de tokens</h2>
+            <span>Total de tokens ja usados pela IA. O OpenAI cobra por token (entrada + saida); use isto para controlar o gasto.</span>
+          </div>
+        </div>
+
+        <div class="usage-grid">
+          <div class="usage-tile usage-tile-main">
+            <span class="usage-label">Total de tokens</span>
+            <strong class="usage-value">{{ usage_total_tokens }}</strong>
+          </div>
+          <div class="usage-tile">
+            <span class="usage-label">Entrada (prompt)</span>
+            <strong class="usage-value">{{ usage_prompt_tokens }}</strong>
+          </div>
+          <div class="usage-tile">
+            <span class="usage-label">Saida (resposta)</span>
+            <strong class="usage-value">{{ usage_completion_tokens }}</strong>
+          </div>
+          <div class="usage-tile">
+            <span class="usage-label">Chamadas</span>
+            <strong class="usage-value">{{ usage_requests }}</strong>
+          </div>
+        </div>
+
+        <div class="usage-foot">
+          <p class="field-help">
+            {% if config.usage_since %}
+              Contando desde {{ config.usage_since|date:"d/m/Y H:i" }}.
+              {% if config.last_used_at %}Ultimo uso em {{ config.last_used_at|date:"d/m/Y H:i" }}.{% endif %}
+            {% else %}
+              Nenhum consumo registrado ainda.
+            {% endif %}
+          </p>
+          <form method="post">
+            {% csrf_token %}
+            <input type="hidden" name="form_type" value="reset-usage">
+            <button type="submit" class="secondary-button" {% if not config.total_requests %}disabled{% endif %}>
+              Zerar contador
+            </button>
           </form>
         </div>
       </article>

@@ -80,6 +80,14 @@ PASSWORD_RECOVERY_GENERIC_MESSAGE = 'Se os dados estiverem corretos, enviaremos 
 wapi_webhook_logger = logging.getLogger('beezap.wapi.webhook')
 
 
+def _fmt_int(value):
+    """Formata inteiro com separador de milhar no estilo pt-br (ex.: 1.234.567)."""
+    try:
+        return f'{int(value or 0):,}'.replace(',', '.')
+    except (TypeError, ValueError):
+        return '0'
+
+
 def mask_phone_for_log(phone):
     """Mantem apenas o final do telefone nos logs para nao expor o numero completo."""
     digits = ''.join(ch for ch in (phone or '') if ch.isdigit())
@@ -470,6 +478,11 @@ def openai_settings_view(request):
                     messages.error(request, result.error or 'Nao foi possivel falar com o GPT.')
             return redirect('openai-settings')
 
+        if form_type == 'reset-usage':
+            config.reset_usage()
+            messages.success(request, 'Contador de tokens zerado.')
+            return redirect('openai-settings')
+
     return render(
         request,
         'accounts/openai_settings.html',
@@ -480,6 +493,10 @@ def openai_settings_view(request):
             'role_label': request.user.get_role_display(),
             'user_initial': (request.user.first_name[:1] or request.user.email[:1]).upper(),
             'api_key_configured': config.has_api_key,
+            'usage_total_tokens': _fmt_int(config.total_tokens),
+            'usage_prompt_tokens': _fmt_int(config.total_prompt_tokens),
+            'usage_completion_tokens': _fmt_int(config.total_completion_tokens),
+            'usage_requests': _fmt_int(config.total_requests),
         },
     )
 

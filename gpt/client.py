@@ -38,6 +38,9 @@ class GptResult:
     model: str | None = None
     status_code: int | None = None
     error: str | None = None
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
 
 
 def _friendly_http_error(status, body_text):
@@ -70,6 +73,26 @@ def _extract_reply_text(body):
             if isinstance(content, str):
                 return content.strip()
     return ''
+
+
+def _extract_usage(body):
+    """Le usage.{prompt_tokens, completion_tokens, total_tokens} da resposta."""
+    if not isinstance(body, dict):
+        return (0, 0, 0)
+    usage = body.get('usage')
+    if not isinstance(usage, dict):
+        return (0, 0, 0)
+
+    def _as_int(value):
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return 0
+
+    prompt = _as_int(usage.get('prompt_tokens'))
+    completion = _as_int(usage.get('completion_tokens'))
+    total = _as_int(usage.get('total_tokens')) or (prompt + completion)
+    return (prompt, completion, total)
 
 
 def chat_completion(messages, *, model=None, temperature=0.3, max_tokens=None, timeout=None):
@@ -108,7 +131,18 @@ def chat_completion(messages, *, model=None, temperature=0.3, max_tokens=None, t
             parsed_body = json.loads(response_body) if response_body else {}
             if 200 <= response.status < 300:
                 text = _extract_reply_text(parsed_body)
-                return GptResult(success=True, text=text, model=used_model, status_code=response.status)
+                prompt_tokens, completion_tokens, total_tokens = _extract_usage(parsed_body)
+                if total_tokens:
+                    try:
+                        OpenAiConfiguration.record_usage(prompt_tokens, completion_tokens, total_tokens)
+                    except Exception:
+                        # O contador nunca pode derrubar a resposta do GPT.
+                        gpt_logger.warning('Falha ao registrar consumo de tokens.', exc_info=False)
+                return GptResult(
+                    success=True, text=text, model=used_model, status_code=response.status,
+                    prompt_tokens=prompt_tokens, completion_tokens=completion_tokens,
+                    total_tokens=total_tokens,
+                )
             gpt_logger.warning('GPT falhou: status=%s modelo=%s corpo=%s', response.status, used_model, response_body[:400])
             return GptResult(
                 success=False, model=used_model, status_code=response.status,
