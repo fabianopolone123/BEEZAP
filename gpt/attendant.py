@@ -60,8 +60,12 @@ OUTPUT_RULE = (
     'continuar o atendimento. Nao preencha os dois ao mesmo tempo.'
 )
 
-# Fala fixa de encaminhamento (usada no fallback quando nao ha resposta da IA).
-HANDOFF_NOTICE = 'Vou te encaminhar para o nosso atendimento. So um momento, por favor.'
+# Fala de encaminhamento ao desistir: a IA SEMPRE avisa o cliente (nunca transfere
+# em silencio) antes de mandar para o setor de fallback / fila humana.
+HANDOFF_NOTICE = (
+    'Desculpe, nao consegui entender bem a sua solicitacao. Vou pedir para um de '
+    'nossos atendentes falar com voce. So um momento, por favor.'
+)
 
 
 def _greeting_for(now):
@@ -246,16 +250,21 @@ def _resolve_fallback_sector(config):
     return Sector.objects.filter(name__iexact='Geral').first()
 
 
-def _handoff_to_fallback(conversation, config, reply=''):
-    """Encaminha para o setor de fallback (ou deixa em aberto se nao houver)."""
-    _send_ai_reply(conversation, reply or HANDOFF_NOTICE)
+def _handoff_to_fallback(conversation, config):
+    """Desiste da triagem AVISANDO o cliente e encaminha para o fallback.
+
+    Sempre envia a mensagem de handoff antes (nunca transfere em silencio). Se nao
+    houver setor de fallback, deixa a conversa aguardando um humano e mantem
+    `ai_turns` no maximo, para a IA nao voltar a tentar (nem repetir o aviso)."""
+    _send_ai_reply(conversation, HANDOFF_NOTICE)
     fallback = _resolve_fallback_sector(config)
     if fallback:
         _route_to_sector(conversation, fallback)
     else:
-        # Sem fallback: deixa aguardando, sem setor, para qualquer atendente pegar.
-        Conversation.objects.filter(pk=conversation.id).update(status='pending', ai_turns=0)
-        ai_logger.info('IA sem fallback: conv=%s deixada aguardando sem setor', conversation.id)
+        Conversation.objects.filter(pk=conversation.id).update(
+            status='pending', ai_turns=config.max_turns,
+        )
+        ai_logger.info('IA sem fallback: conv=%s avisou e deixou aguardando sem setor', conversation.id)
 
 
 def _should_handle(conversation):
@@ -292,9 +301,12 @@ def handle_incoming_for_ai(conversation_id):
         ai_logger.info('IA nao atua (humano ja respondeu) conv=%s', conversation_id)
         return
 
-    # Limite de seguranca: se ja atingiu max_turns sem decidir, encaminha ao fallback.
+    # Limite de seguranca: se ja atingiu max_turns sem decidir. Se houver fallback
+    # (ex.: configurado depois), avisa e encaminha; senao ja avisou antes e fica
+    # quieta aguardando um atendente.
     if conversation.ai_turns >= config.max_turns:
-        _handoff_to_fallback(conversation, config)
+        if _resolve_fallback_sector(config):
+            _handoff_to_fallback(conversation, config)
         return
 
     history = build_history(conversation)
@@ -327,11 +339,12 @@ def handle_incoming_for_ai(conversation_id):
         _route_to_sector(conversation, sector)
         return
 
-    # Nao decidiu o destino: conta o turno. Se atingir o limite agora, encaminha
-    # ao fallback (avisando); senao, envia a fala de esclarecimento e segue.
+    # Nao decidiu o destino: conta o turno. Se atingir o limite agora, DESISTE
+    # avisando o cliente (mensagem de handoff, nao a pergunta de esclarecimento) e
+    # encaminha ao fallback; senao, envia a fala de esclarecimento e segue.
     new_turns = conversation.ai_turns + 1
     if new_turns >= config.max_turns:
-        _handoff_to_fallback(conversation, config, reply=reply)
+        _handoff_to_fallback(conversation, config)
     else:
         _send_ai_reply(conversation, reply)
         Conversation.objects.filter(pk=conversation.id).update(ai_turns=new_turns)

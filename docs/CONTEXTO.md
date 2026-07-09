@@ -455,8 +455,11 @@ ligado.** Roda **sempre em background** (thread), nunca trava o webhook.
   (setor + `pending`, sem atendente); nenhum → envia a fala e incrementa `ai_turns`.
   Cada encaminhamento insere uma **divisória** "Encaminhado para … pela IA".
 - **Limite/fallback**: ao atingir `max_turns` sem decidir, `_handoff_to_fallback`
-  avisa o cliente e encaminha para `fallback_sector` (ou um setor "Geral"; se não
-  houver, deixa `pending` sem setor).
+  **sempre avisa o cliente** com uma mensagem clara de handoff (`HANDOFF_NOTICE`:
+  "não consegui entender… vou pedir para um atendente…") — nunca transfere em
+  silêncio nem repete a pergunta de esclarecimento — e então encaminha para
+  `fallback_sector` (ou um setor "Geral" automático). Sem nenhum fallback, avisa e
+  deixa `pending` sem setor, mantendo `ai_turns` no máximo para não repetir o aviso.
 - **Guardas** (`_should_handle` + `_human_replied_in_segment`): pula se desligada,
   sem API Key, grupo, `closed`, já tem setor/atendente, ou se um **humano já
   respondeu** no atendimento atual (mensagem `out` com `is_ai=False` após a última

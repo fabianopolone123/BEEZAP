@@ -1069,14 +1069,43 @@ class AiAttendantFlowTests(TestCase):
         self.assertTrue(self.Message.objects.filter(conversation=self.conv, direction='out', is_ai=True).exists())
 
     def test_fallback_after_max_turns(self):
+        from gpt.attendant import HANDOFF_NOTICE
         self.config.fallback_sector = self.geral
         self.config.save()
         self.conv.ai_turns = 2  # com max_turns=3, o proximo turno sem decisao estoura
         self.conv.save(update_fields=['ai_turns'])
-        self._run(self._gpt(mensagem='Ainda nao entendi, pode explicar?'))
+        _, mock_send = self._run(self._gpt(mensagem='Ainda nao entendi, pode explicar?'))
         self.conv.refresh_from_db()
         self.assertEqual(self.conv.sector_id, self.geral.id)
         self.assertEqual(self.conv.status, 'pending')
+        # SEMPRE avisa o cliente antes de transferir (nunca em silencio), e a mensagem
+        # e o aviso de handoff (nao a pergunta de esclarecimento do GPT).
+        mock_send.assert_called_once()
+        self.assertEqual(mock_send.call_args.args[1], HANDOFF_NOTICE)
+        last_out = self.Message.objects.filter(
+            conversation=self.conv, direction='out', is_ai=True
+        ).order_by('-created_at').first()
+        self.assertEqual(last_out.text, HANDOFF_NOTICE)
+
+    def test_fallback_without_sector_announces_and_waits(self):
+        from gpt.attendant import HANDOFF_NOTICE
+        self.config.fallback_sector = None  # sem fallback configurado
+        self.config.save()
+        self.geral.delete()  # e sem setor "Geral" (fallback automatico)
+        self.conv.ai_turns = 2
+        self.conv.save(update_fields=['ai_turns'])
+        _, mock_send = self._run(self._gpt(mensagem='segue confuso'))
+        self.conv.refresh_from_db()
+        # Avisou o cliente, deixou aguardando sem setor e NAO fica re-tentando.
+        mock_send.assert_called_once()
+        self.assertEqual(mock_send.call_args.args[1], HANDOFF_NOTICE)
+        self.assertIsNone(self.conv.sector_id)
+        self.assertEqual(self.conv.status, 'pending')
+        self.assertEqual(self.conv.ai_turns, self.config.max_turns)
+        # Proxima mensagem: como nao ha fallback e ja avisou, a IA fica quieta.
+        mock_gpt2, mock_send2 = self._run(self._gpt(mensagem='oi?'))
+        mock_gpt2.assert_not_called()
+        mock_send2.assert_not_called()
 
     def test_skips_group(self):
         self.conv.chat_type = 'group'
