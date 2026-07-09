@@ -35,10 +35,17 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
 > `wapi/` é um módulo Python comum (importa `accounts.models`); **não** está em
 > `INSTALLED_APPS`, por isso os models ficam em `accounts/models.py`.
 
-## 3. Modelos (`accounts/models.py`) — migração atual: `0024`
+## 3. Modelos (`accounts/models.py`) — migração atual: `0025`
 
 - **User** (AbstractUser, login por e-mail; `role`: `leitor`/`usuario`/`adm`).
 - **Attendant** (perfil de atendente, vínculo com User, troca de senha inicial).
+  **Admin como atendente:** todo usuário `adm` ganha **automaticamente** um
+  `Attendant` (via sinal em `accounts/signals.py` + backfill na migração `0025`) e é
+  incluído em **todos os setores**, para poder **Assumir** atendimentos de qualquer
+  fila sem criar/logar outra conta. Mantido em sincronia: ao salvar um usuário adm e
+  ao criar/salvar um setor; a organização por arrastar-e-soltar dos setores re-inclui
+  os admins. `conversation_take_view` também provisiona na hora (rede de segurança) e
+  a edição de atendente **não rebaixa** um adm.
 - **Sector** (setores; M2M com Attendant; usado em transferência/roteamento manual).
 - **PasswordResetCode** (recuperação de senha por código no WhatsApp).
 - **WapiConfiguration** (singleton `get_solo()`): `instance_id`, `token`,

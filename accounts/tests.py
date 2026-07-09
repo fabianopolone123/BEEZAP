@@ -558,6 +558,7 @@ class AttendantsViewTests(TestCase):
             phone='11999999999',
         )
         self.client.force_login(self.admin_user)
+        count_before = Attendant.objects.count()
 
         response = self.client.post(
             reverse('attendants'),
@@ -569,7 +570,10 @@ class AttendantsViewTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(Attendant.objects.count(), 1)
+        # O e-mail duplicado nao pode criar um novo atendente (o admin ja e atendente
+        # automaticamente, entao comparamos com a contagem anterior).
+        self.assertEqual(Attendant.objects.count(), count_before)
+        self.assertEqual(Attendant.objects.filter(user__email='ana@beezap.com').count(), 1)
         self.assertContains(response, 'Ja existe um atendente com este e-mail.')
 
     def test_attendant_with_initial_password_is_redirected_to_change_password(self):
@@ -1366,3 +1370,41 @@ class MenuBotFlowTests(TestCase):
         self._incoming('1')
         mock_send = self._run()
         mock_send.assert_not_called()
+
+
+class AdminAttendantTests(TestCase):
+    """O administrador vira atendente automaticamente, em todos os setores, e
+    consegue assumir atendimentos."""
+
+    def setUp(self):
+        from accounts.models import Sector
+        self.Sector = Sector
+        self.compras = Sector.objects.create(name='Compras')  # setor antes do admin
+        self.admin = User.objects.create_user(
+            email='adm@beezap.local', password='x', role=User.Role.ADM,
+            first_name='Ze', last_name='Admin',
+        )
+
+    def test_admin_gets_attendant_in_all_sectors(self):
+        att = getattr(self.admin, 'attendant_profile', None)
+        self.assertIsNotNone(att)
+        self.assertFalse(att.must_change_password)
+        self.assertIn(self.compras, att.sectors.all())
+
+    def test_new_sector_includes_admin(self):
+        novo = self.Sector.objects.create(name='Vendas')  # criado DEPOIS do admin
+        self.assertIn(self.admin.attendant_profile, novo.attendants.all())
+
+    def test_admin_can_take_conversation(self):
+        from accounts.models import Contact, Conversation
+        contact = Contact.objects.create(name='Cliente', phone='5516999990000')
+        conv = Conversation.objects.create(
+            contact=contact, external_id='5516999990000', chat_type='private',
+            status='pending', sector=self.compras,
+        )
+        self.client.force_login(self.admin)
+        resp = self.client.post(reverse('conversation-take', args=[conv.id]))
+        self.assertEqual(resp.status_code, 200)
+        conv.refresh_from_db()
+        self.assertEqual(conv.assigned_attendant_id, self.admin.attendant_profile.id)
+        self.assertEqual(conv.status, 'open')

@@ -759,7 +759,9 @@ def attendants_view(request):
                         user.email = email
                         user.first_name = first_name
                         user.last_name = last_name
-                        user.role = User.Role.USUARIO
+                        # Nao rebaixa um administrador que tambem atua como atendente.
+                        if user.role != User.Role.ADM:
+                            user.role = User.Role.USUARIO
                         user.save()
 
                         editing_attendant.name = name
@@ -1425,6 +1427,11 @@ def conversation_transfer_view(request, conversation_id):
 def conversation_take_view(request, conversation_id):
     conversation = get_object_or_404(Conversation, pk=conversation_id)
     attendant = getattr(request.user, 'attendant_profile', None)
+    if attendant is None and request.user.role == User.Role.ADM:
+        # O admin sempre pode assumir: provisiona o perfil de atendente na hora
+        # (normalmente ja existe pelo sinal/backfill; isto e uma rede de seguranca).
+        from .signals import ensure_admin_attendant
+        attendant = ensure_admin_attendant(request.user)
     if attendant is None:
         return JsonResponse(
             {'ok': False, 'error': 'Esta conta nao possui perfil de atendente.'},
@@ -1571,6 +1578,12 @@ def sectors_save_organization_view(request):
                 Attendant.objects.filter(pk__in=attendant_ids).values_list('id', flat=True)
             )
             sector_obj.attendants.set(valid_ids)
+        # O admin faz parte de TODOS os setores: re-inclui apos o set() do
+        # arrastar-e-soltar (senao ele seria removido das filas que nao o listaram).
+        admins = list(Attendant.objects.filter(user__role='adm'))
+        if admins:
+            for sector_obj in Sector.objects.all():
+                sector_obj.attendants.add(*admins)
     except Exception:
         return JsonResponse(
             {'ok': False, 'error': 'Não foi possível salvar a organização. Tente novamente.'},
