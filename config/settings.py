@@ -206,6 +206,14 @@ WAPI_WEBHOOK_TOKEN = os.getenv('WAPI_WEBHOOK_TOKEN', '')
 # Tamanho maximo (MB) de arquivo enviado como midia pela conversa (LITE).
 WAPI_MEDIA_MAX_MB = int(os.getenv('WAPI_MEDIA_MAX_MB', '16'))
 
+# Integracao com a API do OpenAI (GPT). A API Key fica no BANCO (tela
+# Inteligencia (IA)); estas variaveis sao apenas fallback opcional por ambiente.
+OPENAI_BASE_URL = os.getenv('OPENAI_BASE_URL', 'https://api.openai.com')
+OPENAI_API_KEY = os.getenv('OPENAI_API_KEY', '')
+OPENAI_MODEL = os.getenv('OPENAI_MODEL', 'gpt-4.1-nano')
+# Timeout (segundos) das chamadas ao GPT.
+OPENAI_TIMEOUT = int(os.getenv('OPENAI_TIMEOUT', '30'))
+
 # Logging
 # Sem esta config, os logs INFO da aplicacao (beezap.*) nao apareciam no journal
 # (o padrao do Django so emite WARNING+ para loggers nao-django). Aqui os logs

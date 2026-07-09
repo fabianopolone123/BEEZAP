@@ -90,6 +90,44 @@ class WapiConfiguration(models.Model):
         return 'Configuracao W-API'
 
 
+class OpenAiConfiguration(models.Model):
+    """Configuracao da integracao com a API do OpenAI (GPT). Singleton (pk=1).
+
+    A API Key fica salva AQUI (no banco), editada na tela Inteligencia (IA) — nunca
+    fica no codigo e nunca e exibida de novo depois de salva (mesmo padrao do token
+    da W-API). `resolved_api_key()` cai para a variavel de ambiente OPENAI_API_KEY
+    quando o campo esta vazio. `enabled` e um interruptor mestre: enquanto False,
+    nada usa a IA.
+    """
+    api_key = models.CharField(max_length=255, blank=True)
+    model = models.CharField(max_length=80, blank=True, default='gpt-4.1-nano')
+    enabled = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'Configuracao OpenAI (GPT)'
+        verbose_name_plural = 'Configuracoes OpenAI (GPT)'
+
+    @classmethod
+    def get_solo(cls):
+        config, _ = cls.objects.get_or_create(pk=1)
+        return config
+
+    @property
+    def has_api_key(self):
+        return bool(self.api_key or settings.OPENAI_API_KEY)
+
+    def resolved_api_key(self):
+        return (self.api_key or settings.OPENAI_API_KEY or '').strip()
+
+    def resolved_model(self):
+        return (self.model or settings.OPENAI_MODEL or 'gpt-4.1-nano').strip()
+
+    def __str__(self):
+        return 'Configuracao OpenAI (GPT)'
+
+
 class WapiWebhookEvent(models.Model):
     event_type = models.CharField(max_length=80, default='unknown')
     instance_id = models.CharField(max_length=120, blank=True, default='')

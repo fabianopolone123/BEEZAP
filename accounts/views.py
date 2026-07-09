@@ -28,6 +28,7 @@ from .forms import (
     AttendantForm,
     InitialPasswordChangeForm,
     LoginForm,
+    OpenAiConfigurationForm,
     PasswordRecoveryCodeForm,
     PasswordRecoveryNewPasswordForm,
     PasswordRecoveryRequestForm,
@@ -40,12 +41,14 @@ from .models import (
     Contact,
     Conversation,
     Message,
+    OpenAiConfiguration,
     PasswordResetCode,
     Sector,
     User,
     WapiConfiguration,
     WapiWebhookEvent,
 )
+from gpt.client import test_connection as gpt_test_connection
 from wapi.client import (
     send_audio_message,
     send_document_message,
@@ -101,6 +104,7 @@ NAV_ITEMS = [
     {'label': 'Campanhas', 'required': 'usuario', 'url_name': None},
     {'label': 'Relatorios', 'required': 'leitor', 'url_name': None},
     {'label': 'Configuracoes', 'required': 'adm', 'url_name': 'wapi-settings'},
+    {'label': 'Inteligencia (IA)', 'required': 'adm', 'url_name': 'openai-settings'},
 ]
 
 
@@ -423,6 +427,59 @@ def dashboard_view(request):
             'quick_actions': visible_actions,
             'stats': stats,
             'table_rows': table_rows,
+        },
+    )
+
+
+@login_required
+def openai_settings_view(request):
+    """Tela Inteligencia (IA): cadastra a API Key do GPT, escolhe o modelo,
+    liga/desliga a IA e testa a conexao. Apenas ADM."""
+    if request.user.role != 'adm':
+        return HttpResponseForbidden('Acesso restrito.')
+
+    config = OpenAiConfiguration.get_solo()
+    config_form = OpenAiConfigurationForm(
+        request.POST if request.POST.get('form_type') == 'config' else None,
+        initial={'model': config.resolved_model(), 'enabled': config.enabled},
+    )
+
+    if request.method == 'POST':
+        form_type = request.POST.get('form_type')
+        if form_type == 'config' and config_form.is_valid():
+            new_key = config_form.cleaned_data['api_key'].strip()
+            if new_key:
+                config.api_key = new_key
+            config.model = (config_form.cleaned_data['model'] or 'gpt-4.1-nano').strip()
+            config.enabled = config_form.cleaned_data['enabled']
+            config.save()
+            messages.success(request, 'Configuracao da inteligencia salva com sucesso.')
+            return redirect('openai-settings')
+
+        if form_type == 'test':
+            if not config.has_api_key:
+                messages.error(request, 'Cadastre a API Key do GPT antes de testar.')
+            else:
+                result = gpt_test_connection()
+                if result.success:
+                    messages.success(
+                        request,
+                        'Conexao com o GPT funcionando (modelo %s).' % (result.model or config.resolved_model()),
+                    )
+                else:
+                    messages.error(request, result.error or 'Nao foi possivel falar com o GPT.')
+            return redirect('openai-settings')
+
+    return render(
+        request,
+        'accounts/openai_settings.html',
+        {
+            'config_form': config_form,
+            'config': config,
+            'nav_items': build_nav_items(request.user.role, 'Inteligencia (IA)'),
+            'role_label': request.user.get_role_display(),
+            'user_initial': (request.user.first_name[:1] or request.user.email[:1]).upper(),
+            'api_key_configured': config.has_api_key,
         },
     )
 

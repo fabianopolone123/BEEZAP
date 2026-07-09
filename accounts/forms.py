@@ -51,6 +51,37 @@ class WapiConfigurationForm(forms.Form):
     )
 
 
+# Modelos do GPT oferecidos na tela (do mais barato ao mais caro). O campo aceita
+# tambem um modelo digitado, mas as opcoes cobrem o uso comum e evitam erro de digitacao.
+GPT_MODEL_CHOICES = [
+    ('gpt-4.1-nano', 'gpt-4.1-nano (mais barato)'),
+    ('gpt-4o-mini', 'gpt-4o-mini (barato)'),
+    ('gpt-4.1-mini', 'gpt-4.1-mini (intermediario)'),
+    ('gpt-4o', 'gpt-4o (mais caro)'),
+]
+
+
+class OpenAiConfigurationForm(forms.Form):
+    api_key = forms.CharField(
+        label='API Key do GPT',
+        max_length=255,
+        required=False,
+        widget=forms.PasswordInput(attrs={
+            'placeholder': 'Cole aqui a API Key do OpenAI (sk-...)',
+            'autocomplete': 'new-password',
+        }, render_value=False),
+    )
+    model = forms.ChoiceField(
+        label='Modelo do GPT',
+        choices=GPT_MODEL_CHOICES,
+        required=False,
+    )
+    enabled = forms.BooleanField(
+        label='Ativar a inteligencia (GPT)',
+        required=False,
+    )
+
+
 class WapiSendTextForm(forms.Form):
     phone = forms.CharField(
         label='Telefone de destino',

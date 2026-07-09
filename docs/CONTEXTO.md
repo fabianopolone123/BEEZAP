@@ -33,7 +33,7 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
 > `wapi/` é um módulo Python comum (importa `accounts.models`); **não** está em
 > `INSTALLED_APPS`, por isso os models ficam em `accounts/models.py`.
 
-## 3. Modelos (`accounts/models.py`) — migração atual: `0019`
+## 3. Modelos (`accounts/models.py`) — migração atual: `0020`
 
 - **User** (AbstractUser, login por e-mail; `role`: `leitor`/`usuario`/`adm`).
 - **Attendant** (perfil de atendente, vínculo com User, troca de senha inicial).
@@ -43,6 +43,11 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
   `webhook_token`. Credenciais reais ficam **aqui (no banco)**, editadas na tela
   Configurações → WhatsApp/W-API. `resolved_*()` cai para env se vazio.
 - **WapiWebhookEvent**: todo evento recebido do webhook (com `raw_payload`).
+- **OpenAiConfiguration** (singleton `get_solo()`): `api_key`, `model`
+  (padrão `gpt-4.1-nano`), `enabled`. Guarda a **API Key do GPT no banco**
+  (editada na tela **Inteligência (IA)**; nunca no código e não reexibida após
+  salva). `resolved_api_key()`/`resolved_model()` caem para env
+  (`OPENAI_API_KEY`/`OPENAI_MODEL`) se vazios. Ver seção 13.
 - **Contact**: `name`, `phone` (único, guardado **só em dígitos**), `display_name`,
   `initials`. É a base da tela **Contatos** e da resolução de nomes: criado
   **automaticamente** na 1ª mensagem de uma conversa **direta** (nome = pushName),
@@ -285,6 +290,12 @@ MEDIA_URL=/beezap/media/          # sem isto, envio de mídia falha (W-API não 
 WAPI_BASE_URL=https://api.w-api.app
 WAPI_MEDIA_MAX_MB=16
 # Instance ID / Token da W-API ficam no BANCO (tela de config), não precisam no .env
+# GPT (OpenAI): a API Key normalmente fica no BANCO (tela Inteligência (IA)); as
+# variáveis abaixo são fallback opcional.
+OPENAI_BASE_URL=https://api.openai.com
+OPENAI_API_KEY=                   # opcional (fallback; o normal é cadastrar na tela)
+OPENAI_MODEL=gpt-4.1-nano         # modelo padrão (o mais barato)
+OPENAI_TIMEOUT=30
 ```
 
 ## 8. Fluxo de trabalho obrigatório (ver `CODEX_PADROES.md` e `GIT.md`)
@@ -378,3 +389,31 @@ merge_contact_conversations [--apply]   # unifica conversas picotadas em 1 chat 
   (`.conv-divider`, sem balão/horário); CSS em `conversations.css?v=19`.
 - **Chats já picotados** (do comportamento antigo de fork) são unificados pelo comando
   `merge_contact_conversations` (ver seção 9 / comandos de management).
+
+## 13. Inteligência (IA) / GPT — integração com o OpenAI
+
+> A IA foi recomeçada **do zero** usando a **API do OpenAI (GPT)** — nada de
+> Ollama local (o antigo `ai_engine` foi removido; ver seção 12). Esta é a **base**:
+> cadastro/validação da API Key. **A IA vem DESLIGADA** e ainda **não está ligada
+> a nenhum fluxo** (recepção/resposta automática) — o comportamento vem depois.
+
+- **Credencial no banco**: model `OpenAiConfiguration` (singleton, seção 3). A
+  **API Key** é cadastrada na tela e salva no banco; nunca fica no código nem é
+  reexibida após salva (mesmo padrão do token da W-API).
+- **Cliente** (`gpt/client.py`): módulo comum (como `wapi/`, **não** é app), usa só
+  `urllib` (sem pacote pip novo). Chama `POST https://api.openai.com/v1/chat/completions`
+  com header `Authorization: Bearer <api_key>`. Funções: `chat_completion(messages,
+  model=, temperature=, max_tokens=, timeout=)` → `GptResult(success, text, model,
+  status_code, error)`; e `test_connection()` (chamada mínima que valida
+  chave/modelo/créditos gastando pouquíssimo). Erros já vêm amigáveis (401 → chave
+  recusada, 429/quota → sem créditos, modelo indisponível, etc.); log seguro no
+  logger `beezap.gpt` (nunca expõe API Key/corpo/traceback). Nunca levanta exceção.
+- **Tela "Inteligência (IA)"** (`templates/accounts/openai_settings.html` +
+  `openai_settings.css`, escopo `.openai-settings-page`): item na barra lateral,
+  rota `configuracoes/ia/` (`openai-settings`), **só ADM** (`openai_settings_view`).
+  Campos (form `OpenAiConfigurationForm`): **API Key** (oculta), **Modelo** (select:
+  `gpt-4.1-nano` [padrão, mais barato] / `gpt-4o-mini` / `gpt-4.1-mini` / `gpt-4o`)
+  e **Ativar a inteligência** (liga/desliga). Card de **status** (API Key / modelo /
+  ligada) + botão **Testar conexão** (`form_type=test` → `gpt.client.test_connection`).
+- **Variáveis** (`.env`, seção 7): `OPENAI_BASE_URL`, `OPENAI_API_KEY` (fallback
+  opcional), `OPENAI_MODEL`, `OPENAI_TIMEOUT`. O normal é cadastrar a chave pela tela.

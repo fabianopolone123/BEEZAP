@@ -17,6 +17,7 @@ from .views import (
     dashboard_view,
     login_view,
     logout_view,
+    openai_settings_view,
     password_recovery_request_view,
     password_recovery_resend_view,
     password_recovery_set_password_view,
@@ -50,6 +51,7 @@ urlpatterns = [
     path('setores/salvar/', sectors_save_organization_view, name='sectors-save'),
     path('atendentes/', attendants_view, name='attendants'),
     path('trocar-senha-inicial/', change_initial_password_view, name='change-initial-password'),
+    path('configuracoes/ia/', openai_settings_view, name='openai-settings'),
     path('configuracoes/wapi/', wapi_settings_view, name='wapi-settings'),
     path('configuracoes/wapi/eventos/', wapi_webhook_events_view, name='wapi-webhook-events'),
     # Endpoint publico do webhook da W-API. Registrado tambem sob /beezap/ para

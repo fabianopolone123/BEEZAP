@@ -1,0 +1,227 @@
+/* Tela Inteligencia (IA) / GPT. Escopo em .openai-settings-page para nao vazar
+   estilos para outras telas (padrao de CSS por pagina do projeto). Reusa o visual
+   dos cards de configuracao (mesma linguagem da tela W-API). */
+
+.dashboard-main.dashboard-main-ai {
+  padding-top: 8px;
+  padding-bottom: 16px;
+  gap: 8px;
+  align-content: start;
+  grid-auto-rows: max-content;
+}
+
+.openai-settings-page {
+  display: grid;
+  gap: 8px;
+  align-content: start;
+  grid-auto-rows: max-content;
+}
+
+/* Sem caret piscando em elementos nao editaveis. */
+.openai-settings-page :where(:not(input):not(textarea):not(select):not([contenteditable="true"])) {
+  caret-color: transparent;
+}
+
+.openai-settings-page :where(input, textarea, select, [contenteditable="true"]) {
+  caret-color: auto;
+}
+
+.openai-settings-page .settings-stack {
+  display: grid;
+  gap: 14px;
+  margin-top: 0;
+}
+
+.openai-settings-page .settings-card {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 22px;
+  box-shadow: var(--shadow);
+  padding: 20px;
+}
+
+.openai-settings-page .settings-card-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 28px;
+  align-items: start;
+}
+
+.openai-settings-page .settings-column {
+  min-width: 0;
+}
+
+.openai-settings-page .settings-column-divider {
+  padding-left: 28px;
+  border-left: 1px solid rgba(100, 116, 139, 0.14);
+}
+
+.openai-settings-page .settings-form-grid {
+  display: grid;
+  gap: 18px;
+  margin-top: 14px;
+}
+
+.openai-settings-page .settings-field {
+  display: grid;
+  gap: 8px;
+}
+
+.openai-settings-page .settings-field label {
+  font-size: 0.92rem;
+  font-weight: 600;
+}
+
+.openai-settings-page .settings-field input,
+.openai-settings-page .settings-field select {
+  width: 100%;
+  padding: 15px 16px;
+  border: 1px solid rgba(100, 116, 139, 0.2);
+  border-radius: 16px;
+  background: #fff;
+  color: var(--text);
+  font: inherit;
+  outline: none;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.openai-settings-page .settings-field input:focus,
+.openai-settings-page .settings-field select:focus {
+  border-color: rgba(33, 194, 94, 0.65);
+  box-shadow: 0 0 0 4px rgba(33, 194, 94, 0.12);
+}
+
+/* Campo com checkbox (ligar/desligar). */
+.openai-settings-page .settings-field-check .ai-switch {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.openai-settings-page .settings-field-check input[type="checkbox"] {
+  width: 20px;
+  height: 20px;
+  accent-color: var(--primary-deep, #21c25e);
+  cursor: pointer;
+}
+
+.openai-settings-page .settings-actions {
+  display: flex;
+  justify-content: flex-start;
+}
+
+.openai-settings-page .primary-button,
+.openai-settings-page .secondary-button {
+  padding: 14px 20px;
+  border: 0;
+  border-radius: 16px;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.openai-settings-page .primary-button {
+  background: linear-gradient(135deg, var(--primary), var(--primary-deep));
+  color: #fff;
+  box-shadow: 0 14px 30px rgba(17, 152, 74, 0.24);
+}
+
+.openai-settings-page .secondary-button {
+  background: rgba(45, 108, 223, 0.1);
+  color: var(--blue);
+}
+
+.openai-settings-page .secondary-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.openai-settings-page .field-help {
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+.openai-settings-page .field-error {
+  color: #b42318;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.openai-settings-page .panel-head h2 {
+  margin: 0 0 6px;
+}
+
+.openai-settings-page .panel-head span {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+/* Caixa de status (API Key / modelo / ligada). */
+.openai-settings-page .ai-status-box {
+  display: grid;
+  gap: 12px;
+  margin-top: 14px;
+  padding: 16px;
+  border: 1px solid rgba(100, 116, 139, 0.16);
+  border-radius: 18px;
+  background: rgba(248, 250, 252, 0.92);
+}
+
+.openai-settings-page .ai-status-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.openai-settings-page .ai-status-label {
+  color: var(--muted);
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
+.openai-settings-page .ai-badge {
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.openai-settings-page .ai-badge-on {
+  background: rgba(33, 194, 94, 0.14);
+  color: var(--primary-deep, #17984a);
+}
+
+.openai-settings-page .ai-badge-off {
+  background: rgba(148, 163, 184, 0.18);
+  color: var(--muted);
+}
+
+@media (max-width: 1200px) {
+  .openai-settings-page .settings-card-split {
+    grid-template-columns: 1fr;
+    gap: 22px;
+  }
+
+  .openai-settings-page .settings-column-divider {
+    padding-left: 0;
+    padding-top: 22px;
+    border-left: 0;
+    border-top: 1px solid rgba(100, 116, 139, 0.14);
+  }
+}
+
+@media (max-width: 760px) {
+  .dashboard-main.dashboard-main-ai {
+    padding-top: 8px;
+  }
+
+  .openai-settings-page .primary-button,
+  .openai-settings-page .secondary-button {
+    width: 100%;
+  }
+}

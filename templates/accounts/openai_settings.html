@@ -1,0 +1,152 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Inteligencia (IA) | BEEZap{% endblock %}
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/dashboard.css' %}">
+<link rel="stylesheet" href="{% static 'css/openai_settings.css' %}?v=1">
+{% endblock %}
+
+{% block content %}
+<main class="dashboard-shell">
+  <aside class="sidebar">
+    <div class="sidebar-brand">
+      <img src="{% static 'images/logo-transparent.png' %}" alt="BEEZap" class="sidebar-logo">
+      <div>
+        <strong>BEEZap</strong>
+        <span>Central de atendimento</span>
+      </div>
+    </div>
+
+    <nav class="sidebar-nav">
+      {% for item in nav_items %}
+        <a href="{% if item.href %}{% url item.href %}{% else %}#{% endif %}" class="nav-item {% if item.active %}active{% endif %}">
+          <span class="nav-dot"></span>
+          <span>{{ item.label }}</span>
+        </a>
+      {% endfor %}
+    </nav>
+  </aside>
+
+  <section class="dashboard-main dashboard-main-ai">
+    <div class="openai-settings-page">
+    <header class="topbar">
+      <div class="topbar-left">
+        <button class="icon-button" type="button" aria-label="Abrir menu">☰</button>
+        <div>
+          <p class="page-kicker">Configuracoes</p>
+          <h1>Inteligencia (IA) / GPT</h1>
+        </div>
+      </div>
+
+      <div class="topbar-right">
+        <div class="profile-chip">
+          <div class="profile-avatar">{{ user_initial }}</div>
+          <div>
+            <strong>{{ request.user.get_full_name|default:request.user.email }}</strong>
+            <span>{{ role_label }}</span>
+          </div>
+        </div>
+        <a href="{% url 'logout' %}" class="logout-link">Sair</a>
+      </div>
+    </header>
+
+    <section class="settings-stack">
+      <article class="settings-card settings-card-split ai-card">
+        <div class="settings-column">
+          <div class="panel-head">
+            <div>
+              <h2>Conexao com o GPT</h2>
+              <span>Cadastre a API Key do OpenAI e escolha o modelo. A chave fica guardada com seguranca e nao aparece de novo depois de salva.</span>
+            </div>
+          </div>
+
+          <form method="post" class="settings-form-grid">
+            {% csrf_token %}
+            <input type="hidden" name="form_type" value="config">
+
+            <div class="settings-field">
+              <label for="{{ config_form.api_key.id_for_label }}">API Key do GPT</label>
+              {{ config_form.api_key }}
+              <small class="field-help">
+                {% if api_key_configured %}
+                  API Key cadastrada. Deixe o campo em branco para manter a chave atual.
+                {% else %}
+                  Nenhuma chave salva ainda. Cole a API Key do OpenAI (ela nao sera exibida depois de salva).
+                {% endif %}
+              </small>
+              {% if config_form.api_key.errors %}
+                <small class="field-error">{{ config_form.api_key.errors|striptags }}</small>
+              {% endif %}
+            </div>
+
+            <div class="settings-field">
+              <label for="{{ config_form.model.id_for_label }}">Modelo do GPT</label>
+              {{ config_form.model }}
+              <small class="field-help">O modelo mais barato ja vem selecionado. Pode trocar quando quiser.</small>
+            </div>
+
+            <div class="settings-field settings-field-check">
+              <label class="ai-switch">
+                {{ config_form.enabled }}
+                <span>Ativar a inteligencia (GPT)</span>
+              </label>
+              <small class="field-help">Enquanto estiver desligada, nada usa o GPT. Ligue quando estiver tudo testado.</small>
+            </div>
+
+            <div class="settings-actions">
+              <button type="submit" class="primary-button">Salvar configuracao</button>
+            </div>
+          </form>
+        </div>
+
+        <div class="settings-column settings-column-divider">
+          <div class="panel-head">
+            <div>
+              <h2>Status e teste</h2>
+              <span>Verifique se a chave e os creditos estao funcionando com uma chamada rapida ao GPT.</span>
+            </div>
+          </div>
+
+          <div class="ai-status-box">
+            <div class="ai-status-row">
+              <span class="ai-status-label">API Key</span>
+              {% if api_key_configured %}
+                <span class="ai-badge ai-badge-on">Cadastrada</span>
+              {% else %}
+                <span class="ai-badge ai-badge-off">Nao cadastrada</span>
+              {% endif %}
+            </div>
+            <div class="ai-status-row">
+              <span class="ai-status-label">Modelo</span>
+              <strong>{{ config.resolved_model }}</strong>
+            </div>
+            <div class="ai-status-row">
+              <span class="ai-status-label">Inteligencia</span>
+              {% if config.enabled %}
+                <span class="ai-badge ai-badge-on">Ligada</span>
+              {% else %}
+                <span class="ai-badge ai-badge-off">Desligada</span>
+              {% endif %}
+            </div>
+          </div>
+
+          <form method="post" class="settings-form-grid">
+            {% csrf_token %}
+            <input type="hidden" name="form_type" value="test">
+            <div class="settings-actions">
+              <button type="submit" class="secondary-button" {% if not api_key_configured %}disabled{% endif %}>
+                Testar conexao
+              </button>
+            </div>
+            <small class="field-help">
+              O teste envia uma mensagem minima ao GPT (gasta pouquissimo credito) so para confirmar que esta tudo certo.
+            </small>
+          </form>
+        </div>
+      </article>
+    </section>
+    </div>
+  </section>
+</main>
+{% endblock %}
