@@ -4,6 +4,10 @@
 
 - Cada etapa concluída deve gerar um commit próprio.
 - Cada commit deve ser pequeno e relacionado somente à etapa atual.
+- **Toda alteração feita no projeto DEVE ser enviada ao Git com `commit` + `push`,
+  sem exceção.**
+- **As mensagens de commit devem ser escritas em português (PT-BR)**, curtas e
+  descritivas, no formato `tipo: descrição` (ver seção 5).
 - Depois do commit, deve ser feito `git push`.
 - Se o check falhar, não pode fazer commit nem push.
 

@@ -46,7 +46,8 @@ Este arquivo define os padrões de trabalho para o projeto BEEZAP.
 
 ## Padrão de commit
 
-- Usar mensagens curtas, claras e descritivas.
+- **Toda alteração no projeto é enviada ao Git com `commit` + `push`, sem exceção.**
+- **Mensagens de commit sempre em português (PT-BR)**, curtas, claras e descritivas.
 - Preferir o formato:
   - `feat: ...` para novas funcionalidades
   - `fix: ...` para correções

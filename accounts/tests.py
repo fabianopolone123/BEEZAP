@@ -1102,3 +1102,19 @@ class AiAttendantFlowTests(TestCase):
                                     text='oi, sou o atendente', is_ai=False)
         mock_gpt, _ = self._run(self._gpt(mensagem='x'))
         mock_gpt.assert_not_called()
+
+    def test_skips_when_attendant_assigned(self):
+        # Conversa em atendimento humano (atendente assumiu): a IA nao interfere.
+        self.conv.assigned_attendant = self.fabiano
+        self.conv.status = 'open'
+        self.conv.save(update_fields=['assigned_attendant', 'status'])
+        mock_gpt, mock_send = self._run(self._gpt(mensagem='deveria ficar quieta'))
+        mock_gpt.assert_not_called()
+        mock_send.assert_not_called()
+
+    def test_skips_when_closed(self):
+        # Atendimento encerrado: enquanto fechado, a IA nao responde.
+        self.conv.status = 'closed'
+        self.conv.save(update_fields=['status'])
+        mock_gpt, _ = self._run(self._gpt(mensagem='x'))
+        mock_gpt.assert_not_called()
