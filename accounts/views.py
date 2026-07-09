@@ -1595,7 +1595,11 @@ def conversation_sync_groups_view(request):
             {'ok': False, 'error': 'Nao foi possivel sincronizar os grupos. Verifique a conexao do WhatsApp.'},
             status=502,
         )
-    return JsonResponse({'ok': True, 'updated': result['updated']})
+    return JsonResponse({
+        'ok': True,
+        'updated': result['updated'],
+        'total_groups': result.get('total_groups', 0),
+    })
 
 
 @login_required

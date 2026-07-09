@@ -320,9 +320,15 @@
           method: 'POST',
           headers: {'X-Requested-With': 'XMLHttpRequest', 'X-CSRFToken': getCookie('csrftoken')},
         }).then(function (r) { return r.json(); }).then(function (d) {
-          if (d && d.ok) {
-            toast('success', 'Nomes atualizados.');
+          if (d && d.ok && d.updated > 0) {
+            toast('success', d.updated + ' nome(s) atualizado(s).');
             setTimeout(function () { location.href = location.pathname + '?tab=grupos'; }, 600);
+          } else if (d && d.ok && d.total_groups === 0) {
+            toast('error', 'A W-API nao retornou grupos. Verifique a conexao do WhatsApp. Voce pode digitar o nome no campo.');
+            syncBtn.disabled = false; syncBtn.textContent = orig;
+          } else if (d && d.ok) {
+            toast('error', 'Nome deste grupo nao veio da W-API. Digite o nome no campo abaixo.');
+            syncBtn.disabled = false; syncBtn.textContent = orig;
           } else {
             toast('error', (d && d.error) || 'Nao foi possivel atualizar os nomes.');
             syncBtn.disabled = false; syncBtn.textContent = orig;

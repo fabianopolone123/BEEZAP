@@ -364,6 +364,7 @@ sync_wapi_group_names               # atualiza os nomes dos grupos pela W-API
 retry_wapi_media                    # rebaixa TODAS as mídias recebidas sem arquivo local
 inspect_wapi_messages --name X --full   # DIAGNÓSTICO: payload cru + veredito do parser (Messages criadas)
 inspect_wapi_events --hours 6 --full    # DIAGNÓSTICO: eventos BRUTOS do webhook, INCLUSIVE os descartados
+inspect_wapi_groups [--full]            # DIAGNÓSTICO: resposta de get-all-groups + nome extraído por grupo
 cleanup_status_messages [--delete]      # remove mensagens de Status que viraram conversa
 cleanup_unknown_messages [--delete]     # remove mensagens de tipo 'unknown' (sistema)
 cleanup_nonpersonal_conversations [--delete]  # remove conversas de canal/transmissão/"status"
