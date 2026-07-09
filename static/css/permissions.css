@@ -26,10 +26,31 @@
   padding: 20px;
 }
 
+.perm-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 4px;
+}
+
 .perm-head h2 {
-  margin: 0 0 4px;
+  margin: 0;
   font-size: 1.1rem;
   color: var(--text);
+}
+
+.perm-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.perm-autosave-hint {
+  font-size: 0.8rem;
+  color: var(--muted);
 }
 
 .perm-role {

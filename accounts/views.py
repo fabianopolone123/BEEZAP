@@ -674,6 +674,7 @@ def permissions_view(request):
         EDITABLE_ROLES, MENU_FEATURES, ALL_FEATURE_KEYS,
         role_allowed_keys, allowed_keys_for, history_full_for,
     )
+    is_ajax = request.headers.get('x-requested-with') == 'XMLHttpRequest'
 
     if request.method == 'POST':
         form_type = request.POST.get('form_type')
@@ -690,6 +691,8 @@ def permissions_view(request):
                         'full_history': request.POST.get(f'role__{role}__full_history') == 'on',
                     },
                 )
+            if is_ajax:
+                return JsonResponse({'ok': True})
             messages.success(request, 'Permissoes dos perfis salvas.')
             return redirect('permissions')
 
@@ -697,6 +700,8 @@ def permissions_view(request):
             user_id = (request.POST.get('user_id') or '').strip()
             target = User.objects.filter(pk=user_id).first() if user_id else None
             if not target or target.role == 'adm':
+                if is_ajax:
+                    return JsonResponse({'ok': False, 'error': 'Selecione um usuario valido.'}, status=400)
                 messages.error(request, 'Selecione um usuario valido.')
                 return redirect('permissions')
             chosen = [k for k in ALL_FEATURE_KEYS
@@ -708,6 +713,8 @@ def permissions_view(request):
                     'full_history': request.POST.get('userkey__full_history') == 'on',
                 },
             )
+            if is_ajax:
+                return JsonResponse({'ok': True})
             messages.success(request, f'Permissoes de {target.email} salvas.')
             return redirect(f'{reverse("permissions")}?user={target.id}')
 
@@ -731,6 +738,8 @@ def permissions_view(request):
                 access, _ = GroupAccess.objects.get_or_create(conversation_id=gid)
                 access.sectors.set(sec_ids)
                 access.users.set(usr_ids)
+            if is_ajax:
+                return JsonResponse({'ok': True})
             messages.success(request, 'Acessos aos grupos salvos.')
             return redirect(f'{reverse("permissions")}?tab=grupos')
 

@@ -4,7 +4,7 @@
 {% block title %}Permissões | BEEZap{% endblock %}
 {% block extra_head %}
 <link rel="stylesheet" href="{% static 'css/dashboard.css' %}">
-<link rel="stylesheet" href="{% static 'css/permissions.css' %}?v=2">
+<link rel="stylesheet" href="{% static 'css/permissions.css' %}?v=3">
 {% endblock %}
 
 {% block content %}
@@ -56,11 +56,14 @@
 
       <!-- ============ ABA: BOTÕES DO PERFIL ============ -->
       <section class="perm-panel {% if active_tab == 'perfis' %}is-active{% endif %}" data-panel="perfis">
-        <form method="post" class="perm-card">
+        <form method="post" class="perm-card" data-autosave="Perfis salvos.">
           {% csrf_token %}
           <input type="hidden" name="form_type" value="roles">
 
-          <div class="perm-head"><h2>Botões por perfil</h2></div>
+          <div class="perm-head">
+            <h2>Botões por perfil</h2>
+            <span class="perm-autosave-hint">Salva automaticamente ao clicar.</span>
+          </div>
 
           <div class="perm-role perm-role-locked">
             <div class="perm-role-title">
@@ -99,10 +102,6 @@
             </div>
           </div>
           {% endfor %}
-
-          <div class="perm-actions">
-            <button type="submit" class="primary-button">Salvar perfis</button>
-          </div>
         </form>
 
         <article class="perm-card">
@@ -120,7 +119,7 @@
           </form>
 
           {% if selected_user %}
-          <form method="post" class="perm-user-form">
+          <form method="post" class="perm-user-form" data-autosave="Permissões do usuário salvas.">
             {% csrf_token %}
             <input type="hidden" name="form_type" value="user">
             <input type="hidden" name="user_id" value="{{ selected_user.id }}">
@@ -140,9 +139,6 @@
                 <span class="perm-switch" aria-hidden="true"></span>
               </label>
             </div>
-            <div class="perm-actions">
-              <button type="submit" class="primary-button">Salvar {{ selected_user.name }}</button>
-            </div>
           </form>
           {% if selected_user.custom %}
           <form method="post" class="perm-reset-form">
@@ -158,12 +154,17 @@
 
       <!-- ============ ABA: GRUPOS ============ -->
       <section class="perm-panel {% if active_tab == 'grupos' %}is-active{% endif %}" data-panel="grupos">
-        <form method="post" class="perm-card">
+        <form method="post" class="perm-card" data-autosave="Acessos aos grupos salvos.">
           {% csrf_token %}
           <input type="hidden" name="form_type" value="groups">
 
           <div class="perm-head">
             <h2>Acesso aos grupos</h2>
+            <div class="perm-head-actions">
+              <span class="perm-autosave-hint">Salva automaticamente ao clicar.</span>
+              <button type="button" class="secondary-button" id="btn-sync-groups"
+                      data-sync-url="{% url 'conversation-sync-groups' %}">Atualizar nomes</button>
+            </div>
           </div>
 
           {% if not has_sectors %}
@@ -208,12 +209,6 @@
           {% empty %}
           <p class="perm-note">Nenhum grupo detectado ainda. Os grupos aparecem aqui assim que chegam mensagens deles.</p>
           {% endfor %}
-
-          {% if groups %}
-          <div class="perm-actions">
-            <button type="submit" class="primary-button">Salvar grupos</button>
-          </div>
-          {% endif %}
         </form>
       </section>
 
@@ -223,6 +218,7 @@
 
 <script>
   (function () {
+    /* ── Abas ── */
     var tabs = document.querySelectorAll('.perm-tab');
     var panels = document.querySelectorAll('.perm-panel');
     tabs.forEach(function (tab) {
@@ -232,12 +228,84 @@
         panels.forEach(function (p) { p.classList.toggle('is-active', p.dataset.panel === key); });
       });
     });
-    // Feedback visual imediato dos toggles/chips.
-    document.querySelectorAll('.perm-toggle input, .perm-chip input').forEach(function (cb) {
-      cb.addEventListener('change', function () {
-        cb.closest('.perm-toggle, .perm-chip').classList.toggle('is-on', cb.checked);
+
+    /* ── Toast ── */
+    function getCookie(name) {
+      var m = document.cookie.match('(?:^|;\\s*)' + name + '=([^;]+)');
+      return m ? decodeURIComponent(m[1]) : '';
+    }
+    function toast(type, msg) {
+      var box = document.querySelector('.toast-container');
+      if (!box) {
+        box = document.createElement('div');
+        box.className = 'toast-container';
+        box.setAttribute('aria-live', 'polite');
+        document.body.appendChild(box);
+      }
+      var el = document.createElement('div');
+      el.className = 'toast-message toast-' + type;
+      el.setAttribute('role', 'status');
+      el.innerHTML = '<span class="toast-marker" aria-hidden="true"></span>' +
+        '<div class="toast-content"></div>' +
+        '<button type="button" class="toast-close" aria-label="Fechar">×</button>';
+      el.querySelector('.toast-content').textContent = msg;
+      function close() { el.classList.add('toast-hiding'); setTimeout(function () { el.remove(); }, 220); }
+      el.querySelector('.toast-close').addEventListener('click', close);
+      setTimeout(close, 3200);
+      box.appendChild(el);
+    }
+
+    /* ── Auto-save dos formularios (sem botao Salvar) ── */
+    var timers = new WeakMap();
+    function save(form) {
+      fetch(location.pathname, {
+        method: 'POST',
+        headers: {'X-Requested-With': 'XMLHttpRequest', 'X-CSRFToken': getCookie('csrftoken')},
+        body: new FormData(form),
+      }).then(function (r) { return r.json(); }).then(function (d) {
+        if (d && d.ok) { toast('success', form.dataset.autosave || 'Salvo.'); }
+        else { toast('error', (d && d.error) || 'Nao foi possivel salvar.'); }
+      }).catch(function () { toast('error', 'Nao foi possivel salvar.'); });
+    }
+    function scheduleSave(form) {
+      clearTimeout(timers.get(form));
+      timers.set(form, setTimeout(function () { save(form); }, 350));
+    }
+
+    document.querySelectorAll('form[data-autosave]').forEach(function (form) {
+      form.addEventListener('change', function (e) {
+        if (e.target && e.target.matches('input[type="checkbox"]')) {
+          var wrap = e.target.closest('.perm-toggle, .perm-chip');
+          if (wrap) wrap.classList.toggle('is-on', e.target.checked);
+          scheduleSave(form);
+        }
       });
     });
+
+    /* ── Atualizar nomes dos grupos ── */
+    var syncBtn = document.getElementById('btn-sync-groups');
+    if (syncBtn) {
+      syncBtn.addEventListener('click', function () {
+        syncBtn.disabled = true;
+        var orig = syncBtn.textContent;
+        syncBtn.textContent = 'Atualizando...';
+        fetch(syncBtn.dataset.syncUrl, {
+          method: 'POST',
+          headers: {'X-Requested-With': 'XMLHttpRequest', 'X-CSRFToken': getCookie('csrftoken')},
+        }).then(function (r) { return r.json(); }).then(function (d) {
+          if (d && d.ok) {
+            toast('success', 'Nomes atualizados.');
+            setTimeout(function () { location.href = location.pathname + '?tab=grupos'; }, 600);
+          } else {
+            toast('error', (d && d.error) || 'Nao foi possivel atualizar os nomes.');
+            syncBtn.disabled = false; syncBtn.textContent = orig;
+          }
+        }).catch(function () {
+          toast('error', 'Nao foi possivel atualizar os nomes.');
+          syncBtn.disabled = false; syncBtn.textContent = orig;
+        });
+      });
+    }
   }());
 </script>
 {% endblock %}

@@ -579,7 +579,11 @@ esconder o botão também bloqueia a URL.
     total") + seção "Personalizar um usuário" (select → toggles). Cada perfil/usuário
     tem também o toggle **"Ver conversa inteira"** (`full_history`).
   - **Grupos**: lista os grupos detectados (Conversation `chat_type='group'`) e libera
-    cada um por **setor** e/ou **usuário** (grava em `GroupAccess`).
+    cada um por **setor** e/ou **usuário** (grava em `GroupAccess`); botão **"Atualizar
+    nomes"** chama `conversation-sync-groups` (nome real do grupo via W-API).
+  **Sem botão "Salvar"**: as alterações (perfis, usuário e grupos) são **salvas
+  automaticamente** ao clicar (fetch AJAX → `permissions_view` responde JSON quando
+  `X-Requested-With`; toast de confirmação).
   `build_nav_items(user, active_label)` monta o menu a partir dessas regras.
 
 ### Separação das conversas (quem vê quais chats)
