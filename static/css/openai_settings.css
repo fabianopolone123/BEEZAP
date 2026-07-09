@@ -112,6 +112,16 @@
   align-items: start;
 }
 
+.openai-settings-page .prompt-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.openai-settings-page .prompt-actions .secondary-button {
+  padding: 8px 14px;
+  font-size: 0.85rem;
+}
+
 .openai-settings-page .panel-head-sep {
   margin-top: 6px;
   padding-top: 18px;

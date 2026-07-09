@@ -4,7 +4,7 @@
 {% block title %}Inteligencia (IA) | BEEZap{% endblock %}
 {% block extra_head %}
 <link rel="stylesheet" href="{% static 'css/dashboard.css' %}">
-<link rel="stylesheet" href="{% static 'css/openai_settings.css' %}?v=4">
+<link rel="stylesheet" href="{% static 'css/openai_settings.css' %}?v=5">
 {% endblock %}
 
 {% block content %}
@@ -104,12 +104,18 @@
         <div class="settings-field">
           <label for="{{ config_form.instructions.id_for_label }}">Prompt do atendente virtual</label>
           {{ config_form.instructions }}
+          <div class="prompt-actions">
+            <button type="button" class="secondary-button" id="btn-restore-prompt">Restaurar prompt padrão</button>
+          </div>
           <small class="field-help">
-            Descreva o papel da IA (ex.: "Voce e o atendente da BEEZAP, cumprimente conforme o horario,
-            pergunte o que a pessoa precisa e encaminhe para o setor certo"). Os setores, os atendentes e
-            as ultimas mensagens sao adicionados automaticamente ao contexto (veja o painel abaixo).
+            Aqui fica TODO o comportamento da IA (persona, saudação, brevidade, não inventar,
+            para onde encaminhar). Edite à vontade. O sistema adiciona sozinho apenas os dados
+            que mudam (data/hora, tempo desde a última mensagem, lista de setores e atendentes,
+            qual é o setor geral) e o formato técnico da resposta — veja tudo no painel
+            "O que é enviado para a IA" e em "Última chamada à IA".
           </small>
         </div>
+        <script type="text/plain" id="default-prompt-text">{{ default_instructions }}</script>
 
         <div class="field-row">
           <div class="settings-field">
@@ -280,4 +286,17 @@
     </div>
   </section>
 </main>
+
+<script>
+  (function () {
+    var btn = document.getElementById('btn-restore-prompt');
+    var src = document.getElementById('default-prompt-text');
+    var ta = document.getElementById('id_instructions');
+    if (!btn || !src || !ta) return;
+    btn.addEventListener('click', function () {
+      ta.value = src.textContent.trim();
+      ta.focus();
+    });
+  }());
+</script>
 {% endblock %}

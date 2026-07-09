@@ -447,6 +447,7 @@ def openai_settings_view(request):
         return HttpResponseForbidden('Acesso restrito.')
 
     from gpt.attendant import (
+        DEFAULT_INSTRUCTIONS,
         attendants_context_text,
         resolved_instructions,
         sectors_context_text,
@@ -520,6 +521,7 @@ def openai_settings_view(request):
             'last_request': config.last_request,
             'last_response': config.last_response,
             'last_exchange_at': config.last_exchange_at,
+            'default_instructions': DEFAULT_INSTRUCTIONS,
         },
     )
 

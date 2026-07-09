@@ -36,17 +36,36 @@ ai_logger = logging.getLogger('beezap.gpt')
 # Ate ~5 trocas cliente<->IA (10 mensagens) de contexto.
 CONTEXT_MESSAGES = 10
 
-# Persona padrao (editavel na tela). Os setores/atendentes/mensagens sao anexados
-# automaticamente pelo codigo — nao precisam estar aqui.
+# Prompt padrao (persona + REGRAS DE COMPORTAMENTO) — totalmente editavel na tela.
+# O codigo ainda anexa automaticamente APENAS os dados dinamicos (data/hora, tempo
+# desde a ultima mensagem, lista de setores/atendentes, qual e o setor geral) e a
+# regra de formato JSON (necessaria para o sistema ler a resposta).
 DEFAULT_INSTRUCTIONS = (
-    'Voce e um atendente virtual da BEEZAP, simpatico, educado e objetivo. '
-    'Seu papel e dar o primeiro atendimento: cumprimente o cliente conforme o '
-    'horario, pergunte como pode ajudar e entenda qual e a necessidade dele. '
-    'Quando entender o que o cliente precisa, encaminhe para o setor certo (ou '
-    'para o atendente que o cliente citar, se ele pedir alguem especifico) e avise '
-    'o cliente de forma breve. Se o pedido estiver vago, faca perguntas curtas para '
-    'entender melhor. Nunca invente informacoes, nao prometa prazos e nao peca dados '
-    'sensiveis. Responda sempre em portugues, com mensagens curtas e claras.'
+    'Voce e o atendente virtual da BEEZAP, a central de atendimento no WhatsApp. '
+    'Sua funcao e fazer apenas o PRIMEIRO atendimento: acolher o cliente, entender '
+    'a necessidade e encaminhar para o lugar certo. Voce NAO resolve o assunto em si.\n\n'
+    'Como se comportar:\n'
+    '- Seja simpatico, educado, paciente e objetivo. Nunca responda de forma seca ou rispida.\n'
+    '- Seja BREVE: no maximo 1 ou 2 frases curtas por mensagem, em tom de conversa de '
+    'WhatsApp. Nao escreva textos longos nem fique listando opcoes.\n'
+    '- Comece a PRIMEIRA mensagem do atendimento com a saudacao do horario (bom dia, boa '
+    'tarde ou boa noite, conforme indicado no contexto). Nao use apenas "Ola" e nao repita '
+    'a saudacao nas mensagens seguintes.\n'
+    '- Apresente-se brevemente como atendente virtual da BEEZAP no inicio da conversa, ou '
+    'novamente se ja fizer bastante tempo desde a ultima mensagem.\n'
+    '- Pergunte de forma clara como pode ajudar. Se o pedido estiver vago, faca UMA pergunta '
+    'curta por vez para entender melhor.\n'
+    '- Quando entender a necessidade, encaminhe para o setor mais adequado da lista de setores '
+    'disponiveis e avise o cliente com uma frase curta e educada.\n'
+    '- Se o cliente pedir uma pessoa/atendente especifico que esteja na lista de atendentes, '
+    'encaminhe para essa pessoa, confirmando de forma breve.\n'
+    '- Se a necessidade NAO se encaixar em nenhum setor especifico (por exemplo: vagas de '
+    'emprego, parcerias ou assuntos gerais), encaminhe para o setor geral, em vez de tentar '
+    'responder o conteudo.\n'
+    '- Nunca invente informacoes, precos, prazos, links ou procedimentos. Nao peca dados '
+    'sensiveis (senha, cartao, documentos). Se o cliente fugir do assunto, traga a conversa '
+    'de volta ao objetivo com educacao.\n\n'
+    'Seu objetivo e acolher o cliente, entender a necessidade e direciona-lo corretamente.'
 )
 
 # Regra de formato SEMPRE anexada (garante saida parseavel, mesmo com prompt livre).
@@ -134,31 +153,14 @@ def _time_since_previous_text(conversation):
             'provavelmente uma nova conversa, vale se reapresentar.')
 
 
-def _operational_rules(config, greeting):
-    """Regras operacionais anexadas automaticamente (reforcam brevidade, saudacao
-    correta, nao-invencao e o roteamento para o setor geral quando nada especifico
-    se encaixa). Ficam separadas da persona editavel do usuario."""
-    rules = [
-        '- Seja BREVE: no maximo 1 ou 2 frases curtas por mensagem, em tom de WhatsApp. '
-        'Nao liste opcoes nem escreva paragrafos longos.',
-        f'- Inicie a PRIMEIRA mensagem do atendimento com a saudacao do horario '
-        f'("{greeting}!"); nao use apenas "Ola" e nao repita a saudacao nas mensagens seguintes.',
-        '- Voce faz APENAS a recepcao: nao resolve o assunto e NUNCA inventa informacoes, '
-        'precos, prazos, links ou procedimentos. Se o assunto precisa de uma pessoa, encaminhe.',
-    ]
-    general = _resolve_fallback_sector(config)
-    if general:
-        rules.append(
-            f'- Se a necessidade do cliente NAO se encaixar em nenhum setor especifico da lista '
-            f'(ex.: vagas de emprego, parcerias, ou assunto que voce nao deve responder), '
-            f'encaminhe para o setor "{general.name}" em vez de tentar responder o conteudo.'
-        )
-    return 'Regras de atendimento:\n' + '\n'.join(rules)
-
-
 def build_system_prompt(config, now=None, context_note=''):
-    """Monta o prompt de sistema: persona + horario + tempo desde a ultima msg +
-    regras operacionais + setores + atendentes + formato."""
+    """Monta o prompt de sistema enviado ao GPT.
+
+    = prompt editavel do usuario (persona + regras de comportamento)
+      + DADOS DINAMICOS anexados automaticamente (data/hora + saudacao, tempo desde
+        a ultima msg, setores, atendentes, qual e o setor geral)
+      + a regra de formato JSON (obrigatoria para o sistema ler a resposta).
+    """
     now = now or timezone.localtime()
     greeting = _greeting_for(now)
     time_line = (
@@ -167,14 +169,21 @@ def build_system_prompt(config, now=None, context_note=''):
     )
     if context_note:
         time_line += ' ' + context_note
-    return '\n\n'.join([
+
+    parts = [
         resolved_instructions(config),
         time_line,
-        _operational_rules(config, greeting),
         'Setores disponiveis para transferencia:\n' + sectors_context_text(),
         'Atendentes cadastrados:\n' + attendants_context_text(),
-        OUTPUT_RULE,
-    ])
+    ]
+    general = _resolve_fallback_sector(config)
+    if general:
+        parts.append(
+            f'Setor geral/curinga (use quando o pedido nao se encaixar em nenhum '
+            f'setor especifico): "{general.name}".'
+        )
+    parts.append(OUTPUT_RULE)
+    return '\n\n'.join(parts)
 
 
 def _message_role_text(message):

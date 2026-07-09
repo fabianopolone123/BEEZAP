@@ -444,17 +444,17 @@ ligado.** Roda **sempre em background** (thread), nunca trava o webhook.
   de conversa direta. `ingest_wapi_payload(payload, trigger_ai=...)`: o **webhook ao
   vivo** usa `True`; o comando `sync_wapi_events_to_conversations` usa **`False`**
   (não responde mensagens históricas).
-- **Contexto montado automaticamente** (`build_system_prompt`): o **prompt/persona**
-  (`instructions`, com default) + **data/hora** (saudação certa) + **tempo desde a
-  mensagem anterior** (`_time_since_previous_text`: "primeira mensagem" / "há poucos
-  minutos" / "há X hora(s)" / "há X dia(s) — nova conversa", para a IA reapresentar
-  quando faz tempo) + **setores** (nome + descrição) + **atendentes** (nome + setor)
-  + **regras operacionais** (`_operational_rules`: ser breve [1–2 frases], iniciar
-  a 1ª mensagem com a saudação do horário e não repetir depois, não inventar
-  conteúdo/procedimentos, e **encaminhar para o setor geral/fallback quando o pedido
-  não se encaixa em nenhum setor específico** — ex.: vaga de emprego) + **regra de
-  formato JSON** + o **histórico** das últimas ~5 trocas (até `CONTEXT_MESSAGES=10`
-  mensagens) mapeado em turnos `user`/`assistant`, terminando na mensagem atual.
+- **Contexto montado** (`build_system_prompt`): o **prompt/persona + regras de
+  comportamento** ficam no campo **editável** (`instructions`, com `DEFAULT_INSTRUCTIONS`
+  completo — brevidade, saudação do horário só na 1ª msg, não inventar, encaminhar ao
+  setor geral quando nada específico se encaixa). O código **anexa automaticamente só
+  os dados dinâmicos**: **data/hora** (saudação certa) + **tempo desde a mensagem
+  anterior** (`_time_since_previous_text`: "primeira mensagem" / "há poucos minutos" /
+  "há X hora(s)" / "há X dia(s) — nova conversa") + **setores** (nome + descrição) +
+  **atendentes** (nome + setor) + **qual é o setor geral/curinga** (fallback) + a
+  **regra de formato JSON** (obrigatória para o parsing) + o **histórico** das últimas
+  ~5 trocas (até `CONTEXT_MESSAGES=10` mensagens) em turnos `user`/`assistant`,
+  terminando na mensagem atual. A tela tem botão **"Restaurar prompt padrão"**.
 - **Decisão via JSON** (`response_format={'type':'json_object'}`): o modelo devolve
   `{"mensagem", "setor", "atendente"}`. `atendente` casado → `_route_to_attendant`
   (assign + setor do atendente + `open`); `setor` casado → `_route_to_sector`

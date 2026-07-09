@@ -1197,13 +1197,28 @@ class AiAttendantFlowTests(TestCase):
         self.assertIn('mensagem', cfg.last_response)
         self.assertIsNotNone(cfg.last_exchange_at)
 
-    def test_system_prompt_rules(self):
+    def test_default_prompt_has_behavior_rules(self):
+        # Com o prompt padrao (instructions vazio), as REGRAS DE COMPORTAMENTO ficam
+        # no texto editavel (nao mais auto-injetadas).
         from gpt.attendant import build_system_prompt
+        self.config.instructions = ''
+        self.config.save()
+        prompt = build_system_prompt(self.config).lower()
+        self.assertIn('breve', prompt)
+        self.assertIn('nao use apenas "ola"', prompt)
+        self.assertIn('nunca invente', prompt)
+        self.assertIn('setor geral', prompt)
+
+    def test_system_prompt_auto_parts(self):
+        # O sistema anexa sempre os DADOS DINAMICOS + formato JSON, mesmo com prompt custom.
+        from gpt.attendant import build_system_prompt
+        self.config.instructions = 'Prompt custom curtinho.'
         self.config.fallback_sector = self.geral
         self.config.save()
         prompt = build_system_prompt(self.config)
-        # Saudacao do horario, brevidade e roteamento para o geral aparecem no prompt.
+        self.assertIn('Prompt custom curtinho.', prompt)
         self.assertTrue(any(g in prompt for g in ('Bom dia', 'Boa tarde', 'Boa noite')))
-        self.assertIn('BREVE', prompt)
-        self.assertIn('Geral', prompt)  # setor curinga citado nas regras
-        self.assertIn('NUNCA inventa', prompt)
+        self.assertIn('Setores disponiveis', prompt)
+        self.assertIn('Atendentes cadastrados', prompt)
+        self.assertIn('Geral', prompt)  # setor geral/curinga (dado dinamico)
+        self.assertIn('JSON', prompt)   # regra de formato (obrigatoria, automatica)
