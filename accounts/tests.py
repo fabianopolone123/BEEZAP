@@ -992,3 +992,113 @@ class MergeContactConversationsTests(TestCase):
         self.assertEqual(texts[0], ('text', 'primeira mensagem'))
         self.assertEqual(texts[1][0], 'system')
         self.assertEqual(texts[2], ('text', 'segunda mensagem'))
+
+
+class AiAttendantFlowTests(TestCase):
+    """Atendente virtual (IA/GPT): recepcao, roteamento e fallback.
+
+    O GPT e o envio pela W-API sao mockados — nenhum teste faz chamada externa."""
+
+    def setUp(self):
+        from accounts.models import Contact, Conversation, Message, OpenAiConfiguration, Sector
+
+        self.Conversation = Conversation
+        self.Message = Message
+        self.Sector = Sector
+
+        self.config = OpenAiConfiguration.get_solo()
+        self.config.api_key = 'sk-test'
+        self.config.enabled = True
+        self.config.model = 'gpt-4.1-nano'
+        self.config.max_turns = 3
+        self.config.save()
+
+        self.financeiro = Sector.objects.create(name='Financeiro')
+        self.suporte = Sector.objects.create(name='Suporte')
+        self.geral = Sector.objects.create(name='Geral')
+
+        fab_user = User.objects.create_user(email='fab@beezap.local', password='x', role='usuario')
+        self.fabiano = Attendant.objects.create(user=fab_user, name='Fabiano')
+        self.fabiano.sectors.add(self.suporte)
+
+        self.contact = Contact.objects.create(name='Cliente', phone='5516999990000')
+        self.conv = Conversation.objects.create(
+            contact=self.contact, external_id='5516999990000', chat_type='private', status='open',
+        )
+        Message.objects.create(conversation=self.conv, direction='in', message_type='text',
+                               text='oi, preciso de ajuda')
+
+    def _gpt(self, mensagem='', setor='', atendente=''):
+        import json
+        from gpt.client import GptResult
+        payload = json.dumps({'mensagem': mensagem, 'setor': setor, 'atendente': atendente})
+        return GptResult(success=True, text=payload, model='gpt-4.1-nano', total_tokens=10)
+
+    def _run(self, gpt_result):
+        from gpt.attendant import handle_incoming_for_ai
+        send_ok = SimpleNamespace(success=True, message_id='wamid-1', error=None)
+        with patch('gpt.client.chat_completion', return_value=gpt_result) as mock_gpt, \
+             patch('wapi.client.send_text_message', return_value=send_ok) as mock_send:
+            handle_incoming_for_ai(self.conv.id)
+        return mock_gpt, mock_send
+
+    def test_routes_to_sector(self):
+        self._run(self._gpt(mensagem='Vou te transferir para o Financeiro.', setor='Financeiro'))
+        self.conv.refresh_from_db()
+        self.assertEqual(self.conv.sector_id, self.financeiro.id)
+        self.assertEqual(self.conv.status, 'pending')
+        self.assertIsNone(self.conv.assigned_attendant_id)
+        # Resposta da IA enviada e divisoria de encaminhamento criadas.
+        self.assertTrue(self.Message.objects.filter(conversation=self.conv, direction='out', is_ai=True).exists())
+        self.assertTrue(self.Message.objects.filter(conversation=self.conv, message_type='system',
+                                                    text__icontains='Financeiro').exists())
+
+    def test_routes_to_attendant(self):
+        self._run(self._gpt(mensagem='Ja te encaminho pro Fabiano.', atendente='Fabiano'))
+        self.conv.refresh_from_db()
+        self.assertEqual(self.conv.assigned_attendant_id, self.fabiano.id)
+        self.assertEqual(self.conv.sector_id, self.suporte.id)  # setor do atendente
+        self.assertEqual(self.conv.status, 'open')
+
+    def test_clarify_keeps_triage(self):
+        self._run(self._gpt(mensagem='Pode me dar mais detalhes do que precisa?'))
+        self.conv.refresh_from_db()
+        self.assertIsNone(self.conv.sector_id)
+        self.assertEqual(self.conv.ai_turns, 1)
+        self.assertEqual(self.conv.status, 'open')
+        self.assertTrue(self.Message.objects.filter(conversation=self.conv, direction='out', is_ai=True).exists())
+
+    def test_fallback_after_max_turns(self):
+        self.config.fallback_sector = self.geral
+        self.config.save()
+        self.conv.ai_turns = 2  # com max_turns=3, o proximo turno sem decisao estoura
+        self.conv.save(update_fields=['ai_turns'])
+        self._run(self._gpt(mensagem='Ainda nao entendi, pode explicar?'))
+        self.conv.refresh_from_db()
+        self.assertEqual(self.conv.sector_id, self.geral.id)
+        self.assertEqual(self.conv.status, 'pending')
+
+    def test_skips_group(self):
+        self.conv.chat_type = 'group'
+        self.conv.contact = None
+        self.conv.save(update_fields=['chat_type', 'contact'])
+        mock_gpt, _ = self._run(self._gpt(mensagem='x'))
+        mock_gpt.assert_not_called()
+
+    def test_skips_when_disabled(self):
+        self.config.enabled = False
+        self.config.save()
+        mock_gpt, _ = self._run(self._gpt(mensagem='x'))
+        mock_gpt.assert_not_called()
+
+    def test_skips_when_already_routed(self):
+        self.conv.sector = self.financeiro
+        self.conv.save(update_fields=['sector'])
+        mock_gpt, _ = self._run(self._gpt(mensagem='x'))
+        mock_gpt.assert_not_called()
+
+    def test_skips_when_human_replied(self):
+        self.Message.objects.create(conversation=self.conv, direction='out', message_type='text',
+                                    text='oi, sou o atendente', is_ai=False)
+        mock_gpt, _ = self._run(self._gpt(mensagem='x'))
+        mock_gpt.assert_not_called()

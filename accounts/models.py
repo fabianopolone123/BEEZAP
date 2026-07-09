@@ -102,6 +102,18 @@ class OpenAiConfiguration(models.Model):
     api_key = models.CharField(max_length=255, blank=True)
     model = models.CharField(max_length=80, blank=True, default='gpt-4.1-nano')
     enabled = models.BooleanField(default=False)
+    # Prompt/persona do atendente virtual (editavel na tela). Os setores, os
+    # atendentes e as ultimas mensagens sao anexados automaticamente pelo codigo.
+    instructions = models.TextField(blank=True, default='')
+    # Numero maximo de respostas da IA no mesmo atendimento antes de encaminhar
+    # para o setor de fallback (evita loop/gasto e nao prende o cliente).
+    max_turns = models.PositiveSmallIntegerField(default=3)
+    # Setor para onde a IA encaminha quando nao identifica o setor certo (ou ao
+    # atingir max_turns). Se vazio, a conversa fica em aberto sem setor.
+    fallback_sector = models.ForeignKey(
+        'Sector', null=True, blank=True, on_delete=models.SET_NULL,
+        related_name='ai_fallback_configs',
+    )
     # Contador de consumo (acumulado). O OpenAI devolve `usage` em cada resposta;
     # o cliente soma aqui de forma atomica. Serve para controle de gasto.
     total_requests = models.PositiveBigIntegerField(default=0)
@@ -343,6 +355,9 @@ class Conversation(models.Model):
     last_message_text = models.TextField(blank=True, default='')
     last_message_at = models.DateTimeField(null=True, blank=True)
     unread_count = models.PositiveIntegerField(default=0)
+    # Quantas respostas a IA ja deu no atendimento atual (recepcao). Zera ao
+    # transferir/encerrar/reabrir. Usado para o limite max_turns.
+    ai_turns = models.PositiveSmallIntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -444,6 +459,9 @@ class Message(models.Model):
     # Contexto de grupo/direta e origem (mensagem enviada pela conta conectada).
     is_group = models.BooleanField(default=False)
     from_me = models.BooleanField(default=False)
+    # Marca falas do atendente virtual (IA), para distinguir de respostas humanas
+    # (ex.: detectar quando um atendente assume no meio e a IA deve parar).
+    is_ai = models.BooleanField(default=False)
     # ID real da mensagem na W-API (serve tambem como wapi_message_id).
     external_message_id = models.CharField(max_length=150, blank=True, default='')
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='received')

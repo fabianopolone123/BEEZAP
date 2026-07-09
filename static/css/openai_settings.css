@@ -73,7 +73,8 @@
 }
 
 .openai-settings-page .settings-field input,
-.openai-settings-page .settings-field select {
+.openai-settings-page .settings-field select,
+.openai-settings-page .settings-field textarea {
   width: 100%;
   padding: 15px 16px;
   border: 1px solid rgba(100, 116, 139, 0.2);
@@ -85,10 +86,36 @@
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
+.openai-settings-page .settings-field textarea {
+  min-height: 150px;
+  resize: vertical;
+  line-height: 1.5;
+}
+
 .openai-settings-page .settings-field input:focus,
-.openai-settings-page .settings-field select:focus {
+.openai-settings-page .settings-field select:focus,
+.openai-settings-page .settings-field textarea:focus {
   border-color: rgba(33, 194, 94, 0.65);
   box-shadow: 0 0 0 4px rgba(33, 194, 94, 0.12);
+}
+
+/* Formulario da IA: campos empilhados com respiro. */
+.openai-settings-page .ai-config-card {
+  display: grid;
+  gap: 18px;
+}
+
+.openai-settings-page .field-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.openai-settings-page .panel-head-sep {
+  margin-top: 6px;
+  padding-top: 18px;
+  border-top: 1px solid rgba(100, 116, 139, 0.16);
 }
 
 /* Campo com checkbox (ligar/desligar). */
@@ -201,6 +228,37 @@
   color: var(--muted);
 }
 
+/* Painel de pre-visualizacao do contexto enviado a IA. */
+.openai-settings-page .preview-card {
+  display: grid;
+  gap: 14px;
+}
+
+.openai-settings-page .preview-block {
+  display: grid;
+  gap: 8px;
+}
+
+.openai-settings-page .preview-label {
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.openai-settings-page .preview-text {
+  margin: 0;
+  padding: 14px 16px;
+  border: 1px solid rgba(100, 116, 139, 0.16);
+  border-radius: 16px;
+  background: rgba(248, 250, 252, 0.92);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.9rem;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 /* Card de consumo de tokens. */
 .openai-settings-page .usage-grid {
   display: grid;
@@ -272,6 +330,10 @@
   }
 
   .openai-settings-page .usage-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .openai-settings-page .field-row {
     grid-template-columns: 1fr;
   }
 

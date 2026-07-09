@@ -4,6 +4,8 @@ from django.core.exceptions import ValidationError
 
 from .models import Attendant, Sector, User
 
+# Import tardio evita ciclo; usado so no default do prompt da IA.
+
 
 class LoginForm(forms.Form):
     email = forms.EmailField(
@@ -79,6 +81,29 @@ class OpenAiConfigurationForm(forms.Form):
     enabled = forms.BooleanField(
         label='Ativar a inteligencia (GPT)',
         required=False,
+    )
+    instructions = forms.CharField(
+        label='Prompt do atendente virtual',
+        required=False,
+        widget=forms.Textarea(attrs={
+            'rows': 8,
+            'placeholder': 'Ex.: Voce e o atendente virtual da BEEZAP. Cumprimente conforme o horario, '
+                           'pergunte como pode ajudar e encaminhe para o setor certo...',
+            'autocomplete': 'off',
+        }),
+    )
+    max_turns = forms.IntegerField(
+        label='Limite de respostas da IA',
+        required=False,
+        min_value=1,
+        max_value=10,
+        widget=forms.NumberInput(attrs={'autocomplete': 'off'}),
+    )
+    fallback_sector = forms.ModelChoiceField(
+        label='Setor de fallback (quando nao identificar)',
+        queryset=Sector.objects.all().order_by('name'),
+        required=False,
+        empty_label='(deixar em aberto, sem setor)',
     )
 
 

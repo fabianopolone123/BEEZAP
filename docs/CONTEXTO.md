@@ -33,7 +33,7 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
 > `wapi/` é um módulo Python comum (importa `accounts.models`); **não** está em
 > `INSTALLED_APPS`, por isso os models ficam em `accounts/models.py`.
 
-## 3. Modelos (`accounts/models.py`) — migração atual: `0021`
+## 3. Modelos (`accounts/models.py`) — migração atual: `0022`
 
 - **User** (AbstractUser, login por e-mail; `role`: `leitor`/`usuario`/`adm`).
 - **Attendant** (perfil de atendente, vínculo com User, troca de senha inicial).
@@ -47,10 +47,13 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
   (padrão `gpt-4.1-nano`), `enabled`. Guarda a **API Key do GPT no banco**
   (editada na tela **Inteligência (IA)**; nunca no código e não reexibida após
   salva). `resolved_api_key()`/`resolved_model()` caem para env
-  (`OPENAI_API_KEY`/`OPENAI_MODEL`) se vazios. **Contador de tokens**:
-  `total_requests`, `total_prompt_tokens`, `total_completion_tokens`,
-  `total_tokens`, `usage_since`, `last_used_at` — somados de forma atômica por
-  `record_usage()` a cada chamada; `reset_usage()` zera. Ver seção 13.
+  (`OPENAI_API_KEY`/`OPENAI_MODEL`) se vazios. **Atendente virtual**:
+  `instructions` (prompt/persona editável), `max_turns` (limite de respostas,
+  padrão 3), `fallback_sector` (FK Sector, para onde encaminhar quando não
+  identificar). **Contador de tokens**: `total_requests`, `total_prompt_tokens`,
+  `total_completion_tokens`, `total_tokens`, `usage_since`, `last_used_at` —
+  somados de forma atômica por `record_usage()` a cada chamada; `reset_usage()`
+  zera. Ver seção 13.
 - **Contact**: `name`, `phone` (único, guardado **só em dígitos**), `display_name`,
   `initials`. É a base da tela **Contatos** e da resolução de nomes: criado
   **automaticamente** na 1ª mensagem de uma conversa **direta** (nome = pushName),
@@ -62,13 +65,15 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
   `chat_type` (`private`/`group`), `external_id` (JID do grupo `@g.us`, telefone
   ou LID da direta), `name` (título/nome do grupo), `status`
   (`open`/`pending`/`closed`), `assigned_attendant`, `sector`,
-  `last_message_text`, `last_message_at`, `unread_count`. Propriedades:
+  `last_message_text`, `last_message_at`, `unread_count`, `ai_turns` (respostas
+  da IA no atendimento atual; zera ao transferir/encerrar/reabrir). Propriedades:
   `is_group`, `display_title`, `display_initials`, `recipient` (destino de envio).
 - **Message**: `conversation`, `direction` (`in`/`out`), `message_type`
   (`text/image/audio/video/document/sticker/gif/reaction/location/contact/unknown/system`;
   `system` = **divisória** de atendimento no meio do chat),
   `text`, `sender_name`, `sender_id`/`participant_id` (quem enviou; em grupo é o
-  participante), `is_group`, `from_me`, `external_message_id` (id real da W-API,
+  participante), `is_group`, `from_me`, `is_ai` (marca falas do atendente
+  virtual, para detectar quando um humano assume), `external_message_id` (id real da W-API,
   serve de `wapi_message_id`), `media_file`, `media_url`, `media_mimetype`,
   `media_status` (`none/pending/ok/unavailable`), `raw_payload`.
 
@@ -374,6 +379,7 @@ merge_contact_conversations [--apply]   # unifica conversas picotadas em 1 chat 
 > Automação/Atendente Virtual, models `AiAttendantConfig`/`AutomationRule`, campos
 > `Conversation.ai_state/ai_turns` e `Message.is_ai`, integração Ollama). Migração `0018`.
 > O recebimento/webhook, Conversas, Contatos, Setores e envio seguem intactos.
+> **A IA foi reconstruída do zero depois usando a API do OpenAI (GPT) — ver seção 13.**
 
 - **Um único chat por pessoa/grupo** (padrão WhatsApp): `resolve_conversation_for_context`
   **sempre reusa a mesma** `Conversation` do contato/grupo (não exclui mais `closed`, não dá
@@ -423,6 +429,40 @@ merge_contact_conversations [--apply]   # unifica conversas picotadas em 1 chat 
   (soma atômica com `F()`, segura para chamadas concorrentes). A tela mostra um card
   **"Consumo de tokens"** (total, entrada, saída, nº de chamadas, "contando desde" /
   "último uso") com botão **"Zerar contador"** (`form_type=reset-usage`). O teste de
-  conexão também conta (gasto mínimo). CSS `openai_settings.css?v=2`.
+  conexão também conta (gasto mínimo). CSS `openai_settings.css?v=3`.
+
+### Atendente virtual (recepção/triagem) — `gpt/attendant.py`
+
+A IA faz o **primeiro atendimento** de conversas **diretas** que ainda **não têm
+setor nem atendente**: cumprimenta conforme o horário, entende o pedido e
+**encaminha** para o setor certo (ou para o atendente citado). Ao encaminhar, sai
+de cena e a conversa fica em aberto para o setor pegar. **Só atua com `enabled`
+ligado.** Roda **sempre em background** (thread), nunca trava o webhook.
+
+- **Disparo**: `save_incoming_message`/`ingest_wapi_payload` chamam
+  `handle_incoming_for_ai_async(conversation_id)` para cada mensagem **recebida**
+  de conversa direta. `ingest_wapi_payload(payload, trigger_ai=...)`: o **webhook ao
+  vivo** usa `True`; o comando `sync_wapi_events_to_conversations` usa **`False`**
+  (não responde mensagens históricas).
+- **Contexto montado automaticamente** (`build_system_prompt`): o **prompt/persona**
+  (`instructions`, com default) + **data/hora** (saudação certa) + **setores**
+  (nome + descrição) + **atendentes** (nome + setor) + **regra de formato JSON** +
+  o **histórico** das últimas ~5 trocas (até `CONTEXT_MESSAGES=10` mensagens) mapeado
+  em turnos `user`/`assistant`, terminando na mensagem atual do cliente.
+- **Decisão via JSON** (`response_format={'type':'json_object'}`): o modelo devolve
+  `{"mensagem", "setor", "atendente"}`. `atendente` casado → `_route_to_attendant`
+  (assign + setor do atendente + `open`); `setor` casado → `_route_to_sector`
+  (setor + `pending`, sem atendente); nenhum → envia a fala e incrementa `ai_turns`.
+  Cada encaminhamento insere uma **divisória** "Encaminhado para … pela IA".
+- **Limite/fallback**: ao atingir `max_turns` sem decidir, `_handoff_to_fallback`
+  avisa o cliente e encaminha para `fallback_sector` (ou um setor "Geral"; se não
+  houver, deixa `pending` sem setor).
+- **Guardas** (`_should_handle` + `_human_replied_in_segment`): pula se desligada,
+  sem API Key, grupo, `closed`, já tem setor/atendente, ou se um **humano já
+  respondeu** no atendimento atual (mensagem `out` com `is_ai=False` após a última
+  divisória). Lock por conversa evita processar rajadas em paralelo.
+- **Tela**: além da conexão, tem o **prompt** editável, **limite de respostas**,
+  **setor de fallback** e um painel **"O que é enviado para a IA"** (mostra o
+  prompt + setores + atendentes + nota do histórico), para transparência total.
 - **Variáveis** (`.env`, seção 7): `OPENAI_BASE_URL`, `OPENAI_API_KEY` (fallback
   opcional), `OPENAI_MODEL`, `OPENAI_TIMEOUT`. O normal é cadastrar a chave pela tela.

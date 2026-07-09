@@ -310,7 +310,8 @@ def _reopen_for_new_service(conversation):
     chat por pessoa), inserindo a divisoria de novo atendimento antes das mensagens."""
     save_system_message(conversation, SYSTEM_NEW_SERVICE_TEXT)
     conversation.status = 'open'
-    conversation.save(update_fields=['status', 'updated_at'])
+    conversation.ai_turns = 0
+    conversation.save(update_fields=['status', 'ai_turns', 'updated_at'])
 
 
 def _ext_for_mime(mimetype):
@@ -575,6 +576,23 @@ def retry_conversation_media_async(conversation_id, limit=8):
     return True
 
 
+def _maybe_trigger_ai(conversation, message):
+    """Dispara o atendente virtual (IA) em background para mensagens RECEBIDAS de
+    conversas diretas. So o webhook ao vivo deve chamar isto (nao a sincronizacao
+    de eventos antigos). Nunca quebra o recebimento."""
+    if message is None or message.direction != 'in':
+        return
+    if conversation.chat_type != 'private':
+        return
+    if message.message_type in ('reaction', 'system'):
+        return
+    try:
+        from gpt.attendant import handle_incoming_for_ai_async
+        handle_incoming_for_ai_async(conversation.id)
+    except Exception:
+        ingest_logger.exception('Falha ao disparar atendente virtual (conv=%s).', conversation.id)
+
+
 def save_incoming_message(conversation, ctx, message_type='text', text='',
                           external_message_id='', payload=None, media=None):
     """Registra a mensagem na conversa ja resolvida, respeitando grupo/direta.
@@ -628,12 +646,16 @@ def save_incoming_message(conversation, ctx, message_type='text', text='',
     return message
 
 
-def ingest_wapi_payload(payload):
+def ingest_wapi_payload(payload, trigger_ai=True):
     """Ponto unico de entrada de uma mensagem recebida da W-API.
 
     Detecta grupo vs direta, resolve a conversa certa e cria a mensagem (texto,
     reacao ou midia). Retorna a Message criada, ou None quando nao ha o que salvar
-    (payload sem chat_id, sem conteudo, ou duplicada)."""
+    (payload sem chat_id, sem conteudo, ou duplicada).
+
+    `trigger_ai` liga o atendente virtual (IA) — deve ser True apenas no webhook
+    AO VIVO; a sincronizacao de eventos antigos chama com trigger_ai=False para
+    NAO responder mensagens historicas."""
     parsed = parse_wapi_webhook_payload(payload)
     ctx = normalize_wapi_message_context(payload)
 
@@ -678,24 +700,29 @@ def ingest_wapi_payload(payload):
         )
         return None
 
+    def _finish(message):
+        if trigger_ai:
+            _maybe_trigger_ai(conversation, message)
+        return message
+
     if message_type == 'text':
         text = parsed.get('message_text', '')
         if not text:
             return None
-        return save_incoming_message(
+        return _finish(save_incoming_message(
             conversation, ctx, message_type='text', text=text,
             external_message_id=external_message_id, payload=payload,
-        )
+        ))
 
     if message_type == 'reaction':
-        return save_incoming_message(
+        return _finish(save_incoming_message(
             conversation, ctx, message_type='reaction',
             text=media_info.get('reaction', ''),
             external_message_id=external_message_id, payload=payload,
-        )
+        ))
 
     # imagem/audio/video/documento/sticker/gif/location/contact/unknown
-    return save_incoming_message(
+    return _finish(save_incoming_message(
         conversation, ctx, message_type=message_type,
         text=media_info.get('caption') or parsed.get('message_text', ''),
         external_message_id=external_message_id, payload=payload,
@@ -705,12 +732,12 @@ def ingest_wapi_payload(payload):
             'media_key': media_info.get('media_key'),
             'direct_path': media_info.get('direct_path'),
         },
-    )
+    ))
 
 
-def save_outgoing_text_message(conversation, text, external_message_id='', status='sent'):
+def save_outgoing_text_message(conversation, text, external_message_id='', status='sent', is_ai=False):
     return save_outgoing_message(conversation, 'text', text=text, external_message_id=external_message_id,
-                                 status=status)
+                                 status=status, is_ai=is_ai)
 
 
 def _convert_image_to_jpeg(uploaded_file):
@@ -825,8 +852,8 @@ def save_outgoing_media_message(conversation, message_type, uploaded_file, capti
 
 
 def save_outgoing_message(conversation, message_type='text', text='', external_message_id='',
-                          status='sent', media_url='', media_mimetype=''):
-    """Registra a mensagem enviada pelo atendente na conversa."""
+                          status='sent', media_url='', media_mimetype='', is_ai=False):
+    """Registra a mensagem enviada pelo atendente (ou pela IA) na conversa."""
     message = Message.objects.create(
         conversation=conversation,
         direction='out',
@@ -836,6 +863,7 @@ def save_outgoing_message(conversation, message_type='text', text='', external_m
         is_group=conversation.is_group,
         external_message_id=external_message_id or '',
         status=status,
+        is_ai=is_ai,
         media_url=media_url or '',
         media_mimetype=media_mimetype or '',
         media_status='ok' if message_type in MEDIA_TYPES else 'none',

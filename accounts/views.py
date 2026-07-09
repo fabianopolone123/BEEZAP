@@ -446,10 +446,22 @@ def openai_settings_view(request):
     if request.user.role != 'adm':
         return HttpResponseForbidden('Acesso restrito.')
 
+    from gpt.attendant import (
+        attendants_context_text,
+        resolved_instructions,
+        sectors_context_text,
+    )
+
     config = OpenAiConfiguration.get_solo()
     config_form = OpenAiConfigurationForm(
         request.POST if request.POST.get('form_type') == 'config' else None,
-        initial={'model': config.resolved_model(), 'enabled': config.enabled},
+        initial={
+            'model': config.resolved_model(),
+            'enabled': config.enabled,
+            'instructions': config.instructions,
+            'max_turns': config.max_turns,
+            'fallback_sector': config.fallback_sector_id,
+        },
     )
 
     if request.method == 'POST':
@@ -460,6 +472,9 @@ def openai_settings_view(request):
                 config.api_key = new_key
             config.model = (config_form.cleaned_data['model'] or 'gpt-4.1-nano').strip()
             config.enabled = config_form.cleaned_data['enabled']
+            config.instructions = (config_form.cleaned_data['instructions'] or '').strip()
+            config.max_turns = config_form.cleaned_data['max_turns'] or 3
+            config.fallback_sector = config_form.cleaned_data['fallback_sector']
             config.save()
             messages.success(request, 'Configuracao da inteligencia salva com sucesso.')
             return redirect('openai-settings')
@@ -497,6 +512,10 @@ def openai_settings_view(request):
             'usage_prompt_tokens': _fmt_int(config.total_prompt_tokens),
             'usage_completion_tokens': _fmt_int(config.total_completion_tokens),
             'usage_requests': _fmt_int(config.total_requests),
+            # Pre-visualizacao do que e enviado a IA (contexto auto-gerido).
+            'preview_instructions': resolved_instructions(config),
+            'preview_sectors': sectors_context_text(),
+            'preview_attendants': attendants_context_text(),
         },
     )
 
@@ -1295,7 +1314,8 @@ def conversation_close_view(request, conversation_id):
     conversation.status = 'closed'
     conversation.assigned_attendant = None
     conversation.sector = None
-    conversation.save(update_fields=['status', 'assigned_attendant', 'sector', 'updated_at'])
+    conversation.ai_turns = 0
+    conversation.save(update_fields=['status', 'assigned_attendant', 'sector', 'ai_turns', 'updated_at'])
 
     return JsonResponse({'ok': True, 'contact': _serialize_contact_info(conversation)})
 

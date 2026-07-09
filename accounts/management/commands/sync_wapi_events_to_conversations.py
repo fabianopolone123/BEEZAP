@@ -24,7 +24,9 @@ class Command(BaseCommand):
         for event in events:
             payload = event.raw_payload if isinstance(event.raw_payload, dict) else {}
             try:
-                message = ingest_wapi_payload(payload)
+                # trigger_ai=False: reprocessar eventos antigos NAO deve acionar a
+                # IA (evita responder mensagens historicas).
+                message = ingest_wapi_payload(payload, trigger_ai=False)
             except Exception:
                 message = None
             if message:

@@ -95,9 +95,11 @@ def _extract_usage(body):
     return (prompt, completion, total)
 
 
-def chat_completion(messages, *, model=None, temperature=0.3, max_tokens=None, timeout=None):
+def chat_completion(messages, *, model=None, temperature=0.3, max_tokens=None,
+                    response_format=None, timeout=None):
     """Envia uma conversa (lista de {role, content}) ao GPT e devolve GptResult.
 
+    `response_format` (ex.: {'type': 'json_object'}) forca a saida em JSON valido.
     Nunca levanta excecao: sempre retorna GptResult(success=...). O texto do erro
     ja e amigavel (sem API Key, corpo bruto ou traceback).
     """
@@ -113,6 +115,8 @@ def chat_completion(messages, *, model=None, temperature=0.3, max_tokens=None, t
         payload['temperature'] = temperature
     if max_tokens:
         payload['max_tokens'] = max_tokens
+    if response_format:
+        payload['response_format'] = response_format
 
     final_url = settings.OPENAI_BASE_URL.rstrip('/') + OPENAI_CHAT_PATH
     body = json.dumps(payload).encode('utf-8')

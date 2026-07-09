@@ -4,7 +4,7 @@
 {% block title %}Inteligencia (IA) | BEEZap{% endblock %}
 {% block extra_head %}
 <link rel="stylesheet" href="{% static 'css/dashboard.css' %}">
-<link rel="stylesheet" href="{% static 'css/openai_settings.css' %}?v=2">
+<link rel="stylesheet" href="{% static 'css/openai_settings.css' %}?v=3">
 {% endblock %}
 
 {% block content %}
@@ -52,100 +52,157 @@
     </header>
 
     <section class="settings-stack">
-      <article class="settings-card settings-card-split ai-card">
-        <div class="settings-column">
-          <div class="panel-head">
-            <div>
-              <h2>Conexao com o GPT</h2>
-              <span>Cadastre a API Key do OpenAI e escolha o modelo. A chave fica guardada com seguranca e nao aparece de novo depois de salva.</span>
-            </div>
+      <!-- Conexao + Atendente virtual (um unico formulario) -->
+      <form method="post" class="settings-card ai-config-card">
+        {% csrf_token %}
+        <input type="hidden" name="form_type" value="config">
+
+        <div class="panel-head">
+          <div>
+            <h2>Conexao com o GPT</h2>
+            <span>Cadastre a API Key do OpenAI e escolha o modelo. A chave fica guardada com seguranca e nao aparece de novo depois de salva.</span>
           </div>
-
-          <form method="post" class="settings-form-grid">
-            {% csrf_token %}
-            <input type="hidden" name="form_type" value="config">
-
-            <div class="settings-field">
-              <label for="{{ config_form.api_key.id_for_label }}">API Key do GPT</label>
-              {{ config_form.api_key }}
-              <small class="field-help">
-                {% if api_key_configured %}
-                  API Key cadastrada. Deixe o campo em branco para manter a chave atual.
-                {% else %}
-                  Nenhuma chave salva ainda. Cole a API Key do OpenAI (ela nao sera exibida depois de salva).
-                {% endif %}
-              </small>
-              {% if config_form.api_key.errors %}
-                <small class="field-error">{{ config_form.api_key.errors|striptags }}</small>
-              {% endif %}
-            </div>
-
-            <div class="settings-field">
-              <label for="{{ config_form.model.id_for_label }}">Modelo do GPT</label>
-              {{ config_form.model }}
-              <small class="field-help">O modelo mais barato ja vem selecionado. Pode trocar quando quiser.</small>
-            </div>
-
-            <div class="settings-field settings-field-check">
-              <label class="ai-switch">
-                {{ config_form.enabled }}
-                <span>Ativar a inteligencia (GPT)</span>
-              </label>
-              <small class="field-help">Enquanto estiver desligada, nada usa o GPT. Ligue quando estiver tudo testado.</small>
-            </div>
-
-            <div class="settings-actions">
-              <button type="submit" class="primary-button">Salvar configuracao</button>
-            </div>
-          </form>
         </div>
 
-        <div class="settings-column settings-column-divider">
-          <div class="panel-head">
-            <div>
-              <h2>Status e teste</h2>
-              <span>Verifique se a chave e os creditos estao funcionando com uma chamada rapida ao GPT.</span>
-            </div>
-          </div>
+        <div class="settings-field">
+          <label for="{{ config_form.api_key.id_for_label }}">API Key do GPT</label>
+          {{ config_form.api_key }}
+          <small class="field-help">
+            {% if api_key_configured %}
+              API Key cadastrada. Deixe o campo em branco para manter a chave atual.
+            {% else %}
+              Nenhuma chave salva ainda. Cole a API Key do OpenAI (ela nao sera exibida depois de salva).
+            {% endif %}
+          </small>
+          {% if config_form.api_key.errors %}
+            <small class="field-error">{{ config_form.api_key.errors|striptags }}</small>
+          {% endif %}
+        </div>
 
-          <div class="ai-status-box">
-            <div class="ai-status-row">
-              <span class="ai-status-label">API Key</span>
-              {% if api_key_configured %}
-                <span class="ai-badge ai-badge-on">Cadastrada</span>
-              {% else %}
-                <span class="ai-badge ai-badge-off">Nao cadastrada</span>
-              {% endif %}
-            </div>
-            <div class="ai-status-row">
-              <span class="ai-status-label">Modelo</span>
-              <strong>{{ config.resolved_model }}</strong>
-            </div>
-            <div class="ai-status-row">
-              <span class="ai-status-label">Inteligencia</span>
-              {% if config.enabled %}
-                <span class="ai-badge ai-badge-on">Ligada</span>
-              {% else %}
-                <span class="ai-badge ai-badge-off">Desligada</span>
-              {% endif %}
-            </div>
+        <div class="field-row">
+          <div class="settings-field">
+            <label for="{{ config_form.model.id_for_label }}">Modelo do GPT</label>
+            {{ config_form.model }}
+            <small class="field-help">O modelo mais barato ja vem selecionado.</small>
           </div>
+          <div class="settings-field settings-field-check">
+            <label class="ai-switch">
+              {{ config_form.enabled }}
+              <span>Ativar a inteligencia (GPT)</span>
+            </label>
+            <small class="field-help">Desligada, nada usa o GPT. Ligue quando estiver tudo testado.</small>
+          </div>
+        </div>
 
-          <form method="post" class="settings-form-grid">
-            {% csrf_token %}
-            <input type="hidden" name="form_type" value="test">
-            <div class="settings-actions">
-              <button type="submit" class="secondary-button" {% if not api_key_configured %}disabled{% endif %}>
-                Testar conexao
-              </button>
-            </div>
-            <small class="field-help">
-              O teste envia uma mensagem minima ao GPT (gasta pouquissimo credito) so para confirmar que esta tudo certo.
-            </small>
-          </form>
+        <div class="panel-head panel-head-sep">
+          <div>
+            <h2>Atendente virtual (primeiro atendimento)</h2>
+            <span>A IA recebe o cliente em conversas diretas, entende o pedido e encaminha para o setor certo. Aqui voce define o prompt (persona/criterios).</span>
+          </div>
+        </div>
+
+        <div class="settings-field">
+          <label for="{{ config_form.instructions.id_for_label }}">Prompt do atendente virtual</label>
+          {{ config_form.instructions }}
+          <small class="field-help">
+            Descreva o papel da IA (ex.: "Voce e o atendente da BEEZAP, cumprimente conforme o horario,
+            pergunte o que a pessoa precisa e encaminhe para o setor certo"). Os setores, os atendentes e
+            as ultimas mensagens sao adicionados automaticamente ao contexto (veja o painel abaixo).
+          </small>
+        </div>
+
+        <div class="field-row">
+          <div class="settings-field">
+            <label for="{{ config_form.max_turns.id_for_label }}">Limite de respostas da IA</label>
+            {{ config_form.max_turns }}
+            <small class="field-help">Quantas respostas a IA pode dar antes de encaminhar ao fallback (padrao 3).</small>
+          </div>
+          <div class="settings-field">
+            <label for="{{ config_form.fallback_sector.id_for_label }}">Setor de fallback</label>
+            {{ config_form.fallback_sector }}
+            <small class="field-help">Para onde encaminhar quando nao identificar o setor. Vazio = deixa em aberto.</small>
+          </div>
+        </div>
+
+        <div class="settings-actions">
+          <button type="submit" class="primary-button">Salvar configuracao</button>
+        </div>
+      </form>
+
+      <!-- Status e teste -->
+      <article class="settings-card">
+        <div class="panel-head">
+          <div>
+            <h2>Status e teste</h2>
+            <span>Verifique se a chave e os creditos estao funcionando com uma chamada rapida ao GPT.</span>
+          </div>
+        </div>
+
+        <div class="ai-status-box">
+          <div class="ai-status-row">
+            <span class="ai-status-label">API Key</span>
+            {% if api_key_configured %}
+              <span class="ai-badge ai-badge-on">Cadastrada</span>
+            {% else %}
+              <span class="ai-badge ai-badge-off">Nao cadastrada</span>
+            {% endif %}
+          </div>
+          <div class="ai-status-row">
+            <span class="ai-status-label">Modelo</span>
+            <strong>{{ config.resolved_model }}</strong>
+          </div>
+          <div class="ai-status-row">
+            <span class="ai-status-label">Atendente virtual</span>
+            {% if config.enabled %}
+              <span class="ai-badge ai-badge-on">Ligado</span>
+            {% else %}
+              <span class="ai-badge ai-badge-off">Desligado</span>
+            {% endif %}
+          </div>
+        </div>
+
+        <form method="post" class="settings-form-grid">
+          {% csrf_token %}
+          <input type="hidden" name="form_type" value="test">
+          <div class="settings-actions">
+            <button type="submit" class="secondary-button" {% if not api_key_configured %}disabled{% endif %}>
+              Testar conexao
+            </button>
+          </div>
+          <small class="field-help">
+            O teste envia uma mensagem minima ao GPT (gasta pouquissimo credito) so para confirmar que esta tudo certo.
+          </small>
+        </form>
+      </article>
+
+      <!-- Pre-visualizacao do contexto enviado a IA -->
+      <article class="settings-card preview-card">
+        <div class="panel-head">
+          <div>
+            <h2>O que e enviado para a IA</h2>
+            <span>Este e o contexto montado automaticamente a cada mensagem do cliente. Serve para voce conferir o que a IA "ve".</span>
+          </div>
+        </div>
+
+        <div class="preview-block">
+          <span class="preview-label">1. Prompt (persona)</span>
+          <pre class="preview-text">{{ preview_instructions }}</pre>
+        </div>
+        <div class="preview-block">
+          <span class="preview-label">2. Setores disponiveis</span>
+          <pre class="preview-text">{{ preview_sectors }}</pre>
+        </div>
+        <div class="preview-block">
+          <span class="preview-label">3. Atendentes cadastrados</span>
+          <pre class="preview-text">{{ preview_attendants }}</pre>
+        </div>
+        <div class="preview-block">
+          <span class="preview-label">4. Historico da conversa</span>
+          <p class="field-help">As ultimas ~5 trocas (ate 10 mensagens) entre o cliente e a IA, mais a mensagem atual do cliente, sao anexadas automaticamente em cada atendimento. Se nao houver mensagens anteriores, tudo bem.</p>
         </div>
       </article>
 
+      <!-- Consumo de tokens -->
       <article class="settings-card usage-card">
         <div class="panel-head">
           <div>
