@@ -587,6 +587,7 @@ def atendimento_view(request):
         messages.success(request, 'Configuracao do chatbot salva com sucesso.')
         return redirect('atendimento')
 
+    sectors = list(Sector.objects.all().order_by('name'))
     return render(
         request,
         'accounts/chatbot_settings.html',
@@ -594,7 +595,9 @@ def atendimento_view(request):
             'config_form': config_form,
             'config': config,
             'options': config.ordered_options(),
-            'sectors': Sector.objects.all().order_by('name'),
+            'sectors': sectors,
+            # Setores em JSON para o preenchimento automatico (JS monta as opcoes).
+            'sectors_json': [{'id': s.id, 'name': s.name} for s in sectors],
             'nav_items': build_nav_items(request.user.role, 'Configuracoes'),
             'settings_tabs': build_settings_tabs('atendimento', 'chatbot'),
             'mode_form': ReceptionModeForm(initial={'mode': config.mode}),

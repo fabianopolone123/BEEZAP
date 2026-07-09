@@ -531,7 +531,10 @@ no topo (endpoint `atendimento-mode`, POST) e as sub-abas **[Chatbot de menu]
 [Inteligência (IA)]**. A tela do chatbot (`atendimento_view`, `configuracoes/atendimento/`,
 `chatbot_settings.html` + `chatbot_settings.css`, escopo `.chatbot-settings-page`, **só
 ADM**) edita saudação/intro/opções (editor de linhas rótulo+setor com add/remove/renumerar
-por JS)/mensagens/tentativas/fallback e mostra a **prévia do menu**. As opções são
+por JS)/mensagens/tentativas/fallback e mostra a **prévia do menu**. Tem o botão
+**"Preencher automaticamente"** (JS): cria uma opção por **setor cadastrado** (rótulo =
+nome do setor) e preenche todos os textos com o padrão (dados via `json_script`
+`sectors-data`/`defaults-data`), para o ADM só ajustar e salvar. As opções são
 reconstruídas no save a partir dos arrays `option_label[]`/`option_sector[]`
 (`_save_menu_options`, linhas vazias ignoradas, renumeradas por ordem). O chatbot vem
 **desligado** por padrão.

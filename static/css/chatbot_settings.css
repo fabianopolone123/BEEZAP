@@ -30,6 +30,53 @@
   padding: 20px;
 }
 
+/* Botoes (mesma linguagem das outras telas de config). Escopado na pagina porque
+   .primary-button/.secondary-button so tem estilo dentro de cada tela. */
+.chatbot-settings-page .primary-button,
+.chatbot-settings-page .secondary-button {
+  padding: 12px 20px;
+  border: 0;
+  border-radius: 14px;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.chatbot-settings-page .primary-button {
+  background: linear-gradient(135deg, var(--primary), var(--primary-deep));
+  color: #fff;
+  box-shadow: 0 14px 30px rgba(17, 152, 74, 0.24);
+}
+
+.chatbot-settings-page .secondary-button {
+  background: rgba(45, 108, 223, 0.1);
+  color: var(--blue);
+}
+
+.chatbot-settings-page .primary-button:disabled,
+.chatbot-settings-page .secondary-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+/* Botao "Preencher automaticamente": destaque suave em verde. */
+.chatbot-settings-page .autofill-btn {
+  background: rgba(33, 194, 94, 0.12);
+  color: var(--primary-deep);
+}
+
+.chatbot-autofill {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+}
+
+.chatbot-autofill .field-help {
+  margin: 0;
+}
+
 .chatbot-settings-page .panel-head h2 {
   margin: 0;
   font-size: 1.1rem;

@@ -5,7 +5,7 @@
 {% block extra_head %}
 <link rel="stylesheet" href="{% static 'css/dashboard.css' %}">
 <link rel="stylesheet" href="{% static 'css/settings_tabs.css' %}?v=1">
-<link rel="stylesheet" href="{% static 'css/chatbot_settings.css' %}?v=1">
+<link rel="stylesheet" href="{% static 'css/chatbot_settings.css' %}?v=2">
 {% endblock %}
 
 {% block content %}
@@ -71,6 +71,14 @@
               {% endif %}
             </span>
           </div>
+        </div>
+
+        <div class="chatbot-autofill">
+          <button type="button" class="secondary-button autofill-btn" id="btn-autofill">✨ Preencher automaticamente</button>
+          <small class="field-help">
+            Cria uma opcao para cada setor cadastrado e preenche todas as mensagens com
+            um texto padrao. Depois e so ajustar o que quiser e salvar.
+          </small>
         </div>
 
         <div class="settings-field">
@@ -188,12 +196,24 @@
   </section>
 </main>
 
+{{ sectors_json|json_script:"sectors-data" }}
+{{ defaults|json_script:"defaults-data" }}
+
 <script>
   (function () {
     var list = document.getElementById('menu-options');
     var tpl = document.getElementById('menu-option-template');
     var addBtn = document.getElementById('btn-add-option');
+    var autofillBtn = document.getElementById('btn-autofill');
     if (!list || !tpl || !addBtn) return;
+
+    function readJson(id) {
+      var el = document.getElementById(id);
+      if (!el) return null;
+      try { return JSON.parse(el.textContent); } catch (e) { return null; }
+    }
+    var sectors = readJson('sectors-data') || [];
+    var defaults = readJson('defaults-data') || {};
 
     function renumber() {
       var rows = list.querySelectorAll('.menu-option-row');
@@ -201,6 +221,23 @@
         var num = row.querySelector('.menu-option-num');
         if (num) num.textContent = (i + 1);
       });
+    }
+
+    function addRow(label, sectorId) {
+      var frag = tpl.content.cloneNode(true);
+      list.appendChild(frag);
+      var rows = list.querySelectorAll('.menu-option-row');
+      var row = rows[rows.length - 1];
+      if (label != null) {
+        var input = row.querySelector('.menu-option-label');
+        if (input) input.value = label;
+      }
+      if (sectorId != null) {
+        var select = row.querySelector('.menu-option-sector');
+        if (select) select.value = String(sectorId);
+      }
+      renumber();
+      return row;
     }
 
     list.addEventListener('click', function (e) {
@@ -212,13 +249,37 @@
     });
 
     addBtn.addEventListener('click', function () {
-      var frag = tpl.content.cloneNode(true);
-      list.appendChild(frag);
-      renumber();
-      var rows = list.querySelectorAll('.menu-option-row');
-      var last = rows[rows.length - 1];
-      if (last) { var input = last.querySelector('.menu-option-label'); if (input) input.focus(); }
+      var row = addRow(null, null);
+      var input = row.querySelector('.menu-option-label');
+      if (input) input.focus();
     });
+
+    function setField(id, value) {
+      var el = document.getElementById(id);
+      if (el && value != null) el.value = value;
+    }
+
+    if (autofillBtn) {
+      autofillBtn.addEventListener('click', function () {
+        if (list.querySelector('.menu-option-row')) {
+          if (!window.confirm('Isto vai substituir as opcoes e os textos atuais pelo preenchimento automatico. Continuar?')) return;
+        }
+        // Textos padrao.
+        setField('id_greeting', defaults.greeting);
+        setField('id_menu_intro', defaults.menu_intro);
+        setField('id_confirmation_message', defaults.confirmation_message);
+        setField('id_invalid_message', defaults.invalid_message);
+        setField('id_handoff_message', defaults.handoff_message);
+        setField('id_max_attempts', '3');
+        // Uma opcao por setor cadastrado.
+        list.replaceChildren();
+        sectors.forEach(function (s) { addRow(s.name, s.id); });
+        renumber();
+        if (!sectors.length) {
+          window.alert('Nenhum setor cadastrado ainda. Cadastre os setores primeiro (menu Setores) para o preenchimento criar as opcoes.');
+        }
+      });
+    }
 
     renumber();
   }());
