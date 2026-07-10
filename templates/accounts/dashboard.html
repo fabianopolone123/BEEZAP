@@ -4,6 +4,22 @@
 {% block title %}Dashboard | BEEZap{% endblock %}
 {% block extra_head %}
 <link rel="stylesheet" href="{% static 'css/dashboard.css' %}?v=5">
+<style>
+  /* Estilo do gráfico "Atendimentos por dia" embutido no HTML de propósito:
+     como o HTML sempre vem fresco do servidor, isto NUNCA fica em cache velho
+     (imune a cache do navegador/CDN). Vem depois do CSS externo, então prevalece. */
+  .daychart { position: relative; height: 240px; margin-top: 8px; }
+  .daychart-svg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; overflow: visible; }
+  .daychart .dc-grid { stroke: rgba(100, 116, 139, 0.16); stroke-width: 1; }
+  .daychart .dc-area { fill: url(#areaGradient); stroke: none; }
+  .daychart .dc-dot { position: absolute; width: 10px; height: 10px; border-radius: 50%;
+    background: #fff; border: 2px solid #16a34a; transform: translate(-50%, -50%);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12); }
+  .daychart .dc-val { position: absolute; transform: translate(-50%, -175%);
+    font-size: 0.9rem; font-weight: 700; color: #15213d; white-space: nowrap; }
+  .daychart .dc-date { position: absolute; bottom: -2px; transform: translateX(-50%);
+    font-size: 0.82rem; color: #64748b; white-space: nowrap; }
+</style>
 {% endblock %}
 
 {% block content %}
