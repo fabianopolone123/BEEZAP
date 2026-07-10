@@ -500,6 +500,20 @@
   border-left-color: #21c25e;
 }
 
+/* Conversa atribuida AO atendente que esta olhando ("em conversa comigo"):
+   borda esquerda azul + leve fundo, para diferenciar das que estao com outros. */
+.conv-item-mine {
+  border-left-color: #2d6cdf;
+  background: #f5f8ff;
+}
+.conv-item-mine.conv-item-active {
+  background: #eaf1ff;
+}
+.conv-item-meta-mine {
+  background: #e7efff !important;
+  color: #2d6cdf !important;
+}
+
 /* Avatar */
 .conv-avatar {
   width: 40px;

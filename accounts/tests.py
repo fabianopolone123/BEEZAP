@@ -898,7 +898,7 @@ class ConversationTransferViewTests(TestCase):
         self.assertEqual(self.conversation.status, 'open')
         self.assertEqual(response.json()['contact']['attendant'], 'Atendente Vendas')
 
-    def test_close_conversation_inserts_divider_and_clears_service(self):
+    def test_close_conversation_inserts_divider_and_keeps_attendant(self):
         from .models import Message
         self.client.force_login(self.admin)
         self.conversation.sector = self.sector
@@ -911,8 +911,9 @@ class ConversationTransferViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.conversation.refresh_from_db()
         self.assertEqual(self.conversation.status, 'closed')
-        self.assertIsNone(self.conversation.assigned_attendant)
-        self.assertIsNone(self.conversation.sector)  # novo atendimento comeca do zero
+        # MANTEM o atendente (para ele ver nos Finalizados); so limpa o setor.
+        self.assertEqual(self.conversation.assigned_attendant, self.attendant)
+        self.assertIsNone(self.conversation.sector)
         # Divisoria de "encerrado" inserida no chat (mensagem de sistema).
         divider = Message.objects.filter(conversation=self.conversation, message_type='system').last()
         self.assertIsNotNone(divider)
@@ -923,8 +924,11 @@ class ConversationTransferViewTests(TestCase):
         # conversa nova — reusa a mesma, reabre e insere a divisoria de novo atendimento.
         from wapi.services import resolve_conversation_for_context
         from .models import Conversation, Message
+        # Fechada com atendente/setor do atendimento anterior.
         self.conversation.status = 'closed'
-        self.conversation.save(update_fields=['status'])
+        self.conversation.assigned_attendant = self.attendant
+        self.conversation.sector = self.sector
+        self.conversation.save(update_fields=['status', 'assigned_attendant', 'sector'])
 
         resolved = resolve_conversation_for_context({
             'chat_id': self.contact.phone,
@@ -934,6 +938,9 @@ class ConversationTransferViewTests(TestCase):
 
         self.assertEqual(resolved.id, self.conversation.id)   # MESMA conversa
         self.assertEqual(resolved.status, 'open')             # reaberta
+        # A nova conversa volta para a recepcao/fila: sem dono e sem setor.
+        self.assertIsNone(resolved.assigned_attendant_id)
+        self.assertIsNone(resolved.sector_id)
         self.assertEqual(Conversation.objects.filter(contact=self.contact).count(), 1)
         divider = Message.objects.filter(conversation=resolved, message_type='system').last()
         self.assertIsNotNone(divider)
@@ -1604,3 +1611,46 @@ class DashboardTests(TestCase):
         resp = self.client.get(reverse('dashboard'))
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, 'Conversas ativas')
+
+
+class ClosedConversationTests(TestCase):
+    """Encerrar: vai para Finalizados, continua visivel ao atendente que fechou, e o
+    historico do atendimento continua visivel (nao some com a divisoria de encerrado)."""
+
+    def setUp(self):
+        from accounts.models import Contact, Conversation, Message, Sector
+        self.Conversation = Conversation
+        self.u = User.objects.create_user(email='ana@x.com', password='x', role=User.Role.USUARIO)
+        self.att = Attendant.objects.create(user=self.u, name='Ana', must_change_password=False)
+        self.vendas = Sector.objects.create(name='Vendas')
+        self.att.sectors.add(self.vendas)
+        ct = Contact.objects.create(name='Cliente', phone='5516999990000')
+        self.conv = Conversation.objects.create(
+            contact=ct, external_id='5516999990000', chat_type='private',
+            status='open', sector=self.vendas, assigned_attendant=self.att)
+        Message.objects.create(conversation=self.conv, direction='in', message_type='text',
+                               text='oi preciso de ajuda')
+        Message.objects.create(conversation=self.conv, direction='out', message_type='text',
+                               text='claro, como posso ajudar', is_ai=False)
+
+    def test_close_keeps_attendant_and_shows_in_finalizadas(self):
+        self.client.force_login(self.u)
+        r = self.client.post(reverse('conversation-close', args=[self.conv.id]))
+        self.assertEqual(r.status_code, 200)
+        self.conv.refresh_from_db()
+        self.assertEqual(self.conv.status, 'closed')
+        self.assertEqual(self.conv.assigned_attendant, self.att)  # mantido
+        lst = self.client.get(reverse('conversation-list') + '?status=finalizadas&tipo=todas').json()
+        item = next((c for c in lst['conversations'] if c['id'] == self.conv.id), None)
+        self.assertIsNotNone(item)          # a atendente ve seu finalizado
+        self.assertTrue(item['mine'])
+
+    def test_attendant_sees_full_history_of_closed(self):
+        self.client.force_login(self.u)
+        self.client.post(reverse('conversation-close', args=[self.conv.id]))
+        data = self.client.get(reverse('conversation-messages', args=[self.conv.id])).json()
+        texts = [m['text'] for m in data['messages']]
+        # Ve toda a conversa do atendimento, nao so a divisoria de "encerrado".
+        self.assertIn('oi preciso de ajuda', texts)
+        self.assertIn('claro, como posso ajudar', texts)
+        self.assertEqual(data['contact']['status'], 'closed')

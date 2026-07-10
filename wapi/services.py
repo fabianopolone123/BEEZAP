@@ -307,11 +307,17 @@ def save_system_message(conversation, text):
 
 def _reopen_for_new_service(conversation):
     """Reabre a MESMA conversa para um novo atendimento (padrao WhatsApp: um unico
-    chat por pessoa), inserindo a divisoria de novo atendimento antes das mensagens."""
+    chat por pessoa), inserindo a divisoria de novo atendimento antes das mensagens.
+
+    Zera setor e atendente: o atendimento anterior foi encerrado (o atendente que o
+    fechou continua vendo nos Finalizados), mas a NOVA conversa volta para a recepcao
+    (IA/chatbot/fila), sem dono."""
     save_system_message(conversation, SYSTEM_NEW_SERVICE_TEXT)
     conversation.status = 'open'
+    conversation.assigned_attendant = None
+    conversation.sector = None
     conversation.ai_turns = 0
-    conversation.save(update_fields=['status', 'ai_turns', 'updated_at'])
+    conversation.save(update_fields=['status', 'assigned_attendant', 'sector', 'ai_turns', 'updated_at'])
 
 
 def _ext_for_mime(mimetype):

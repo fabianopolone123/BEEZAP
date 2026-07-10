@@ -214,15 +214,23 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
   com contagens. **Selo "Grupo"** na lista e no cabeçalho; em grupo, o **nome do
   participante** aparece acima de cada mensagem recebida.
 - **Lista real** (server-rendered) + **filtros** (chips) com contagens reais: Todas,
-  Não lidas (`unread_count>0`), Em atendimento (tem atendente e não fechada),
-  Finalizadas (`closed`). **Busca** por nome/telefone/última mensagem, combinada com
-  o filtro e a aba de tipo.
-- **Aguardando (fila do setor)**: NÃO é mais um chip — virou um **badge amarelo
-  pulsante** (`.conv-waiting-badge`, `data-waiting-badge`) ao lado dos botões do topo
+  Não lidas (`unread_count>0`), **Conversando** (tem atendente e não fechada — status
+  `open` assumido), Finalizadas (`closed`). **Busca** por nome/telefone/última mensagem,
+  combinada com o filtro e a aba de tipo.
+- **Aguardando (fila do setor)**: NÃO é um chip — é um **badge amarelo pulsante**
+  (`.conv-waiting-badge`, `data-waiting-badge`) ao lado dos botões do topo
   (Som/Notificações/Atualizar), mostrando a **contagem** de conversas aguardando
   (`counts['aguardando']`, já escopado pelo setor do usuário via visibilidade).
   Fica pulsando (some quando zero) para todos os atendentes do setor; **clicar** filtra
-  a lista só nos aguardando (aplica `status=aguardando`); clicar de novo volta para Todas.
+  a lista só nos aguardando; clicar de novo volta para Todas.
+- **"Em conversa comigo"**: as conversas atribuídas ao usuário logado ganham destaque
+  na lista (`.conv-item-mine`, borda azul + fundo; label "Em conversa com você") — flag
+  `mine` no serializer (`_serialize_conversation_item(conv, request.user)`). As de outros
+  mostram "Com &lt;atendente&gt;". Regra: **uma conversa = um atendente** (para trocar,
+  transfere de setor/atendente).
+- **Botões do painel por status** (`fillInfo` lê `contact.status`): **Finalizado**
+  (`closed`) esconde **Assumir**, **Encerrar** e a caixa de transferir (só leitura);
+  senão mostra normalmente.
 - **Chat via AJAX**: abrir zera não lidas; render por tipo; **composer fixo no
   rodapé** (corrigido com `min-height:0` na cadeia flex/grid e `[hidden]{display:none!important}`).
 - **Poll incremental** (`syncMessages`): a atualização periódica só mexe no DOM
@@ -474,14 +482,20 @@ seed_demo_data [--no-clear]             # popula DEMO: 5 setores/atendentes + co
   e **Encerrar**. O admin pode transferir setor/atendente pelos selects da coluna de info.
 - **Transferir** para um setor sem atendente deixa a conversa `pending` (Aguardando <Setor>);
   atribuir atendente deixa `open`.
-- **Encerrar** (`conversation_close_view`): insere uma **divisória** no chat
-  (`save_system_message`, `Message.message_type='system'` → "Atendimento encerrado"), marca
-  `status='closed'` e limpa `assigned_attendant`/`sector`. A conversa e o histórico **permanecem**.
-- A **próxima mensagem** do mesmo contato reusa o mesmo chat: `_reopen_for_new_service` insere
-  a divisória "Novo atendimento iniciado" e volta `status='open'`. As divisórias marcam os
-  limites de cada atendimento dentro do chat único.
+- **Encerrar** (`conversation_close_view`): insere a **divisória** "Atendimento encerrado"
+  (`message_type='system'`), marca `status='closed'`, limpa o `sector` mas **MANTÉM o
+  `assigned_attendant`** que fechou — assim ele continua vendo a conversa em **Finalizados**
+  (a visibilidade exige atribuição ou setor; sem o atendente, sumiria da vista dele). O
+  chat e o histórico **permanecem**.
+- A **próxima mensagem** do mesmo contato reusa o mesmo chat: `_reopen_for_new_service`
+  insere "Novo atendimento iniciado", volta `status='open'` e **zera `assigned_attendant`
+  e `sector`** (a nova conversa volta para a recepção/fila, sem dono).
+- **Escopo do histórico** (não-admin, sem "conversa inteira"): mostra a partir da última
+  divisória **"Novo atendimento iniciado"** (NÃO a de "encerrado") — assim um chat
+  finalizado, ou recém-encaminhado pela IA, mostra **todo o atendimento** (cliente + IA/menu),
+  não só a divisória. Ver seção 15.
 - **Front**: `buildMessageEl` renderiza `kind='system'` como uma **pílula centralizada**
-  (`.conv-divider`, sem balão/horário); CSS em `conversations.css?v=20`.
+  (`.conv-divider`, sem balão/horário); CSS em `conversations.css?v=21`.
 - **Chats já picotados** (do comportamento antigo de fork) são unificados pelo comando
   `merge_contact_conversations` (ver seção 9 / comandos de management).
 

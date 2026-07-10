@@ -1132,12 +1132,22 @@ def _format_conv_time(dt):
     return local.strftime('%d/%m/%Y')
 
 
-def _serialize_conversation_item(conversation):
+def _serialize_conversation_item(conversation, current_user=None):
     sector_name = conversation.sector.name if conversation.sector_id else ''
     attendant_name = conversation.assigned_attendant.name if conversation.assigned_attendant_id else ''
+    # "comigo": a conversa esta atribuida ao atendente que esta olhando a lista.
+    mine = bool(
+        current_user is not None
+        and conversation.assigned_attendant_id
+        and conversation.assigned_attendant.user_id == current_user.id
+    )
     queue_label = ''
-    if conversation.status == 'pending' and sector_name and not attendant_name:
+    if conversation.status == 'closed':
+        queue_label = f'Finalizado ({attendant_name})' if attendant_name else 'Finalizado'
+    elif conversation.status == 'pending' and sector_name and not attendant_name:
         queue_label = f'Aguardando {sector_name}'
+    elif mine:
+        queue_label = 'Em conversa com você'
     elif attendant_name:
         queue_label = f'Com {attendant_name}'
     elif sector_name:
@@ -1155,6 +1165,7 @@ def _serialize_conversation_item(conversation):
         'is_group': conversation.is_group,
         'sector': sector_name,
         'attendant': attendant_name,
+        'mine': mine,
         'queue_label': queue_label,
     }
 
@@ -1239,6 +1250,7 @@ def _serialize_contact_info(conversation):
         'phone': contact.phone if contact else '',
         'is_group': is_group,
         'chat_type': conversation.chat_type,
+        'status': conversation.status,  # cru (open/pending/closed) — o front decide os botoes
         'status_label': conversation.status_label,
         'sector_id': conversation.sector_id,
         'sector': conversation.sector.name if conversation.sector else 'Nao definido',
@@ -1251,7 +1263,7 @@ def _serialize_contact_info(conversation):
 CONVERSATION_FILTERS = (
     ('todas', 'Todas'),
     ('nao-lidas', 'Nao lidas'),
-    ('em-atendimento', 'Em atendimento'),
+    ('em-atendimento', 'Conversando'),
     ('aguardando', 'Aguardando'),
     ('finalizadas', 'Finalizadas'),
 )
@@ -1338,7 +1350,7 @@ def conversations_view(request):
             'nav_items': build_nav_items(request.user, 'Conversas'),
             'role_label': request.user.get_role_display(),
             'user_initial': (request.user.first_name[:1] or request.user.email[:1]).upper(),
-            'conversations': [_serialize_conversation_item(c) for c in conversations],
+            'conversations': [_serialize_conversation_item(c, request.user) for c in conversations],
             'filter_chips': filter_chips,
             'type_tabs': type_tabs,
             'waiting_count': counts.get('aguardando', 0),
@@ -1416,7 +1428,7 @@ def conversation_list_view(request):
         'ok': True,
         'counts': _conversation_counts(base),
         'type_counts': _conversation_type_counts(base),
-        'conversations': [_serialize_conversation_item(c) for c in queryset],
+        'conversations': [_serialize_conversation_item(c, request.user) for c in queryset],
     })
 
 
@@ -1441,15 +1453,20 @@ def conversation_messages_view(request, conversation_id):
         retry_conversation_media_async(conversation.id)
 
     messages_qs = conversation.messages.all()
-    # Escopo do historico: quem nao tem "conversa inteira" ve so o atendimento atual
-    # (mensagens a partir da ultima divisoria de sistema).
+    # Escopo do historico: quem nao tem "conversa inteira" ve so o ATENDIMENTO atual,
+    # a partir da ultima divisoria "Novo atendimento iniciado" (NAO a de "Encerrado" —
+    # senao um chat finalizado, ou recem-encaminhado pela IA, mostraria so a divisoria).
+    # Assim o atendente ve toda a conversa do atendimento (cliente + IA/menu), inclusive
+    # nos Finalizados.
     if not history_full_for(request.user):
-        last_divider = (
-            conversation.messages.filter(message_type='system')
+        from wapi.services import SYSTEM_NEW_SERVICE_TEXT
+        last_start = (
+            conversation.messages
+            .filter(message_type='system', text=SYSTEM_NEW_SERVICE_TEXT)
             .order_by('-created_at').first()
         )
-        if last_divider:
-            messages_qs = messages_qs.filter(created_at__gte=last_divider.created_at)
+        if last_start:
+            messages_qs = messages_qs.filter(created_at__gte=last_start.created_at)
     sectors = Sector.objects.all()
     attendants = Attendant.objects.select_related('user').filter(user__is_active=True)
     name_map = _build_name_map(conversation) if conversation.is_group else None
@@ -1785,10 +1802,12 @@ def conversation_close_view(request, conversation_id):
     # WhatsApp = um unico chat por pessoa com todo o historico).
     save_system_message(conversation, SYSTEM_CLOSE_TEXT)
     conversation.status = 'closed'
-    conversation.assigned_attendant = None
+    # MANTEM o atendente que fechou (para ele continuar vendo em "Finalizados");
+    # so limpa o setor. A proxima mensagem do cliente reabre e zera atendente/setor
+    # (_reopen_for_new_service), voltando para a recepcao/fila.
     conversation.sector = None
     conversation.ai_turns = 0
-    conversation.save(update_fields=['status', 'assigned_attendant', 'sector', 'ai_turns', 'updated_at'])
+    conversation.save(update_fields=['status', 'sector', 'ai_turns', 'updated_at'])
 
     return JsonResponse({'ok': True, 'contact': _serialize_contact_info(conversation)})
 

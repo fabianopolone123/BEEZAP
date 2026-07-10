@@ -5,7 +5,7 @@
 
 {% block extra_head %}
 <link rel="stylesheet" href="{% static 'css/dashboard.css' %}?v=5">
-<link rel="stylesheet" href="{% static 'css/conversations.css' %}?v=20">
+<link rel="stylesheet" href="{% static 'css/conversations.css' %}?v=21">
 {% endblock %}
 
 {% block content %}
@@ -110,7 +110,7 @@
 
         <ul class="conv-list" role="listbox" aria-label="Lista de conversas" data-conv-list>
           {% for conv in conversations %}
-          <li class="conv-item"
+          <li class="conv-item {% if conv.mine %}conv-item-mine{% endif %}"
               role="option"
               aria-selected="false"
               data-conv-id="{{ conv.id }}"
@@ -131,7 +131,7 @@
                 {% endif %}
               </div>
               {% if conv.queue_label %}
-                <div class="conv-item-meta">{{ conv.queue_label }}</div>
+                <div class="conv-item-meta {% if conv.mine %}conv-item-meta-mine{% endif %}">{{ conv.queue_label }}</div>
               {% endif %}
             </div>
           </li>
@@ -817,6 +817,14 @@
     if (sectors) fillSelect(sectorSelect, sectors, contact.sector_id, 'Nao definido');
     if (attendants) fillSelect(attendantSelect, attendants, contact.attendant_id, 'Nao definido');
 
+    // Botoes de atendimento por status: em FINALIZADO (closed) o chat e so leitura —
+    // esconde Assumir e Encerrar (e a caixa de transferir). Nos demais, mostra tudo.
+    var isClosed = contact.status === 'closed';
+    if (takeBtn) takeBtn.hidden = isClosed;
+    if (closeBtn) closeBtn.hidden = isClosed;
+    var transferBox = document.querySelector('.conv-transfer');
+    if (transferBox) transferBox.hidden = isClosed;
+
     infoEmpty.hidden = true;
     infoPanel.hidden = false;
   }
@@ -889,6 +897,7 @@
   function buildConversationItem(conv) {
     var li = document.createElement('li');
     li.className = 'conv-item';
+    if (conv.mine) li.classList.add('conv-item-mine');   // atribuida a mim: destaque
     li.setAttribute('role', 'option');
     li.setAttribute('tabindex', '0');
     li.dataset.convId = conv.id;
@@ -942,7 +951,7 @@
     bodyDiv.appendChild(bottom);
     if (conv.queue_label) {
       var meta = document.createElement('div');
-      meta.className = 'conv-item-meta';
+      meta.className = 'conv-item-meta' + (conv.mine ? ' conv-item-meta-mine' : '');
       meta.textContent = conv.queue_label;
       bodyDiv.appendChild(meta);
     }
