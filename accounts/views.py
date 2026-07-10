@@ -463,8 +463,9 @@ def build_dashboard_context():
         d = start_7 + timedelta(days=i)
         day_counts.append((d, convs.filter(last_message_at__date=d).count()))
     max_v = max((c for _, c in day_counts), default=0) or 1
-    # Area de plotagem (viewBox 0 0 720 250): eixo Y a esquerda, base em baixo.
-    left, right, top, bottom = 48, 700, 25, 210
+    # Area de plotagem (viewBox 0 0 720 260). FOLGA no topo (top=55) para o rotulo
+    # do valor mais alto nao ser cortado pela borda do SVG.
+    left, right, top, bottom = 52, 690, 55, 205
     step = (right - left) / 6
     chart_points = []
     for i, (d, c) in enumerate(day_counts):

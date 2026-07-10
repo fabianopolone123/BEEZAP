@@ -3,7 +3,7 @@
 
 {% block title %}Dashboard | BEEZap{% endblock %}
 {% block extra_head %}
-<link rel="stylesheet" href="{% static 'css/dashboard.css' %}?v=3">
+<link rel="stylesheet" href="{% static 'css/dashboard.css' %}?v=4">
 {% endblock %}
 
 {% block content %}
@@ -68,12 +68,8 @@
           <h2>Atendimentos por dia</h2>
           <span>Últimos 7 dias</span>
         </div>
-        <svg viewBox="0 0 720 250" class="line-chart" preserveAspectRatio="xMidYMid meet" aria-label="Gráfico de atendimentos por dia">
+        <svg viewBox="0 0 720 260" class="line-chart" preserveAspectRatio="xMidYMid meet" aria-label="Gráfico de atendimentos por dia">
           <defs>
-            <linearGradient id="lineGradient" x1="0%" x2="100%" y1="0%" y2="0%">
-              <stop offset="0%" stop-color="#21c25e" />
-              <stop offset="100%" stop-color="#0d8d43" />
-            </linearGradient>
             <linearGradient id="areaGradient" x1="0%" x2="0%" y1="0%" y2="100%">
               <stop offset="0%" stop-color="#21c25e" stop-opacity="0.28" />
               <stop offset="100%" stop-color="#21c25e" stop-opacity="0" />
@@ -82,14 +78,14 @@
 
           <g class="chart-grid">
             {% for g in chart_gridlines %}
-              <line x1="48" y1="{{ g.y }}" x2="700" y2="{{ g.y }}"></line>
-              <text x="40" y="{{ g.y|add:'4' }}" text-anchor="end">{{ g.value }}</text>
+              <line x1="52" y1="{{ g.y }}" x2="690" y2="{{ g.y }}"></line>
+              <text x="42" y="{{ g.y|add:'4' }}" text-anchor="end">{{ g.value }}</text>
             {% endfor %}
           </g>
 
           <polygon class="chart-area" points="{{ chart_area }}"></polygon>
           <polyline points="{{ chart_polyline }}"
-            fill="none" stroke="url(#lineGradient)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" />
+            fill="none" stroke="#16a34a" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" />
 
           <g class="chart-dots">
             {% for p in chart_points %}
@@ -98,12 +94,12 @@
           </g>
           <g class="chart-values">
             {% for p in chart_points %}
-              <text x="{{ p.x }}" y="{{ p.y|add:'-13' }}" text-anchor="middle">{{ p.value }}</text>
+              <text x="{{ p.x }}" y="{{ p.y|add:'-14' }}" text-anchor="middle">{{ p.value }}</text>
             {% endfor %}
           </g>
           <g class="chart-labels">
             {% for p in chart_points %}
-              <text x="{{ p.x }}" y="238" text-anchor="middle">{{ p.label }}</text>
+              <text x="{{ p.x }}" y="242" text-anchor="middle">{{ p.label }}</text>
             {% endfor %}
           </g>
         </svg>
