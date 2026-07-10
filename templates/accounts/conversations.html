@@ -817,16 +817,23 @@
     if (sectors) fillSelect(sectorSelect, sectors, contact.sector_id, 'Nao definido');
     if (attendants) fillSelect(attendantSelect, attendants, contact.attendant_id, 'Nao definido');
 
-    // Botoes de atendimento por status: em FINALIZADO (closed) o chat e so leitura —
-    // esconde Assumir e Encerrar (e a caixa de transferir). Nos demais, mostra tudo.
-    var isClosed = contact.status === 'closed';
-    if (takeBtn) takeBtn.hidden = isClosed;
-    if (closeBtn) closeBtn.hidden = isClosed;
-    var transferBox = document.querySelector('.conv-transfer');
-    if (transferBox) transferBox.hidden = isClosed;
+    updateServiceButtons(contact);
 
     infoEmpty.hidden = true;
     infoPanel.hidden = false;
+  }
+
+  /* Botoes do painel conforme o status/atribuicao:
+     - FINALIZADO (closed): so leitura (esconde Assumir, Encerrar e transferir).
+     - Ja e MINHA (sou o atendente): esconde "Assumir" (mostra so "Encerrar").
+     - Aguardando / de outro atendente: mostra "Assumir" (assumir/assumir de outro). */
+  function updateServiceButtons(contact) {
+    var isClosed = contact.status === 'closed';
+    var mine = !!contact.mine;
+    if (takeBtn) takeBtn.hidden = isClosed || mine;
+    if (closeBtn) closeBtn.hidden = isClosed;
+    var transferBox = document.querySelector('.conv-transfer');
+    if (transferBox) transferBox.hidden = isClosed;
   }
 
   function applyContactInfo(contact) {
@@ -837,6 +844,8 @@
     document.querySelector('[data-info-attendant]').textContent = contact.attendant;
     if (sectorSelect) sectorSelect.value = contact.sector_id || '';
     if (attendantSelect) attendantSelect.value = contact.attendant_id || '';
+    // Atualiza os botoes (ex.: apos Assumir some o "Assumir"; apos Encerrar some tudo).
+    updateServiceButtons(contact);
   }
 
   /* ---------- Abrir conversa ---------- */

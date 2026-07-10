@@ -228,9 +228,11 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
   `mine` no serializer (`_serialize_conversation_item(conv, request.user)`). As de outros
   mostram "Com &lt;atendente&gt;". Regra: **uma conversa = um atendente** (para trocar,
   transfere de setor/atendente).
-- **Botões do painel por status** (`fillInfo` lê `contact.status`): **Finalizado**
-  (`closed`) esconde **Assumir**, **Encerrar** e a caixa de transferir (só leitura);
-  senão mostra normalmente.
+- **Botões do painel** (`updateServiceButtons`, lê `contact.status` + `contact.mine`;
+  chamado ao abrir E após assumir/encerrar/transferir, então o painel **atualiza na
+  hora**): **Finalizado** (`closed`) → só leitura (esconde Assumir, Encerrar e transferir);
+  **já é minha** (sou o atendente) → esconde **Assumir** (mostra só **Encerrar**);
+  aguardando / de outro → mostra **Assumir** + **Encerrar**.
 - **Chat via AJAX**: abrir zera não lidas; render por tipo; **composer fixo no
   rodapé** (corrigido com `min-height:0` na cadeia flex/grid e `[hidden]{display:none!important}`).
 - **Poll incremental** (`syncMessages`): a atualização periódica só mexe no DOM

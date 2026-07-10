@@ -1239,11 +1239,16 @@ def _serialize_message(message, name_map=None):
     }
 
 
-def _serialize_contact_info(conversation):
+def _serialize_contact_info(conversation, current_user=None):
     contact = conversation.contact
     attendant = conversation.assigned_attendant
     is_group = conversation.is_group
     created_source = contact.created_at if contact else conversation.created_at
+    mine = bool(
+        current_user is not None
+        and conversation.assigned_attendant_id
+        and conversation.assigned_attendant.user_id == current_user.id
+    )
     return {
         'name': conversation.display_title,
         'initials': conversation.display_initials,
@@ -1251,6 +1256,7 @@ def _serialize_contact_info(conversation):
         'is_group': is_group,
         'chat_type': conversation.chat_type,
         'status': conversation.status,  # cru (open/pending/closed) — o front decide os botoes
+        'mine': mine,                   # atribuida ao usuario logado (esconde "Assumir")
         'status_label': conversation.status_label,
         'sector_id': conversation.sector_id,
         'sector': conversation.sector.name if conversation.sector else 'Nao definido',
@@ -1473,7 +1479,7 @@ def conversation_messages_view(request, conversation_id):
 
     return JsonResponse({
         'ok': True,
-        'contact': _serialize_contact_info(conversation),
+        'contact': _serialize_contact_info(conversation, request.user),
         'messages': [_serialize_message(m, name_map) for m in messages_qs],
         'sectors': [{'id': s.id, 'name': s.name} for s in sectors],
         'attendants': [{'id': a.id, 'name': a.name} for a in attendants],
@@ -1762,7 +1768,7 @@ def conversation_transfer_view(request, conversation_id):
     update_fields.add('status')
     conversation.save(update_fields=list(update_fields))
 
-    return JsonResponse({'ok': True, 'contact': _serialize_contact_info(conversation)})
+    return JsonResponse({'ok': True, 'contact': _serialize_contact_info(conversation, request.user)})
 
 
 @login_required
@@ -1788,7 +1794,7 @@ def conversation_take_view(request, conversation_id):
     conversation.status = 'open'
     conversation.save(update_fields=['assigned_attendant', 'status', 'updated_at'])
 
-    return JsonResponse({'ok': True, 'contact': _serialize_contact_info(conversation)})
+    return JsonResponse({'ok': True, 'contact': _serialize_contact_info(conversation, request.user)})
 
 
 @login_required
@@ -1809,7 +1815,7 @@ def conversation_close_view(request, conversation_id):
     conversation.ai_turns = 0
     conversation.save(update_fields=['status', 'sector', 'ai_turns', 'updated_at'])
 
-    return JsonResponse({'ok': True, 'contact': _serialize_contact_info(conversation)})
+    return JsonResponse({'ok': True, 'contact': _serialize_contact_info(conversation, request.user)})
 
 
 @login_required
