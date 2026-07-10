@@ -117,6 +117,38 @@ bash deploy/deploy.sh
 O script faz: `git pull` → `pip install` → `migrate` → `collectstatic --noinput`
 → `restart` do serviço.
 
+## ⚠️ Mudança de TEMPLATE não aparece? Reinicie o gunicorn de verdade
+
+Como o servidor roda com **`DEBUG=False`**, o Django **cacheia os templates
+compilados na memória de cada worker do gunicorn** (`cached.Loader`). Um `git pull`
+atualiza o disco, mas o gunicorn **continua servindo o template ANTIGO** até os
+workers serem **reiniciados de fato**. Sintoma: a alteração de HTML "não aparece"
+no navegador (nem em aba anônima, nem no celular no 4G), enquanto o disco
+(`manage.py shell` lendo o template) e o CSS (`curl`) já estão novos. **Não é cache
+de navegador nesses casos** (o Nginx não tem `proxy_cache` nem há CDN).
+
+Sempre reinicie **e confirme que os PIDs foram reciclados**:
+```bash
+sudo systemctl restart beezap
+ps -eo pid,etimes,cmd | grep "[b]eezap/venv/bin/gunicorn"   # etimes deve ser pequeno (segundos)
+```
+Se o `etimes` continuar grande (o processo não recriou), force:
+```bash
+sudo systemctl stop beezap
+sudo pkill -f "beezap/venv/bin/gunicorn"
+sudo systemctl start beezap
+```
+> Por isso, prefira sempre o `deploy/deploy.sh` (que já reinicia).
+
+## ⚠️ Número quebrando CSS/atributo em template (locale pt-BR)
+
+`LANGUAGE_CODE='pt-br'` faz o Django imprimir **float com vírgula** no template
+(`{{ 6.0 }}` → `6,0`). Se esse número entra em **CSS/atributo** (`style="left: {{ x }}%"`,
+atributo SVG), a vírgula gera valor **inválido** e o navegador ignora — foi o bug do
+gráfico do dashboard. **Regra:** número que vai para CSS/atributo dentro de template →
+`{% load l10n %}{% localize off %}…{% endlocalize %}` ou montar a string no Python
+(strings não são localizadas).
+
 ## Como testar se o CSS novo foi publicado
 
 ```bash

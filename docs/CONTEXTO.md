@@ -273,6 +273,28 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
   então o que se cadastra aqui aparece no lugar do número nas conversas de grupo.
 - Disponível para qualquer usuário logado. Reaproveita `dashboard.css`/`attendants.css`.
 
+## 5.2. Tela Dashboard (`templates/accounts/dashboard.html` + `dashboard.css`)
+
+- Rota `dashboard/` (`dashboard_view`). **Só quem tem o botão Dashboard** (por padrão,
+  só ADM — ver seção 15); quem não tem cai na 1ª tela disponível (`first_landing_url_name`).
+- **Dados 100% reais** do banco, calculados em `build_dashboard_context()` (views):
+  - **Cards**: Conversas ativas (não fechadas), Novas conversas (criadas nos últimos
+    7 dias), Atendimentos finalizados (fechadas), Tempo médio de resposta (1ª resposta
+    do atendente após a 1ª mensagem do cliente, média dos últimos 30 dias).
+  - **Atendimentos por dia**: últimos 7 dias (pela data da última mensagem). É um
+    **gráfico de linha em SVG SEM texto** (só linha/área/grade, coords em % com
+    `preserveAspectRatio=none` + `vector-effect=non-scaling-stroke`); os **números,
+    datas e pontos são HTML posicionados por %** (`.daychart .dc-val/.dc-date/.dc-dot`).
+    O CSS do gráfico está **embutido num `<style>`** no próprio `dashboard.html` (à
+    prova de cache) e todo o bloco vem dentro de `{% localize off %}` (pt-BR, ver seção 6).
+  - **Atendimentos por setor**: donut (conic-gradient inline) + legenda, com a
+    distribuição real por setor.
+  - **Atendimentos em andamento**: conversas `open` (cliente, setor, atendente, última
+    atividade, última mensagem).
+- **NÃO tem atalhos** no topo (Nova conversa/Fila/Relatórios/Configurações foram
+  removidos — a pedido; o painel é só indicadores).
+- Popular dados de demonstração: comando **`seed_demo_data`** (ver seção 9).
+
 ## 6. Deploy no VPS (LEIA — tem armadilhas específicas)
 
 - App em `/var/www/beezap/`, serviço systemd **`beezap`**, gunicorn em
@@ -301,14 +323,34 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
   mídia — converte áudio gravado (`.webm`→`.ogg`) e imagens não suportadas pela
   W-API (webp/gif/bmp/heic→`.jpg`). `sudo apt install -y ffmpeg`. O `manage.py check`
   avisa se faltar (**`beezap.W001`**). Ver `requirements.txt` e `DEPLOY.md`.
-- **DEBUG=True em produção**: ainda ativo no servidor — **risco de segurança**
-  (expõe traceback). Pendência: mover para `DEBUG=False` no `.env`.
+- **`DEBUG=False` no servidor** (já ativo — bom para segurança). **ARMADILHA CRÍTICA
+  que já custou horas:** com `DEBUG=False`, o Django usa o `cached.Loader` e
+  **guarda os templates compilados na memória de cada worker do gunicorn**. Um
+  `git pull` atualiza o disco, mas o gunicorn continua servindo o **template ANTIGO**
+  até os workers serem **realmente reiniciados**. Sintoma: mudança de template "não
+  aparece" no navegador (nem anônima, nem no celular no 4G), enquanto o disco e os
+  estáticos já estão novos. **Todo deploy TEM que reiniciar o gunicorn** e **confirmar
+  que os PIDs foram reciclados**:
+  ```bash
+  sudo systemctl restart beezap
+  ps -eo pid,etimes,cmd | grep "[b]eezap/venv/bin/gunicorn"   # etimes deve ser pequeno (segundos)
+  # se não reciclou: sudo systemctl stop beezap; sudo pkill -f "beezap/venv/bin/gunicorn"; sudo systemctl start beezap
+  ```
+  Não há CDN/`proxy_cache` no Nginx (checado); quando template novo não aparece, o
+  culpado quase sempre é este (gunicorn com template em cache), não o navegador.
+- **Localização pt-BR em templates (`LANGUAGE_CODE='pt-br'`):** o Django imprime
+  **float com vírgula** (`{{ 6.0 }}` → `6,0`). Se esse número vai para **CSS/atributo**
+  (`style="left: {{ x }}%"`, atributo SVG), a vírgula gera valor **inválido** e o
+  navegador ignora. Foi o bug do gráfico do dashboard. **Regra:** número que entra em
+  CSS/atributo dentro de template → envolver com `{% load l10n %}{% localize off %}…{% endlocalize %}`
+  ou montar a string em Python na view (strings não são localizadas).
 
 ### Fluxo de deploy
 ```bash
 cd /var/www/beezap
-bash deploy/deploy.sh      # git pull + pip install + migrate + collectstatic + restart
-# (ou manual: git pull && venv/bin/python manage.py migrate && sudo systemctl restart beezap)
+bash deploy/deploy.sh      # git pull + pip install + migrate + collectstatic + restart (RECOMENDADO)
+# manual: git pull && venv/bin/python manage.py migrate && sudo systemctl restart beezap
+#         e SEMPRE confirmar o restart: ps -eo pid,etimes,cmd | grep "[b]eezap/venv/bin/gunicorn"
 ```
 
 ## 7. Variáveis de ambiente (`.env`) — ver `.env.example`
@@ -316,7 +358,7 @@ bash deploy/deploy.sh      # git pull + pip install + migrate + collectstatic + 
 Obrigatórias/relevantes em produção:
 ```
 SECRET_KEY=...
-DEBUG=False                       # (hoje True no servidor — corrigir)
+DEBUG=False                       # já ativo no servidor (cacheia templates: reiniciar gunicorn no deploy)
 ALLOWED_HOSTS=fabianopolone.com.br,www.fabianopolone.com.br
 CSRF_TRUSTED_ORIGINS=https://fabianopolone.com.br
 DATABASE_URL=sqlite:////var/www/beezap/db.sqlite3
@@ -376,9 +418,12 @@ seed_demo_data [--no-clear]             # popula DEMO: 5 setores/atendentes + co
 
 ## 10. Pendências / próximas etapas
 
+- **Nova conversa**: botão para iniciar um chat digitando número + mensagem (e abrir
+  em Conversas). Combinado como próxima etapa.
+- **Fila de atendimento**: tela/fluxo da fila por setor. Próxima etapa.
+- **Relatórios**: tela ainda não criada (item foi removido do menu por enquanto).
 - Legenda (caption) ao enviar imagem/vídeo/documento pelo composer.
 - Recursos **PRO** (reação/sticker/GIF nativo/botões/listas) quando a instância for PRO.
-- `DEBUG=False` em produção (segurança).
 - Upload múltiplo, arrastar-e-soltar.
 - (Opcional) Tornar as **menções `@` clicáveis** dentro do texto para nomear ali
   mesmo; hoje o clique-para-nomear está no remetente e no cabeçalho da direta.
@@ -395,7 +440,12 @@ seed_demo_data [--no-clear]             # popula DEMO: 5 setores/atendentes + co
 - **Um único chat por pessoa/grupo** (padrão WhatsApp) com **divisórias** de atendimento
   (ver seção 12); comando `merge_contact_conversations` unifica chats antigos picotados.
 - **Atendente virtual (IA) removido** por completo (módulo `ai_engine`, telas, models,
-  Ollama) — ver nota na seção 12.
+  Ollama) — ver nota na seção 12. **IA reconstruída via OpenAI/GPT** (seção 13) e
+  **Chatbot de menu** (seção 14) como opções de primeiro atendimento.
+- **Permissões de menu** por perfil/usuário + **acesso a grupos** por setor/usuário
+  (seção 15); **admin vira atendente** de todos os setores automaticamente (seção 3).
+- **Separação das conversas** por setor/grupo e **escopo de histórico** (seção 15).
+- **Dashboard com dados reais** + comando `seed_demo_data` (seção 5.2).
 
 ## 11. Segurança
 
