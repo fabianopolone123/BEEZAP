@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% load static %}
+{% load l10n %}
 
 {% block title %}Dashboard | BEEZap{% endblock %}
 {% block extra_head %}
@@ -84,6 +85,7 @@
           <h2>Atendimentos por dia</h2>
           <span>Últimos 7 dias</span>
         </div>
+        {% localize off %}
         <div class="daychart">
           <svg class="daychart-svg" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
             <defs>
@@ -106,6 +108,7 @@
             <span class="dc-date" style="left: {{ p.left }}%;">{{ p.label }}</span>
           {% endfor %}
         </div>
+        {% endlocalize %}
       </article>
 
       <article class="panel donut-panel">
