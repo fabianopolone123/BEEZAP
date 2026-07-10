@@ -376,14 +376,27 @@ a {
 
 .chart-labels text {
   fill: var(--muted);
+  font-size: 14px;
+}
+
+.chart-values text {
+  fill: var(--text);
   font-size: 15px;
+  font-weight: 700;
+}
+
+.donut-panel {
+  display: flex;
+  flex-direction: column;
 }
 
 .donut-wrap {
-  display: grid;
-  grid-template-columns: 220px 1fr;
-  gap: 12px;
+  flex: 1;
+  display: flex;
   align-items: center;
+  justify-content: center;
+  gap: 30px;
+  flex-wrap: wrap;
 }
 
 .donut-chart {

@@ -3,7 +3,7 @@
 
 {% block title %}Dashboard | BEEZap{% endblock %}
 {% block extra_head %}
-<link rel="stylesheet" href="{% static 'css/dashboard.css' %}">
+<link rel="stylesheet" href="{% static 'css/dashboard.css' %}?v=2">
 {% endblock %}
 
 {% block content %}
@@ -68,7 +68,7 @@
           <h2>Atendimentos por dia</h2>
           <span>Últimos 7 dias</span>
         </div>
-        <svg viewBox="0 0 700 280" class="line-chart" aria-label="Gráfico de atendimentos">
+        <svg viewBox="0 0 700 250" class="line-chart" preserveAspectRatio="xMidYMid meet" aria-label="Gráfico de atendimentos">
           <defs>
             <linearGradient id="lineGradient" x1="0%" x2="100%" y1="0%" y2="0%">
               <stop offset="0%" stop-color="#21c25e" />
@@ -76,15 +76,20 @@
             </linearGradient>
           </defs>
           <polyline points="{{ chart_polyline }}"
-            fill="none" stroke="url(#lineGradient)" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" />
+            fill="none" stroke="url(#lineGradient)" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" />
           <g class="chart-dots">
             {% for p in chart_points %}
-              <circle cx="{{ p.x }}" cy="{{ p.y }}" r="7"><title>{{ p.label }}: {{ p.value }}</title></circle>
+              <circle cx="{{ p.x }}" cy="{{ p.y }}" r="6"></circle>
+            {% endfor %}
+          </g>
+          <g class="chart-values">
+            {% for p in chart_points %}
+              <text x="{{ p.x }}" y="{{ p.y|add:'-14' }}" text-anchor="middle">{{ p.value }}</text>
             {% endfor %}
           </g>
           <g class="chart-labels">
             {% for p in chart_points %}
-              <text x="{{ p.x }}" y="268" text-anchor="middle">{{ p.label }}</text>
+              <text x="{{ p.x }}" y="238" text-anchor="middle">{{ p.label }}</text>
             {% endfor %}
           </g>
         </svg>

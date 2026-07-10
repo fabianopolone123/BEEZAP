@@ -463,7 +463,8 @@ def build_dashboard_context():
         d = start_7 + timedelta(days=i)
         day_counts.append((d, convs.filter(last_message_at__date=d).count()))
     max_v = max((c for _, c in day_counts), default=0) or 1
-    x0, x1, y_top, y_bottom = 40, 660, 40, 240
+    # Margens internas para os rotulos (valor em cima, data embaixo) nao serem cortados.
+    x0, x1, y_top, y_bottom = 55, 645, 55, 205
     step = (x1 - x0) / 6
     chart_points = []
     for i, (d, c) in enumerate(day_counts):
