@@ -195,28 +195,27 @@ def _send_reply(conversation, text):
 
 
 def _route_to_sector(conversation, sector, confirmation=''):
-    """Avisa o cliente (se houver confirmacao) e encaminha para o setor (fila)."""
-    from wapi.services import save_system_message
+    """Avisa o cliente (se houver confirmacao) e encaminha para o setor: fica
+    AGUARDANDO na fila do setor (pendente, sem atribuir a ninguem). NAO insere
+    divisoria — o atendimento e o mesmo, entao quem assumir ve todo o historico
+    (inclusive a conversa do menu com o cliente)."""
     if confirmation:
         _send_reply(conversation, confirmation)
     Conversation.objects.filter(pk=conversation.id).update(
         sector=sector, assigned_attendant=None, status='pending', ai_turns=0,
     )
-    save_system_message(conversation, f'Encaminhado para o setor {sector.name} pelo chatbot')
-    bot_logger.info('Chatbot encaminhou conv=%s para setor=%s', conversation.id, sector.name)
+    bot_logger.info('Chatbot encaminhou conv=%s para setor=%s (aguardando)', conversation.id, sector.name)
 
 
 def _handoff(conversation, config):
     """Desiste do menu AVISANDO o cliente e encaminha para o fallback (ou deixa
-    aguardando um atendente, sem setor)."""
+    aguardando um atendente, sem setor). Sem divisoria (ver _route_to_sector)."""
     _send_reply(conversation, resolved_handoff_message(config))
     fallback = config.fallback_sector
     if fallback:
-        from wapi.services import save_system_message
         Conversation.objects.filter(pk=conversation.id).update(
             sector=fallback, assigned_attendant=None, status='pending', ai_turns=0,
         )
-        save_system_message(conversation, f'Encaminhado para o setor {fallback.name} pelo chatbot')
         bot_logger.info('Chatbot handoff conv=%s -> setor=%s', conversation.id, fallback.name)
     else:
         Conversation.objects.filter(pk=conversation.id).update(

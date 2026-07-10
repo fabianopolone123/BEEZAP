@@ -287,24 +287,27 @@ def _send_ai_reply(conversation, text):
 
 
 def _route_to_sector(conversation, sector):
-    """Encaminha para um setor (fila): setor + status pendente, sem atendente."""
-    from wapi.services import save_system_message
+    """Encaminha para um setor: fica AGUARDANDO na fila do setor (status pendente,
+    SEM atribuir a ninguem) — o time do setor e notificado e alguem clica em Assumir.
+
+    NAO insere divisoria: o encaminhamento e parte do MESMO atendimento, entao o
+    atendente que assumir ve todo o historico (inclusive a conversa com a IA)."""
     Conversation.objects.filter(pk=conversation.id).update(
         sector=sector, assigned_attendant=None, status='pending', ai_turns=0,
     )
-    save_system_message(conversation, f'Encaminhado para o setor {sector.name} pela IA')
-    ai_logger.info('IA encaminhou conv=%s para setor=%s', conversation.id, sector.name)
+    ai_logger.info('IA encaminhou conv=%s para setor=%s (aguardando)', conversation.id, sector.name)
 
 
 def _route_to_attendant(conversation, attendant):
-    """Encaminha para um atendente especifico (assume o setor dele, se houver)."""
-    from wapi.services import save_system_message
+    """Cliente citou um atendente: encaminha para o SETOR dele, deixando AGUARDANDO
+    (fila do setor, sem atribuir a pessoa). A atribuicao acontece quando alguem
+    assume. Sem divisoria (mesmo atendimento; ver _route_to_sector)."""
     sector = attendant.sectors.first()
     Conversation.objects.filter(pk=conversation.id).update(
-        assigned_attendant=attendant, sector=sector, status='open', ai_turns=0,
+        sector=sector, assigned_attendant=None, status='pending', ai_turns=0,
     )
-    save_system_message(conversation, f'Encaminhado para {attendant.name} pela IA')
-    ai_logger.info('IA encaminhou conv=%s para atendente=%s', conversation.id, attendant.name)
+    ai_logger.info('IA encaminhou conv=%s para setor=%s (atendente citado: %s)',
+                   conversation.id, sector.name if sector else '-', attendant.name)
 
 
 def _resolve_fallback_sector(config):

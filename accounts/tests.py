@@ -1063,19 +1063,22 @@ class AiAttendantFlowTests(TestCase):
         self._run(self._gpt(mensagem='Vou te transferir para o Financeiro.', setor='Financeiro'))
         self.conv.refresh_from_db()
         self.assertEqual(self.conv.sector_id, self.financeiro.id)
-        self.assertEqual(self.conv.status, 'pending')
-        self.assertIsNone(self.conv.assigned_attendant_id)
-        # Resposta da IA enviada e divisoria de encaminhamento criadas.
+        self.assertEqual(self.conv.status, 'pending')          # AGUARDANDO na fila do setor
+        self.assertIsNone(self.conv.assigned_attendant_id)     # sem atribuir a ninguem
+        # A IA responde ao cliente, mas NAO cria divisoria (o encaminhar e o mesmo
+        # atendimento, para o atendente ver o historico com a IA ao assumir).
         self.assertTrue(self.Message.objects.filter(conversation=self.conv, direction='out', is_ai=True).exists())
-        self.assertTrue(self.Message.objects.filter(conversation=self.conv, message_type='system',
-                                                    text__icontains='Financeiro').exists())
+        self.assertFalse(self.Message.objects.filter(conversation=self.conv, message_type='system').exists())
 
-    def test_routes_to_attendant(self):
+    def test_routes_to_attendant_goes_to_sector_queue(self):
+        # Cliente citou um atendente: vai para o SETOR dele, AGUARDANDO (sem atribuir
+        # a pessoa); a atribuicao acontece quando alguem clica em Assumir.
         self._run(self._gpt(mensagem='Ja te encaminho pro Fabiano.', atendente='Fabiano'))
         self.conv.refresh_from_db()
-        self.assertEqual(self.conv.assigned_attendant_id, self.fabiano.id)
-        self.assertEqual(self.conv.sector_id, self.suporte.id)  # setor do atendente
-        self.assertEqual(self.conv.status, 'open')
+        self.assertIsNone(self.conv.assigned_attendant_id)
+        self.assertEqual(self.conv.sector_id, self.suporte.id)  # setor do atendente citado
+        self.assertEqual(self.conv.status, 'pending')
+        self.assertFalse(self.Message.objects.filter(conversation=self.conv, message_type='system').exists())
 
     def test_clarify_keeps_triage(self):
         self._run(self._gpt(mensagem='Pode me dar mais detalhes do que precisa?'))
@@ -1324,9 +1327,11 @@ class MenuBotFlowTests(TestCase):
         self._run()
         self.conv.refresh_from_db()
         self.assertEqual(self.conv.sector_id, self.financeiro.id)
-        self.assertEqual(self.conv.status, 'pending')
-        self.assertTrue(self.Message.objects.filter(
-            conversation=self.conv, message_type='system', text__icontains='Financeiro').exists())
+        self.assertEqual(self.conv.status, 'pending')          # AGUARDANDO na fila do setor
+        self.assertIsNone(self.conv.assigned_attendant_id)
+        # Nao cria divisoria (o atendente que assumir ve o historico do menu).
+        self.assertFalse(self.Message.objects.filter(
+            conversation=self.conv, message_type='system').exists())
 
     def test_invalid_option_repeats_menu(self):
         self.Message.objects.create(conversation=self.conv, direction='out',

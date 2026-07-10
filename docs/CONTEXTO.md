@@ -540,10 +540,15 @@ ligado.** Roda **sempre em background** (thread), nunca trava o webhook.
   na mensagem atual — ao Encerrar/reabrir, o contexto começa limpo. A tela tem botão
   **"Restaurar prompt padrão"**.
 - **Decisão via JSON** (`response_format={'type':'json_object'}`): o modelo devolve
-  `{"mensagem", "setor", "atendente"}`. `atendente` casado → `_route_to_attendant`
-  (assign + setor do atendente + `open`); `setor` casado → `_route_to_sector`
-  (setor + `pending`, sem atendente); nenhum → envia a fala e incrementa `ai_turns`.
-  Cada encaminhamento insere uma **divisória** "Encaminhado para … pela IA".
+  `{"mensagem", "setor", "atendente"}`. Em ambos os casos o encaminhamento vai para
+  um **SETOR** e a conversa fica **AGUARDANDO** (`pending`, **sem atribuir a ninguém**):
+  `setor` casado → `_route_to_sector`; `atendente` casado → `_route_to_attendant`
+  (vai para o **setor do atendente citado**, também sem atribuir a pessoa). Assim o
+  time inteiro do setor é notificado e **alguém clica em Assumir** (aí vira `open`,
+  "em atendimento"). Nenhum casado → envia a fala e incrementa `ai_turns`.
+  **NÃO insere divisória**: o encaminhamento é parte do MESMO atendimento, então quem
+  assumir vê **todo o histórico** (inclusive a conversa com a IA). O escopo de
+  histórico (seção 15) só é cortado por Encerrar/reabrir, não pelo encaminhamento.
 - **Limite/fallback**: ao atingir `max_turns` sem decidir, `_handoff_to_fallback`
   **sempre avisa o cliente** com uma mensagem clara de handoff (`HANDOFF_NOTICE`:
   "não consegui entender… vou pedir para um atendente…") — nunca transfere em
@@ -584,8 +589,9 @@ background, lock por conversa, nunca levanta exceção):
   vira Bom dia/tarde/noite; opções numeradas "1 - Financeiro").
 - Mensagens seguintes → `_match_option` interpreta o **número** digitado (ou o nome
   exato do rótulo/setor): opção válida → envia a **confirmação** (`{setor}`) e
-  **encaminha para o setor** (`pending`, divisória "Encaminhado para o setor X pelo
-  chatbot"); opção inválida → reexibe o menu e **conta a tentativa** (`Conversation.ai_turns`).
+  **encaminha para o setor** (`pending`/**aguardando**, sem atribuir a ninguém, **sem
+  divisória** — quem assumir vê o histórico do menu); opção inválida → reexibe o menu
+  e **conta a tentativa** (`Conversation.ai_turns`).
 - Ao atingir `max_attempts` tentativas inválidas → **avisa** (`handoff_message`) e
   encaminha para o `fallback_sector` (ou deixa `pending` sem setor).
 - **Guardas** (`_should_handle` + `_human_replied_in_segment`): pula se o modo não é
