@@ -385,6 +385,21 @@ a {
   font-weight: 700;
 }
 
+.chart-grid line {
+  stroke: rgba(100, 116, 139, 0.18);
+  stroke-width: 1;
+}
+
+.chart-grid text {
+  fill: var(--muted);
+  font-size: 13px;
+}
+
+.chart-area {
+  fill: url(#areaGradient);
+  stroke: none;
+}
+
 .donut-panel {
   display: flex;
   flex-direction: column;

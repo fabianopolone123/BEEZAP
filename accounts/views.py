@@ -463,15 +463,22 @@ def build_dashboard_context():
         d = start_7 + timedelta(days=i)
         day_counts.append((d, convs.filter(last_message_at__date=d).count()))
     max_v = max((c for _, c in day_counts), default=0) or 1
-    # Margens internas para os rotulos (valor em cima, data embaixo) nao serem cortados.
-    x0, x1, y_top, y_bottom = 55, 645, 55, 205
-    step = (x1 - x0) / 6
+    # Area de plotagem (viewBox 0 0 720 250): eixo Y a esquerda, base em baixo.
+    left, right, top, bottom = 48, 700, 25, 210
+    step = (right - left) / 6
     chart_points = []
     for i, (d, c) in enumerate(day_counts):
-        x = x0 + step * i
-        y = y_bottom - (c / max_v) * (y_bottom - y_top)
+        x = left + step * i
+        y = bottom - (c / max_v) * (bottom - top)
         chart_points.append({'x': round(x, 1), 'y': round(y, 1), 'label': d.strftime('%d/%m'), 'value': c})
     chart_polyline = ' '.join(f"{p['x']},{p['y']}" for p in chart_points)
+    # Poligono da area sob a linha (fecha na base).
+    chart_area = f'{left},{bottom} ' + chart_polyline + f' {right},{bottom}'
+    # Linhas de grade horizontais com os valores do eixo Y (0, metade, maximo).
+    chart_gridlines = [
+        {'y': round(bottom - frac * (bottom - top), 1), 'value': round(max_v * frac)}
+        for frac in (0, 0.5, 1.0)
+    ]
 
     # Atendimentos por setor (donut + legenda).
     sector_rows = list(
@@ -505,6 +512,8 @@ def build_dashboard_context():
         'stats': stats,
         'chart_points': chart_points,
         'chart_polyline': chart_polyline,
+        'chart_area': chart_area,
+        'chart_gridlines': chart_gridlines,
         'donut_gradient': donut_gradient,
         'sector_legend': sector_legend,
         'andamento': andamento,
