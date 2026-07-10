@@ -223,11 +223,14 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
   (`counts['aguardando']`, já escopado pelo setor do usuário via visibilidade).
   Fica pulsando (some quando zero) para todos os atendentes do setor; **clicar** filtra
   a lista só nos aguardando; clicar de novo volta para Todas.
-- **"Em conversa comigo"**: as conversas atribuídas ao usuário logado ganham destaque
-  na lista (`.conv-item-mine`, borda azul + fundo; label "Em conversa com você") — flag
-  `mine` no serializer (`_serialize_conversation_item(conv, request.user)`). As de outros
-  mostram "Com &lt;atendente&gt;". Regra: **uma conversa = um atendente** (para trocar,
-  transfere de setor/atendente).
+- **"Em conversa comigo"**: conversas atribuídas ao usuário logado **E ainda ativas**
+  (não fechadas) ganham destaque na lista (`.conv-item-mine`, borda azul + fundo; label
+  "Em conversa com você") — flag `mine` no serializer. **Finalizado NÃO fica azul**
+  (label "Finalizado"). As de outros mostram "Com &lt;atendente&gt;". Regra: **uma
+  conversa = um atendente** (para trocar, transfere de setor/atendente).
+- **Finalizados são só os MEUS**: um chat fechado só aparece para o atendente que o
+  atendeu (por atribuição), não para o setor inteiro — ver a regra de visibilidade na
+  seção 15. (O admin vê todos.)
 - **Botões do painel** (`updateServiceButtons`, lê `contact.status` + `contact.mine`;
   chamado ao abrir E após assumir/encerrar/transferir, então o painel **atualiza na
   hora**): **Finalizado** (`closed`) → só leitura (esconde Assumir, Encerrar e transferir);
@@ -684,8 +687,10 @@ esconder o botão também bloqueia a URL.
 ### Separação das conversas (quem vê quais chats)
 - `visible_conversations(user, qs)` / `can_see_conversation(user, conv)` em
   `accounts/permissions.py`. **Admin vê tudo.** Não-admin vê: **diretas** atribuídas a
-  ele OU do(s) setor(es) dele; **grupos** liberados para o(s) setor(es) dele OU para
-  ele (via `GroupAccess`). Um usuário novo/sem setor **não vê nada** ("zerado").
+  ele OU (do(s) setor(es) dele **E ainda não fechada**); **grupos** liberados para o(s)
+  setor(es) dele OU para ele (via `GroupAccess`). Um usuário novo/sem setor **não vê
+  nada** ("zerado"). **Finalizados** (fechadas) só aparecem para quem **atendeu** (por
+  atribuição), NÃO para o setor — cada atendente vê só os seus finalizados.
 - Aplicado na lista (`conversations_view`, `conversation_list_view` — inclusive os
   contadores) e nas ações (`conversation-messages/send/take/transfer/close/send-media`
   retornam 403 se o usuário não pode ver a conversa).

@@ -124,12 +124,17 @@ def user_sector_ids(user):
 
 def visible_conversations_q(user):
     """Q das conversas que um usuario NAO-admin pode ver:
-    - diretas: atribuidas a ele OU do(s) setor(es) dele;
-    - grupos: liberados para o(s) setor(es) dele OU para ele (GroupAccess)."""
+    - diretas: atribuidas a ele OU (do(s) setor(es) dele E ainda NAO fechada);
+    - grupos: liberados para o(s) setor(es) dele OU para ele (GroupAccess).
+
+    Regra dos FINALIZADOS: uma conversa fechada so aparece para quem a ATENDEU
+    (por atribuicao), NAO para o setor inteiro — cada atendente ve so os seus
+    finalizados. (O admin ve tudo, ver visible_conversations.)"""
     from django.db.models import Q
     sector_ids = user_sector_ids(user)
     direct = Q(chat_type='private') & (
-        Q(assigned_attendant__user=user) | Q(sector_id__in=sector_ids)
+        Q(assigned_attendant__user=user)
+        | (Q(sector_id__in=sector_ids) & ~Q(status='closed'))
     )
     group = Q(chat_type='group') & (
         Q(access__sectors__id__in=sector_ids) | Q(access__users=user)

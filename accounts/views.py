@@ -1143,15 +1143,17 @@ def _format_conv_time(dt):
 def _serialize_conversation_item(conversation, current_user=None):
     sector_name = conversation.sector.name if conversation.sector_id else ''
     attendant_name = conversation.assigned_attendant.name if conversation.assigned_attendant_id else ''
-    # "comigo": a conversa esta atribuida ao atendente que esta olhando a lista.
+    # "comigo" (destaque azul / "Em conversa com você"): atribuida a mim e AINDA ATIVA.
+    # Finalizada NAO conta como "comigo" (nao fica azul).
     mine = bool(
         current_user is not None
+        and conversation.status != 'closed'
         and conversation.assigned_attendant_id
         and conversation.assigned_attendant.user_id == current_user.id
     )
     queue_label = ''
     if conversation.status == 'closed':
-        queue_label = f'Finalizado ({attendant_name})' if attendant_name else 'Finalizado'
+        queue_label = 'Finalizado'
     elif conversation.status == 'pending' and sector_name and not attendant_name:
         queue_label = f'Aguardando {sector_name}'
     elif mine:
@@ -1257,6 +1259,7 @@ def _serialize_contact_info(conversation, current_user=None):
     created_source = contact.created_at if contact else conversation.created_at
     mine = bool(
         current_user is not None
+        and conversation.status != 'closed'
         and conversation.assigned_attendant_id
         and conversation.assigned_attendant.user_id == current_user.id
     )

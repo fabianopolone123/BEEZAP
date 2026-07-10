@@ -1643,7 +1643,8 @@ class ClosedConversationTests(TestCase):
         lst = self.client.get(reverse('conversation-list') + '?status=finalizadas&tipo=todas').json()
         item = next((c for c in lst['conversations'] if c['id'] == self.conv.id), None)
         self.assertIsNotNone(item)          # a atendente ve seu finalizado
-        self.assertTrue(item['mine'])
+        self.assertFalse(item['mine'])      # finalizado NAO fica azul ("comigo")
+        self.assertEqual(item['queue_label'], 'Finalizado')
 
     def test_attendant_sees_full_history_of_closed(self):
         self.client.force_login(self.u)
