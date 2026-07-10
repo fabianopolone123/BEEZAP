@@ -144,6 +144,14 @@ def deny_conversation_json(request, conversation):
     return None
 
 
+def _current_attendant_name(request):
+    """Nome de quem esta enviando (mostrado em GRUPO, que e um numero so)."""
+    attendant = getattr(request.user, 'attendant_profile', None)
+    if attendant and attendant.name:
+        return attendant.name
+    return request.user.get_full_name() or request.user.email
+
+
 def split_name_parts(full_name):
     parts = full_name.strip().split(maxsplit=1)
     if not parts:
@@ -1214,7 +1222,10 @@ def _resolve_mentions(text, name_map):
 
 
 def _serialize_message(message, name_map=None):
-    if name_map is None:
+    if message.direction == 'out':
+        # Enviada: mostra quem mandou (atendente) — usado no GRUPO (numero unico).
+        sender_display = message.sender_name
+    elif name_map is None:
         sender_display = message.sender_name
     else:
         sender_display = name_map.get(_digits(message.sender_id), '')
@@ -1281,7 +1292,10 @@ def _filter_conversations_by_status(queryset, status):
     if status == 'em-atendimento':
         return queryset.filter(assigned_attendant__isnull=False).exclude(status='closed')
     if status == 'aguardando':
-        return queryset.filter(assigned_attendant__isnull=True).exclude(status='closed')
+        # Fila de atendimento: so conversas DIRETAS (grupo nao entra em "aguardando").
+        return queryset.filter(
+            assigned_attendant__isnull=True, chat_type='private'
+        ).exclude(status='closed')
     if status == 'finalizadas':
         return queryset.filter(status='closed')
     return queryset  # 'todas'
@@ -1525,7 +1539,8 @@ def conversation_send_view(request, conversation_id):
         }, status=502)
 
     message = save_outgoing_text_message(
-        conversation, text, external_message_id=result.message_id or '', status='sent'
+        conversation, text, external_message_id=result.message_id or '', status='sent',
+        sender_name=_current_attendant_name(request),
     )
     return JsonResponse({'ok': True, 'message': _serialize_message(message)})
 
@@ -1659,7 +1674,8 @@ def conversation_send_media_view(request, conversation_id):
 
     # Salva o arquivo localmente e cria a mensagem (pendente).
     message = save_outgoing_media_message(
-        conversation, media_type, uploaded, caption=caption, mimetype=mimetype
+        conversation, media_type, uploaded, caption=caption, mimetype=mimetype,
+        sender_name=_current_attendant_name(request),
     )
 
     # URL publica que a W-API consegue baixar (respeita o prefixo /beezap/ via MEDIA_URL).

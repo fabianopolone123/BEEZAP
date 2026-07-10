@@ -359,6 +359,11 @@
   max-width: 100%;
 }
 
+/* Nome do ATENDENTE que enviou (mensagem enviada no grupo): tom azul, alinhado. */
+.conv-msg-sender-me {
+  color: #2d6cdf;
+}
+
 /* Remetente sem nome: numero clicavel para nomear o contato. */
 .conv-msg-sender-num {
   display: block;

@@ -5,7 +5,7 @@
 
 {% block extra_head %}
 <link rel="stylesheet" href="{% static 'css/dashboard.css' %}?v=5">
-<link rel="stylesheet" href="{% static 'css/conversations.css' %}?v=21">
+<link rel="stylesheet" href="{% static 'css/conversations.css' %}?v=22">
 {% endblock %}
 
 {% block content %}
@@ -678,24 +678,33 @@
     var bubble = document.createElement('div');
     bubble.className = 'conv-bubble';
 
-    // Em grupo, mostra quem enviou acima da mensagem recebida. Com nome: texto
-    // simples. Sem nome: o NUMERO vira um botao que abre o modal para nomear.
-    if (msg.is_group && msg.type === 'received') {
+    // Em grupo (numero unico), mostra QUEM enviou acima da mensagem:
+    // - recebida: o participante (nome do Contato/pushName; sem nome, o NUMERO vira
+    //   botao para nomear);
+    // - enviada: o ATENDENTE que mandou (para o time saber quem respondeu no grupo).
+    if (msg.is_group) {
       var sname = (msg.sender_name && msg.sender_name.trim()) ? msg.sender_name.trim() : '';
-      var snum = (msg.sender_id ? String(msg.sender_id).trim() : '');
-      if (sname) {
-        var sender = document.createElement('div');
-        sender.className = 'conv-msg-sender';
-        sender.textContent = sname;
-        bubble.appendChild(sender);
-      } else if (snum) {
-        var senderBtn = document.createElement('button');
-        senderBtn.type = 'button';
-        senderBtn.className = 'conv-msg-sender conv-msg-sender-num';
-        senderBtn.textContent = snum;
-        senderBtn.title = 'Clique para nomear este contato';
-        senderBtn.addEventListener('click', function () { openNameModal(snum); });
-        bubble.appendChild(senderBtn);
+      if (msg.type === 'received') {
+        var snum = (msg.sender_id ? String(msg.sender_id).trim() : '');
+        if (sname) {
+          var sender = document.createElement('div');
+          sender.className = 'conv-msg-sender';
+          sender.textContent = sname;
+          bubble.appendChild(sender);
+        } else if (snum) {
+          var senderBtn = document.createElement('button');
+          senderBtn.type = 'button';
+          senderBtn.className = 'conv-msg-sender conv-msg-sender-num';
+          senderBtn.textContent = snum;
+          senderBtn.title = 'Clique para nomear este contato';
+          senderBtn.addEventListener('click', function () { openNameModal(snum); });
+          bubble.appendChild(senderBtn);
+        }
+      } else if (msg.type === 'sent' && sname) {
+        var senderMe = document.createElement('div');
+        senderMe.className = 'conv-msg-sender conv-msg-sender-me';
+        senderMe.textContent = sname;
+        bubble.appendChild(senderMe);
       }
     }
 
@@ -828,11 +837,18 @@
      - Ja e MINHA (sou o atendente): esconde "Assumir" (mostra so "Encerrar").
      - Aguardando / de outro atendente: mostra "Assumir" (assumir/assumir de outro). */
   function updateServiceButtons(contact) {
+    var transferBox = document.querySelector('.conv-transfer');
+    // GRUPO nao e "atendimento": nao assume, nao encerra, nao transfere.
+    if (contact.is_group) {
+      if (takeBtn) takeBtn.hidden = true;
+      if (closeBtn) closeBtn.hidden = true;
+      if (transferBox) transferBox.hidden = true;
+      return;
+    }
     var isClosed = contact.status === 'closed';
     var mine = !!contact.mine;
     if (takeBtn) takeBtn.hidden = isClosed || mine;
     if (closeBtn) closeBtn.hidden = isClosed;
-    var transferBox = document.querySelector('.conv-transfer');
     if (transferBox) transferBox.hidden = isClosed;
   }
 

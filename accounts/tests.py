@@ -1654,3 +1654,55 @@ class ClosedConversationTests(TestCase):
         self.assertIn('oi preciso de ajuda', texts)
         self.assertIn('claro, como posso ajudar', texts)
         self.assertEqual(data['contact']['status'], 'closed')
+
+
+class GroupConversationTests(TestCase):
+    """Grupos: nao entram em "aguardando", contact info marca is_group, e a mensagem
+    enviada registra o atendente que mandou (para exibir no grupo)."""
+
+    def setUp(self):
+        from accounts.models import Contact, Conversation, GroupAccess, Sector
+        self.Conversation = Conversation
+        self.v = Sector.objects.create(name='Vendas')
+        self.u = User.objects.create_user(email='ana@x.com', password='x', role=User.Role.USUARIO)
+        self.ana = Attendant.objects.create(user=self.u, name='Ana Souza', must_change_password=False)
+        self.ana.sectors.add(self.v)
+        self.group = Conversation.objects.create(
+            external_id='55@g.us', chat_type='group', name='Contas', status='open')
+        acc = GroupAccess.objects.create(conversation=self.group)
+        acc.sectors.add(self.v)
+        ct = Contact.objects.create(name='C', phone='5511111111111')
+        self.direct = Conversation.objects.create(
+            contact=ct, external_id='5511111111111', chat_type='private',
+            status='pending', sector=self.v)
+
+    def test_group_not_in_aguardando(self):
+        self.client.force_login(self.u)
+        lst = self.client.get(reverse('conversation-list') + '?status=todas&tipo=todas').json()
+        # So a direta conta como aguardando; o grupo nao.
+        self.assertEqual(lst['counts']['aguardando'], 1)
+        ag = self.client.get(reverse('conversation-list') + '?status=aguardando&tipo=todas').json()
+        ids = [c['id'] for c in ag['conversations']]
+        self.assertIn(self.direct.id, ids)
+        self.assertNotIn(self.group.id, ids)
+
+    def test_group_contact_info_is_group(self):
+        self.client.force_login(self.u)
+        data = self.client.get(reverse('conversation-messages', args=[self.group.id])).json()
+        self.assertTrue(data['contact']['is_group'])
+
+    def test_outgoing_group_message_records_sender_name(self):
+        from unittest.mock import patch
+        from types import SimpleNamespace
+        from accounts.models import WapiConfiguration, Message
+        cfg = WapiConfiguration.get_solo()
+        cfg.instance_id = 'i'; cfg.token = 't'; cfg.save()
+        self.client.force_login(self.u)
+        send_ok = SimpleNamespace(success=True, message_id='w1', error=None)
+        with patch('accounts.views.send_text_message', return_value=send_ok):
+            r = self.client.post(reverse('conversation-send', args=[self.group.id]),
+                                 {'text': 'ola pessoal'})
+        self.assertEqual(r.status_code, 200)
+        msg = Message.objects.filter(conversation=self.group, direction='out').last()
+        self.assertEqual(msg.sender_name, 'Ana Souza')          # atendente que enviou
+        self.assertEqual(r.json()['message']['sender_name'], 'Ana Souza')

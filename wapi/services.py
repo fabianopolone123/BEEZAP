@@ -749,9 +749,10 @@ def ingest_wapi_payload(payload, trigger_ai=True):
     ))
 
 
-def save_outgoing_text_message(conversation, text, external_message_id='', status='sent', is_ai=False):
+def save_outgoing_text_message(conversation, text, external_message_id='', status='sent',
+                               is_ai=False, sender_name=''):
     return save_outgoing_message(conversation, 'text', text=text, external_message_id=external_message_id,
-                                 status=status, is_ai=is_ai)
+                                 status=status, is_ai=is_ai, sender_name=sender_name)
 
 
 def _convert_image_to_jpeg(uploaded_file):
@@ -839,9 +840,11 @@ def convert_audio_to_ogg(uploaded_file):
         shutil.rmtree(tmpdir, ignore_errors=True)
 
 
-def save_outgoing_media_message(conversation, message_type, uploaded_file, caption='', mimetype=''):
+def save_outgoing_media_message(conversation, message_type, uploaded_file, caption='', mimetype='',
+                                sender_name=''):
     """Cria a mensagem enviada de midia e salva o arquivo em MEDIA/whatsapp/outgoing/
-    com nome unico. Status/media_status ficam 'pending' ate a W-API confirmar."""
+    com nome unico. Status/media_status ficam 'pending' ate a W-API confirmar.
+    `sender_name` = atendente que enviou (mostrado em grupo)."""
     original_name = (getattr(uploaded_file, 'name', '') or '').strip()
     ext = os.path.splitext(original_name)[1].lower()[:10]
     message = Message(
@@ -851,6 +854,7 @@ def save_outgoing_media_message(conversation, message_type, uploaded_file, capti
         text=caption or '',
         phone=conversation.recipient,
         is_group=conversation.is_group,
+        sender_name=(sender_name or '').strip(),
         status='sent',
         media_mimetype=mimetype or '',
         media_status='pending',
@@ -866,8 +870,12 @@ def save_outgoing_media_message(conversation, message_type, uploaded_file, capti
 
 
 def save_outgoing_message(conversation, message_type='text', text='', external_message_id='',
-                          status='sent', media_url='', media_mimetype='', is_ai=False):
-    """Registra a mensagem enviada pelo atendente (ou pela IA) na conversa."""
+                          status='sent', media_url='', media_mimetype='', is_ai=False,
+                          sender_name=''):
+    """Registra a mensagem enviada pelo atendente (ou pela IA) na conversa.
+
+    `sender_name` = quem enviou (usado em GRUPO, que e um numero so, para o chat
+    mostrar qual atendente mandou cada mensagem)."""
     message = Message.objects.create(
         conversation=conversation,
         direction='out',
@@ -875,6 +883,7 @@ def save_outgoing_message(conversation, message_type='text', text='', external_m
         text=text or '',
         phone=conversation.recipient,
         is_group=conversation.is_group,
+        sender_name=(sender_name or '').strip(),
         external_message_id=external_message_id or '',
         status=status,
         is_ai=is_ai,

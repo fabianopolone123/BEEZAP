@@ -245,9 +245,15 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
   (atributo `download`).
 - **Menções em grupo**: `@<número>` no texto é resolvido para `@<nome>` (Contato
   salvo ou pushName de quem já enviou no grupo).
-- **Nome do remetente (grupo)**: mostra o nome; se não houver, mostra o **número
-  clicável** → modal "Nomear contato" (cria/atualiza `Contact`). Em conversa
-  **direta**, o **nome no cabeçalho** é clicável para renomear o contato.
+- **Nome do remetente (grupo)**: **recebida** → mostra o nome (se não houver, o
+  **número clicável** → modal "Nomear contato"); **enviada** → mostra o **nome do
+  atendente que mandou** (como é um número só, o time sabe quem respondeu). O envio
+  grava `Message.sender_name` = nome do atendente (`_current_attendant_name`); o front
+  mostra acima do balão (`.conv-msg-sender-me`). Em conversa **direta**, o **nome no
+  cabeçalho** é clicável para renomear o contato.
+- **Grupo NÃO é atendimento**: ao abrir um grupo, o painel **esconde Assumir/Encerrar/
+  Transferir** (só nome/status/setor/atendente). E grupos **não entram em "Aguardando"**
+  (o filtro/badge é só de conversas diretas).
 - **Notificações (estilo WhatsApp Web)**: pop-up do desktop (Web Notifications) +
   **aviso sonoro** (beep via Web Audio, sem arquivo) quando a janela **não** está em
   foco (`document.hasFocus()`); toast interno quando em foco. Dois botões-ícone no
