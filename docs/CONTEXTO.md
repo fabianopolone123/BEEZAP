@@ -213,10 +213,16 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
 - **Abas de tipo**: Todas / Diretas / Grupos (param `tipo` no endpoint da lista),
   com contagens. **Selo "Grupo"** na lista e no cabeçalho; em grupo, o **nome do
   participante** aparece acima de cada mensagem recebida.
-- **Lista real** (server-rendered) + **filtros** com contagens reais: Todas,
+- **Lista real** (server-rendered) + **filtros** (chips) com contagens reais: Todas,
   Não lidas (`unread_count>0`), Em atendimento (tem atendente e não fechada),
-  Aguardando (sem atendente e não fechada), Finalizadas (`closed`). **Busca** por
-  nome/telefone/última mensagem, combinada com o filtro e a aba de tipo.
+  Finalizadas (`closed`). **Busca** por nome/telefone/última mensagem, combinada com
+  o filtro e a aba de tipo.
+- **Aguardando (fila do setor)**: NÃO é mais um chip — virou um **badge amarelo
+  pulsante** (`.conv-waiting-badge`, `data-waiting-badge`) ao lado dos botões do topo
+  (Som/Notificações/Atualizar), mostrando a **contagem** de conversas aguardando
+  (`counts['aguardando']`, já escopado pelo setor do usuário via visibilidade).
+  Fica pulsando (some quando zero) para todos os atendentes do setor; **clicar** filtra
+  a lista só nos aguardando (aplica `status=aguardando`); clicar de novo volta para Todas.
 - **Chat via AJAX**: abrir zera não lidas; render por tipo; **composer fixo no
   rodapé** (corrigido com `min-height:0` na cadeia flex/grid e `[hidden]{display:none!important}`).
 - **Poll incremental** (`syncMessages`): a atualização periódica só mexe no DOM
@@ -314,7 +320,7 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
 - **Estáticos**: como o Nginx serve `static/` (a fonte) direto, **um `git pull`
   já publica CSS/JS** — sem `collectstatic`/`cp`. O admin do Django vem de
   `staticfiles/admin/` (rodar `collectstatic` uma vez). Cache-busting: `?v=N` nos
-  links de CSS em `conversations.html` (hoje `conversations.css?v=19`) — **incrementar
+  links de CSS em `conversations.html` (hoje `conversations.css?v=20`) — **incrementar
   ao editar o CSS**. O JS fica inline no template (publica com o `git pull`).
 - **Histórico do bug de estáticos**: o `settings.py` do servidor já foi editado à
   mão com `STATICFILES_DIRS=[]`, o que impedia o `collectstatic` de publicar o
@@ -475,7 +481,7 @@ seed_demo_data [--no-clear]             # popula DEMO: 5 setores/atendentes + co
   a divisória "Novo atendimento iniciado" e volta `status='open'`. As divisórias marcam os
   limites de cada atendimento dentro do chat único.
 - **Front**: `buildMessageEl` renderiza `kind='system'` como uma **pílula centralizada**
-  (`.conv-divider`, sem balão/horário); CSS em `conversations.css?v=19`.
+  (`.conv-divider`, sem balão/horário); CSS em `conversations.css?v=20`.
 - **Chats já picotados** (do comportamento antigo de fork) são unificados pelo comando
   `merge_contact_conversations` (ver seção 9 / comandos de management).
 

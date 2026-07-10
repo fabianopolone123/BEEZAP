@@ -1319,9 +1319,11 @@ def conversations_view(request):
         Conversation.objects.select_related('contact', 'assigned_attendant', 'sector'),
     )
     counts = _conversation_counts(conversations)
+    # "Aguardando" saiu dos chips e virou um badge pulsante ao lado dos botoes do topo
+    # (ver template/JS). O count continua vindo de `counts['aguardando']`.
     filter_chips = [
         {'key': slug, 'label': label, 'count': counts.get(slug, 0), 'active': slug == 'todas'}
-        for slug, label in CONVERSATION_FILTERS
+        for slug, label in CONVERSATION_FILTERS if slug != 'aguardando'
     ]
     type_counts = _conversation_type_counts(conversations)
     type_tabs = [
@@ -1339,6 +1341,7 @@ def conversations_view(request):
             'conversations': [_serialize_conversation_item(c) for c in conversations],
             'filter_chips': filter_chips,
             'type_tabs': type_tabs,
+            'waiting_count': counts.get('aguardando', 0),
         },
     )
 

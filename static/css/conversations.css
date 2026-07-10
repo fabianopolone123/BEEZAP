@@ -239,6 +239,55 @@
   gap: 8px;
 }
 
+/* Badge "Aguardando": fila do setor. Pill amarelo pulsante ao lado dos botoes do
+   topo; clicar filtra so as conversas aguardando. Fica escondido quando zero. */
+.conv-waiting-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 12px;
+  margin-right: 2px;
+  border: 1px solid #f2c200;
+  border-radius: 999px;
+  background: #fff8db;
+  color: #8a6a00;
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  animation: conv-waiting-pulse 1.5s ease-in-out infinite;
+}
+.conv-waiting-badge[hidden] { display: none; }
+
+.conv-waiting-badge.active {
+  background: #f2c200;
+  color: #3a2d00;
+  border-color: #d9ad00;
+}
+
+.conv-waiting-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #f2a900;
+  flex-shrink: 0;
+}
+.conv-waiting-badge.active .conv-waiting-dot { background: #7a5c00; }
+
+.conv-waiting-count { font-weight: 800; }
+.conv-waiting-label { font-weight: 600; }
+
+@keyframes conv-waiting-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(242, 194, 0, 0.55); }
+  50%      { box-shadow: 0 0 0 6px rgba(242, 194, 0, 0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .conv-waiting-badge { animation: none; }
+}
+
 /* Toggles de som e notificacoes: compactos, so icone (base em .conv-icon-btn,
    32px redondo). O estado e mostrado pela cor/anel; o texto fica no tooltip. */
 .conv-notif-toggle.on {           /* permitidas */

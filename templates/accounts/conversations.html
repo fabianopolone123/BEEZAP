@@ -5,7 +5,7 @@
 
 {% block extra_head %}
 <link rel="stylesheet" href="{% static 'css/dashboard.css' %}?v=5">
-<link rel="stylesheet" href="{% static 'css/conversations.css' %}?v=19">
+<link rel="stylesheet" href="{% static 'css/conversations.css' %}?v=20">
 {% endblock %}
 
 {% block content %}
@@ -70,6 +70,13 @@
           </div>
 
           <div class="conv-head-actions">
+            <button type="button" class="conv-waiting-badge" data-waiting-badge {% if not waiting_count %}hidden{% endif %}
+                    title="Atendimentos aguardando neste setor" aria-label="Atendimentos aguardando">
+              <span class="conv-waiting-dot" aria-hidden="true"></span>
+              <span class="conv-waiting-count" data-waiting-count>{{ waiting_count }}</span>
+              <span class="conv-waiting-label">aguardando</span>
+            </button>
+
             <button type="button" class="conv-icon-btn conv-notif-toggle" data-notif-toggle title="Notificacoes do navegador" aria-label="Notificacoes do navegador">
               <span data-notif-icon aria-hidden="true">🔔</span>
             </button>
@@ -292,6 +299,7 @@
   var chipEls = document.querySelectorAll('[data-filter]');
   var typeTabEls = document.querySelectorAll('[data-type-filter]');
   var refreshBtn = document.querySelector('[data-refresh-all]');
+  var waitingBadge = document.querySelector('[data-waiting-badge]');
   var listEmptyEl = document.querySelector('[data-conv-list-empty]');
 
   var infoEmpty = document.querySelector('[data-info-empty]');
@@ -957,6 +965,20 @@
       var el = document.querySelector('[data-count="' + key + '"]');
       if (el) el.textContent = counts[key];
     });
+    updateWaitingBadge(counts.aguardando || 0);
+  }
+
+  function updateWaitingBadge(n) {
+    if (!waitingBadge) return;
+    var countEl = waitingBadge.querySelector('[data-waiting-count]');
+    if (countEl) countEl.textContent = n;
+    // Se estava filtrando por "aguardando" e zerou, volta para "Todas".
+    if (n === 0 && currentStatus === 'aguardando') {
+      currentStatus = 'todas';
+      waitingBadge.classList.remove('active');
+      chipEls.forEach(function (c) { c.classList.toggle('active', (c.dataset.filter || 'todas') === 'todas'); });
+    }
+    waitingBadge.hidden = (n === 0 && currentStatus !== 'aguardando');
   }
 
   function updateTypeCounts(counts) {
@@ -1005,10 +1027,29 @@
     chip.addEventListener('click', function () {
       chipEls.forEach(function (c) { c.classList.remove('active'); });
       chip.classList.add('active');
+      if (waitingBadge) waitingBadge.classList.remove('active');
       currentStatus = chip.dataset.filter || 'todas';
       refreshList(true);
     });
   });
+
+  /* ---------- Badge "Aguardando" (fila do setor, pulsante) ---------- */
+  if (waitingBadge) {
+    waitingBadge.addEventListener('click', function () {
+      var turningOn = !waitingBadge.classList.contains('active');
+      chipEls.forEach(function (c) { c.classList.remove('active'); });
+      if (turningOn) {
+        waitingBadge.classList.add('active');
+        currentStatus = 'aguardando';
+      } else {
+        // Clicar de novo volta para "Todas".
+        waitingBadge.classList.remove('active');
+        currentStatus = 'todas';
+        chipEls.forEach(function (c) { c.classList.toggle('active', (c.dataset.filter || 'todas') === 'todas'); });
+      }
+      refreshList(true);
+    });
+  }
 
   /* ---------- Abas de tipo (Todas / Diretas / Grupos) ---------- */
   typeTabEls.forEach(function (tab) {
