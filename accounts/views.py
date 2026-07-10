@@ -1513,8 +1513,7 @@ def conversation_send_view(request, conversation_id):
     if not text:
         return JsonResponse({'ok': False, 'error': 'Digite uma mensagem para enviar.'}, status=400)
     # O atendente cola texto em Markdown; converte para a formatacao nativa do WhatsApp
-    # (negrito/italico/listas/citacao) preservando as quebras de linha. Guardamos e
-    # enviamos a MESMA versao convertida, para o historico refletir o que foi enviado.
+    # (negrito/italico/listas/citacao) preservando as quebras de linha.
     text = markdown_to_whatsapp(text)
 
     if not (conversation.recipient or '').strip():
@@ -1528,9 +1527,15 @@ def conversation_send_view(request, conversation_id):
             {'ok': False, 'error': 'Configure a W-API antes de enviar mensagens.'}, status=400
         )
 
+    sender_name = _current_attendant_name(request)
+    # Em GRUPO (numero unico), prefixa o NOME do atendente no corpo da mensagem, para
+    # os participantes saberem quem falou. No nosso chat guardamos o texto SEM o prefixo
+    # (o nome ja aparece acima do balao), para nao duplicar.
+    outgoing_text = f'*{sender_name}*\n{text}' if conversation.is_group else text
+
     # Reutiliza o mesmo servico de envio da tela de teste da W-API.
     # Em grupo, recipient e o JID (@g.us) — nunca o participante individual.
-    result = send_text_message(phone=conversation.recipient, message=text)
+    result = send_text_message(phone=conversation.recipient, message=outgoing_text)
     if not result.success:
         # Erro tecnico ja foi logado com seguranca no servico; aqui vai o texto amigavel.
         return JsonResponse({
@@ -1540,7 +1545,7 @@ def conversation_send_view(request, conversation_id):
 
     message = save_outgoing_text_message(
         conversation, text, external_message_id=result.message_id or '', status='sent',
-        sender_name=_current_attendant_name(request),
+        sender_name=sender_name,
     )
     return JsonResponse({'ok': True, 'message': _serialize_message(message)})
 

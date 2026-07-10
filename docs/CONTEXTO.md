@@ -249,8 +249,11 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
   **número clicável** → modal "Nomear contato"); **enviada** → mostra o **nome do
   atendente que mandou** (como é um número só, o time sabe quem respondeu). O envio
   grava `Message.sender_name` = nome do atendente (`_current_attendant_name`); o front
-  mostra acima do balão (`.conv-msg-sender-me`). Em conversa **direta**, o **nome no
-  cabeçalho** é clicável para renomear o contato.
+  mostra acima do balão (`.conv-msg-sender-me`). **No corpo enviado ao WhatsApp** (grupo),
+  o texto vai prefixado com `*<atendente>*\n...` — assim os **participantes do grupo**
+  (fora do sistema) também veem quem falou. O texto **salvo no nosso chat fica sem o
+  prefixo** (o nome já aparece acima do balão, para não duplicar). Em conversa **direta**
+  não há prefixo; o **nome no cabeçalho** é clicável para renomear o contato.
 - **Grupo NÃO é atendimento**: ao abrir um grupo, o painel **esconde Assumir/Encerrar/
   Transferir** (só nome/status/setor/atendente). E grupos **não entram em "Aguardando"**
   (o filtro/badge é só de conversas diretas).

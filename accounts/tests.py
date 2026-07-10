@@ -1699,10 +1699,16 @@ class GroupConversationTests(TestCase):
         cfg.instance_id = 'i'; cfg.token = 't'; cfg.save()
         self.client.force_login(self.u)
         send_ok = SimpleNamespace(success=True, message_id='w1', error=None)
-        with patch('accounts.views.send_text_message', return_value=send_ok):
+        with patch('accounts.views.send_text_message', return_value=send_ok) as mock_send:
             r = self.client.post(reverse('conversation-send', args=[self.group.id]),
                                  {'text': 'ola pessoal'})
         self.assertEqual(r.status_code, 200)
+        # O que foi ENVIADO ao WhatsApp leva o nome do atendente no corpo (grupo).
+        sent = mock_send.call_args.kwargs.get('message')
+        self.assertIn('Ana Souza', sent)
+        self.assertIn('ola pessoal', sent)
+        # No nosso chat, guardamos o texto SEM o prefixo (nome aparece acima do balao).
         msg = Message.objects.filter(conversation=self.group, direction='out').last()
+        self.assertEqual(msg.text, 'ola pessoal')
         self.assertEqual(msg.sender_name, 'Ana Souza')          # atendente que enviou
         self.assertEqual(r.json()['message']['sender_name'], 'Ana Souza')
