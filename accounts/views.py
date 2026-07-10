@@ -463,23 +463,25 @@ def build_dashboard_context():
         d = start_7 + timedelta(days=i)
         day_counts.append((d, convs.filter(last_message_at__date=d).count()))
     max_v = max((c for _, c in day_counts), default=0) or 1
-    # Area de plotagem (viewBox 0 0 720 260). FOLGA no topo (top=55) para o rotulo
-    # do valor mais alto nao ser cortado pela borda do SVG.
-    left, right, top, bottom = 52, 690, 55, 205
-    step = (right - left) / 6
+    # Coordenadas em PORCENTAGEM (0-100). O SVG (linha/area) e as legendas HTML usam
+    # a mesma referencia, entao ficam alinhados. Faixa util: x 6..94, y 14..86 (deixa
+    # margem em cima para o numero e embaixo para a data — nada e cortado).
+    BASELINE = 86.0
     chart_points = []
     for i, (d, c) in enumerate(day_counts):
-        x = left + step * i
-        y = bottom - (c / max_v) * (bottom - top)
-        chart_points.append({'x': round(x, 1), 'y': round(y, 1), 'label': d.strftime('%d/%m'), 'value': c})
-    chart_polyline = ' '.join(f"{p['x']},{p['y']}" for p in chart_points)
-    # Poligono da area sob a linha (fecha na base).
-    chart_area = f'{left},{bottom} ' + chart_polyline + f' {right},{bottom}'
-    # Linhas de grade horizontais com os valores do eixo Y (0, metade, maximo).
-    chart_gridlines = [
-        {'y': round(bottom - frac * (bottom - top), 1), 'value': round(max_v * frac)}
-        for frac in (0, 0.5, 1.0)
-    ]
+        left = 6 + (i / 6) * 88
+        topp = 14 + (1 - c / max_v) * (BASELINE - 14)
+        chart_points.append({
+            'left': round(left, 2), 'top': round(topp, 2),
+            'label': d.strftime('%d/%m'), 'value': c,
+        })
+    chart_polyline = ' '.join(f"{p['left']},{p['top']}" for p in chart_points)
+    chart_area = (
+        f"{chart_points[0]['left']},{BASELINE} " + chart_polyline
+        + f" {chart_points[-1]['left']},{BASELINE}"
+    )
+    # Linhas de grade horizontais (topo, meio, base) — sem numeros no eixo.
+    chart_gridlines = [14.0, (14.0 + BASELINE) / 2, BASELINE]
 
     # Atendimentos por setor (donut + legenda).
     sector_rows = list(

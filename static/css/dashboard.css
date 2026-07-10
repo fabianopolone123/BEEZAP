@@ -362,42 +362,60 @@ a {
   font-size: 0.86rem;
 }
 
-.line-chart {
-  width: 100%;
-  height: auto;
+/* Gráfico "Atendimentos por dia": linha/área em SVG (sem texto) + números e datas
+   em HTML posicionados por % (nada de texto no SVG, então nada corta/sobrepõe). */
+.daychart {
+  position: relative;
+  height: 240px;
   margin-top: 8px;
 }
 
-.line-chart circle {
-  fill: #fff;
-  stroke: var(--primary);
-  stroke-width: 4;
+.daychart-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  overflow: visible;
 }
 
-.chart-labels text {
-  fill: var(--muted);
-  font-size: 14px;
-}
-
-.chart-values text {
-  fill: var(--text);
-  font-size: 15px;
-  font-weight: 700;
-}
-
-.chart-grid line {
-  stroke: rgba(100, 116, 139, 0.18);
+.daychart .dc-grid {
+  stroke: rgba(100, 116, 139, 0.16);
   stroke-width: 1;
 }
 
-.chart-grid text {
-  fill: var(--muted);
-  font-size: 13px;
-}
-
-.chart-area {
+.daychart .dc-area {
   fill: url(#areaGradient);
   stroke: none;
+}
+
+.daychart .dc-dot {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #fff;
+  border: 2px solid #16a34a;
+  transform: translate(-50%, -50%);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+
+.daychart .dc-val {
+  position: absolute;
+  transform: translate(-50%, -175%);
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.daychart .dc-date {
+  position: absolute;
+  bottom: -2px;
+  transform: translateX(-50%);
+  font-size: 0.82rem;
+  color: var(--muted);
+  white-space: nowrap;
 }
 
 .donut-panel {

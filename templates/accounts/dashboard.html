@@ -3,7 +3,7 @@
 
 {% block title %}Dashboard | BEEZap{% endblock %}
 {% block extra_head %}
-<link rel="stylesheet" href="{% static 'css/dashboard.css' %}?v=4">
+<link rel="stylesheet" href="{% static 'css/dashboard.css' %}?v=5">
 {% endblock %}
 
 {% block content %}
@@ -68,41 +68,28 @@
           <h2>Atendimentos por dia</h2>
           <span>Últimos 7 dias</span>
         </div>
-        <svg viewBox="0 0 720 260" class="line-chart" preserveAspectRatio="xMidYMid meet" aria-label="Gráfico de atendimentos por dia">
-          <defs>
-            <linearGradient id="areaGradient" x1="0%" x2="0%" y1="0%" y2="100%">
-              <stop offset="0%" stop-color="#21c25e" stop-opacity="0.28" />
-              <stop offset="100%" stop-color="#21c25e" stop-opacity="0" />
-            </linearGradient>
-          </defs>
+        <div class="daychart">
+          <svg class="daychart-svg" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+            <defs>
+              <linearGradient id="areaGradient" x1="0%" x2="0%" y1="0%" y2="100%">
+                <stop offset="0%" stop-color="#21c25e" stop-opacity="0.28" />
+                <stop offset="100%" stop-color="#21c25e" stop-opacity="0" />
+              </linearGradient>
+            </defs>
+            {% for gy in chart_gridlines %}
+              <line class="dc-grid" x1="0" y1="{{ gy }}" x2="100" y2="{{ gy }}" vector-effect="non-scaling-stroke"></line>
+            {% endfor %}
+            <polygon class="dc-area" points="{{ chart_area }}"></polygon>
+            <polyline points="{{ chart_polyline }}" fill="none" stroke="#16a34a" stroke-width="3"
+              vector-effect="non-scaling-stroke" stroke-linecap="round" stroke-linejoin="round"></polyline>
+          </svg>
 
-          <g class="chart-grid">
-            {% for g in chart_gridlines %}
-              <line x1="52" y1="{{ g.y }}" x2="690" y2="{{ g.y }}"></line>
-              <text x="42" y="{{ g.y|add:'4' }}" text-anchor="end">{{ g.value }}</text>
-            {% endfor %}
-          </g>
-
-          <polygon class="chart-area" points="{{ chart_area }}"></polygon>
-          <polyline points="{{ chart_polyline }}"
-            fill="none" stroke="#16a34a" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" />
-
-          <g class="chart-dots">
-            {% for p in chart_points %}
-              <circle cx="{{ p.x }}" cy="{{ p.y }}" r="5"></circle>
-            {% endfor %}
-          </g>
-          <g class="chart-values">
-            {% for p in chart_points %}
-              <text x="{{ p.x }}" y="{{ p.y|add:'-14' }}" text-anchor="middle">{{ p.value }}</text>
-            {% endfor %}
-          </g>
-          <g class="chart-labels">
-            {% for p in chart_points %}
-              <text x="{{ p.x }}" y="242" text-anchor="middle">{{ p.label }}</text>
-            {% endfor %}
-          </g>
-        </svg>
+          {% for p in chart_points %}
+            <span class="dc-dot" style="left: {{ p.left }}%; top: {{ p.top }}%;"></span>
+            <span class="dc-val" style="left: {{ p.left }}%; top: {{ p.top }}%;">{{ p.value }}</span>
+            <span class="dc-date" style="left: {{ p.left }}%;">{{ p.label }}</span>
+          {% endfor %}
+        </div>
       </article>
 
       <article class="panel donut-panel">
