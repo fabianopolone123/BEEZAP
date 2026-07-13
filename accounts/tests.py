@@ -1496,6 +1496,70 @@ class MenuPermissionsTests(TestCase):
         self.assertFalse(UserMenuPermission.objects.filter(user=self.user).exists())
 
 
+class ProfileRoleTests(TestCase):
+    """Aba Perfis: o admin define o papel (adm/usuario/leitor) de cada pessoa."""
+
+    def setUp(self):
+        self.admin = User.objects.create_user(email='adm@x.com', password='x', role=User.Role.ADM)
+        self.user = User.objects.create_user(email='joao@x.com', password='x', role=User.Role.USUARIO)
+
+    def test_admin_can_change_role(self):
+        self.client.force_login(self.admin)
+        resp = self.client.post(reverse('permissions'), {
+            'form_type': 'profile-role', 'user_id': str(self.user.id), 'role': 'leitor',
+        }, HTTP_X_REQUESTED_WITH='XMLHttpRequest')
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(resp.json()['ok'])
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.role, 'leitor')
+
+    def test_promote_to_admin_provisions_attendant(self):
+        self.client.force_login(self.admin)
+        self.client.post(reverse('permissions'), {
+            'form_type': 'profile-role', 'user_id': str(self.user.id), 'role': 'adm',
+        }, HTTP_X_REQUESTED_WITH='XMLHttpRequest')
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.role, 'adm')
+        # O sinal provisiona o perfil de atendente do admin.
+        self.assertTrue(Attendant.objects.filter(user=self.user).exists())
+
+    def test_cannot_change_own_role(self):
+        self.client.force_login(self.admin)
+        resp = self.client.post(reverse('permissions'), {
+            'form_type': 'profile-role', 'user_id': str(self.admin.id), 'role': 'usuario',
+        }, HTTP_X_REQUESTED_WITH='XMLHttpRequest')
+        self.assertEqual(resp.status_code, 400)
+        self.admin.refresh_from_db()
+        self.assertEqual(self.admin.role, 'adm')
+
+    def test_can_demote_other_admin(self):
+        # Havendo outro admin, o logado pode rebaixar o segundo admin normalmente.
+        other_admin = User.objects.create_user(email='adm2@x.com', password='x', role=User.Role.ADM)
+        self.client.force_login(self.admin)
+        resp = self.client.post(reverse('permissions'), {
+            'form_type': 'profile-role', 'user_id': str(other_admin.id), 'role': 'usuario',
+        }, HTTP_X_REQUESTED_WITH='XMLHttpRequest')
+        self.assertEqual(resp.status_code, 200)
+        other_admin.refresh_from_db()
+        self.assertEqual(other_admin.role, 'usuario')
+
+    def test_invalid_role_rejected(self):
+        self.client.force_login(self.admin)
+        resp = self.client.post(reverse('permissions'), {
+            'form_type': 'profile-role', 'user_id': str(self.user.id), 'role': 'chefe',
+        }, HTTP_X_REQUESTED_WITH='XMLHttpRequest')
+        self.assertEqual(resp.status_code, 400)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.role, 'usuario')
+
+    def test_non_admin_cannot_access(self):
+        self.client.force_login(self.user)
+        resp = self.client.post(reverse('permissions'), {
+            'form_type': 'profile-role', 'user_id': str(self.user.id), 'role': 'adm',
+        }, HTTP_X_REQUESTED_WITH='XMLHttpRequest')
+        self.assertEqual(resp.status_code, 403)
+
+
 class ConversationVisibilityTests(TestCase):
     """Separacao das conversas: quem ve quais chats + escopo do historico."""
 

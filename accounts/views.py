@@ -815,6 +815,43 @@ def permissions_view(request):
             messages.success(request, 'Personalizacao removida (voltou ao padrao do perfil).')
             return redirect('permissions')
 
+        if form_type == 'profile-role':
+            user_id = (request.POST.get('user_id') or '').strip()
+            new_role = (request.POST.get('role') or '').strip()
+            valid_roles = {User.Role.ADM, User.Role.USUARIO, User.Role.LEITOR}
+            target = User.objects.filter(pk=user_id).first() if user_id else None
+            if not target or new_role not in valid_roles:
+                if is_ajax:
+                    return JsonResponse({'ok': False, 'error': 'Selecione um perfil valido.'}, status=400)
+                messages.error(request, 'Selecione um perfil valido.')
+                return redirect('permissions')
+            # Nao deixa o admin mudar o proprio perfil (evita se trancar fora).
+            if target.id == request.user.id:
+                if is_ajax:
+                    return JsonResponse(
+                        {'ok': False, 'error': 'Voce nao pode alterar o seu proprio perfil.'}, status=400
+                    )
+                messages.error(request, 'Voce nao pode alterar o seu proprio perfil.')
+                return redirect('permissions')
+            # Nao deixa o sistema ficar sem nenhum administrador.
+            if target.role == User.Role.ADM and new_role != User.Role.ADM:
+                admin_count = User.objects.filter(role=User.Role.ADM, is_active=True).count()
+                if admin_count <= 1:
+                    if is_ajax:
+                        return JsonResponse(
+                            {'ok': False, 'error': 'Deve existir pelo menos um administrador.'}, status=400
+                        )
+                    messages.error(request, 'Deve existir pelo menos um administrador.')
+                    return redirect('permissions')
+            target.role = new_role
+            target.save(update_fields=['role'])  # dispara o sinal (provisiona atendente se virar adm)
+            role_label = target.get_role_display()
+            name = target.get_full_name() or getattr(getattr(target, 'attendant_profile', None), 'name', '') or target.email
+            if is_ajax:
+                return JsonResponse({'ok': True, 'message': f'{name} agora e {role_label}.'})
+            messages.success(request, f'{name} agora e {role_label}.')
+            return redirect('permissions')
+
         if form_type == 'group-name':
             gid = (request.POST.get('group_id') or '').strip()
             name = (request.POST.get('name') or '').strip()
@@ -925,7 +962,42 @@ def permissions_view(request):
                        'checked': u.id in usr_ids} for u in attendant_users],
         })
 
-    active_tab = 'grupos' if request.GET.get('tab') == 'grupos' else 'perfis'
+    # ----- Aba Perfis (papel de cada pessoa) -----
+    def _initials(name, email):
+        base = (name or '').strip()
+        if base:
+            parts = [p for p in base.split() if p]
+            if len(parts) == 1:
+                return parts[0][:2].upper()
+            return (parts[0][:1] + parts[-1][:1]).upper()
+        return (email or '?')[:2].upper()
+
+    people_qs = (
+        User.objects.filter(is_active=True)
+        .select_related('attendant_profile')
+        .order_by('first_name', 'email')
+    )
+    people_ctx = []
+    for u in people_qs:
+        attendant = getattr(u, 'attendant_profile', None)
+        real_name = u.get_full_name() or (attendant.name if attendant else '')
+        people_ctx.append({
+            'id': u.id,
+            'name': real_name or u.email,
+            'email': u.email,
+            'initials': _initials(real_name, u.email),
+            'role': u.role,
+            'is_self': u.id == request.user.id,
+        })
+
+    role_options = [
+        {'value': User.Role.ADM, 'label': 'Administrador', 'icon': '👑'},
+        {'value': User.Role.USUARIO, 'label': 'Usuário', 'icon': '🎧'},
+        {'value': User.Role.LEITOR, 'label': 'Leitor', 'icon': '👁️'},
+    ]
+
+    tab = request.GET.get('tab')
+    active_tab = tab if tab in ('people', 'botoes', 'grupos') else 'people'
 
     return render(
         request,
@@ -940,6 +1012,8 @@ def permissions_view(request):
             'selected_user': selected_ctx,
             'groups': groups_ctx,
             'has_sectors': bool(sectors),
+            'people': people_ctx,
+            'role_options': role_options,
             'active_tab': active_tab,
         },
     )
@@ -1053,9 +1127,9 @@ def attendants_view(request):
                         user.email = email
                         user.first_name = first_name
                         user.last_name = last_name
-                        # Nao rebaixa um administrador que tambem atua como atendente.
-                        if user.role != User.Role.ADM:
-                            user.role = User.Role.USUARIO
+                        # NAO mexe no perfil (role) aqui: o papel de cada pessoa e
+                        # definido na tela Permissoes (aba Perfis). Editar os dados do
+                        # atendente nao deve rebaixar/alterar o perfil escolhido la.
                         user.save()
 
                         editing_attendant.name = name

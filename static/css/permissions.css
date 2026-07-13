@@ -313,3 +313,122 @@
 .perm-empty { color: var(--muted); font-size: 0.88rem; }
 
 .perm-toggle-history .perm-ico { filter: grayscale(0.1); }
+
+/* ── Aba Perfis (definir o papel de cada pessoa) ── */
+.perm-people {
+  display: grid;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.perm-person {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  padding: 14px 16px;
+  border: 1px solid var(--card-border);
+  border-radius: 16px;
+  background: #fff;
+  transition: box-shadow 0.15s ease, transform 0.15s ease;
+}
+.perm-person:hover {
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+  transform: translateY(-1px);
+}
+
+.perm-person-avatar {
+  flex-shrink: 0;
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-weight: 800;
+  font-size: 1rem;
+  color: #fff;
+  background: linear-gradient(135deg, var(--primary), var(--primary-deep));
+  box-shadow: 0 6px 16px rgba(17, 152, 74, 0.22);
+}
+
+.perm-person-id {
+  display: grid;
+  gap: 2px;
+  flex: 1;
+  min-width: 160px;
+}
+.perm-person-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  color: var(--text);
+}
+.perm-person-email {
+  font-size: 0.8rem;
+  color: var(--muted);
+  word-break: break-all;
+}
+.perm-you-tag {
+  font-size: 0.64rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--blue);
+  background: rgba(45, 108, 223, 0.12);
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+
+/* Seletor segmentado de perfil (3 pilulas) */
+.perm-roleseg {
+  display: inline-flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.perm-roleseg.is-locked { opacity: 0.7; }
+
+.role-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 15px;
+  border-radius: 999px;
+  border: 1px solid var(--card-border);
+  background: #fff;
+  color: var(--muted);
+  font: inherit;
+  font-weight: 700;
+  font-size: 0.86rem;
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.15s ease;
+}
+.role-pill .role-ico { font-size: 1rem; line-height: 1; }
+.role-pill:not(.is-active):not(:disabled):hover {
+  border-color: #cbd5e1;
+  color: var(--text);
+}
+.role-pill:disabled { cursor: default; }
+
+/* Ativa: cor por perfil */
+.role-pill[data-role="adm"].is-active {
+  color: #7c3aed;
+  border-color: #7c3aed;
+  background: rgba(124, 58, 237, 0.12);
+}
+.role-pill[data-role="usuario"].is-active {
+  color: var(--primary-deep);
+  border-color: var(--primary);
+  background: rgba(33, 194, 94, 0.12);
+}
+.role-pill[data-role="leitor"].is-active {
+  color: var(--blue);
+  border-color: var(--blue);
+  background: rgba(45, 108, 223, 0.12);
+}
+
+.perm-people-empty {
+  color: var(--muted);
+  padding: 8px 2px;
+}

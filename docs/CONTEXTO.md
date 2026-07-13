@@ -457,6 +457,10 @@ seed_demo_data [--no-clear]             # popula DEMO: 5 setores/atendentes + co
   mesmo; hoje o clique-para-nomear está no remetente e no cabeçalho da direta.
 - (Opcional) Retry de mídias falhas em **todas** as conversas (hoje o botão
   Atualizar age só na conversa aberta; existe o comando `retry_wapi_media` global).
+- **Perfil `leitor`**: decidir se vira **somente-leitura de verdade** (bloquear
+  enviar/assumir/encerrar/transferir/mídia nas views para `role='leitor'`) ou se o
+  perfil será **removido**. Hoje ele não restringe nada (só controla os botões do
+  menu), então se comporta igual ao `usuario`. Ver seção 15.
 
 ### Já concluído nesta fase (não são mais pendências)
 - Download de **documento** corrigido (nome/extensão reais, qualquer tipo; não mais `.bin`).
@@ -666,7 +670,21 @@ esconder o botão também bloqueia a URL.
 - **Landing pós-login**: quem não tem Dashboard cai na 1ª tela disponível
   (`first_landing_url_name`; `dashboard_view` redireciona).
 - **Tela Permissões** (`permissions_view`, rota `permissoes/`, `permissions.html` +
-  `permissions.css`, **só ADM**) — em **abas**:
+  `permissions.css`, **só ADM**) — em **abas** (`Perfis` / `Botões do perfil` / `Grupos`;
+  aba padrão = Perfis; chaves internas `people`/`botoes`/`grupos` no `?tab=`):
+  - **Perfis**: define o **papel de cada pessoa** (`adm`/`usuario`/`leitor`). Lista
+    todos os usuários ativos (avatar + nome + e-mail) com um **seletor visual de 3
+    pílulas** (👑 Administrador · 🎧 Usuário · 👁️ Leitor), a ativa colorida por perfil.
+    Clicar salva na hora (AJAX `form_type=profile-role`, otimista com reversão em erro
+    + toast). **Guardas:** o admin **não pode alterar o próprio perfil** (pílulas
+    desabilitadas + selo "você") e há a rede de segurança "deve existir ≥1 admin".
+    Promover a `adm` provisiona o atendente/setores via sinal (ver seção 3). É o
+    **único lugar** onde se troca o papel pela interface. **Nota:** a edição de
+    atendente (tela Atendentes) **não mexe mais no `role`** — o papel é definido só
+    aqui (antes o edit forçava `usuario` e apagaria a escolha). O perfil **`leitor`
+    hoje NÃO restringe ações** — só controla os botões do menu (igual a `usuario` na
+    prática); tornar `leitor` somente-leitura de verdade (ou removê-lo) é decisão
+    pendente.
   - **Botões do perfil**: toggles por perfil (Administrador travado como "acesso
     total") + seção "Personalizar um usuário" (select → toggles). Cada perfil/usuário
     tem também o toggle **"Ver conversa inteira"** (`full_history`).

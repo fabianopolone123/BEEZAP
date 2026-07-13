@@ -4,7 +4,7 @@
 {% block title %}Permissões | BEEZap{% endblock %}
 {% block extra_head %}
 <link rel="stylesheet" href="{% static 'css/dashboard.css' %}">
-<link rel="stylesheet" href="{% static 'css/permissions.css' %}?v=5">
+<link rel="stylesheet" href="{% static 'css/permissions.css' %}?v=6">
 {% endblock %}
 
 {% block content %}
@@ -50,12 +50,49 @@
       </header>
 
       <nav class="perm-tabs" role="tablist">
-        <button type="button" class="perm-tab {% if active_tab == 'perfis' %}is-active{% endif %}" data-tab="perfis">Botões do perfil</button>
+        <button type="button" class="perm-tab {% if active_tab == 'people' %}is-active{% endif %}" data-tab="people">Perfis</button>
+        <button type="button" class="perm-tab {% if active_tab == 'botoes' %}is-active{% endif %}" data-tab="botoes">Botões do perfil</button>
         <button type="button" class="perm-tab {% if active_tab == 'grupos' %}is-active{% endif %}" data-tab="grupos">Grupos</button>
       </nav>
 
+      <!-- ============ ABA: PERFIS (papel de cada pessoa) ============ -->
+      <section class="perm-panel {% if active_tab == 'people' %}is-active{% endif %}" data-panel="people">
+        <article class="perm-card">
+          <div class="perm-head">
+            <h2>Perfil de cada pessoa</h2>
+            <span class="perm-autosave-hint">Toque para definir. Salva sozinho.</span>
+          </div>
+
+          <div class="perm-people">
+            {% for p in people %}
+            <div class="perm-person">
+              <div class="perm-person-avatar">{{ p.initials }}</div>
+              <div class="perm-person-id">
+                <span class="perm-person-name">
+                  {{ p.name }}
+                  {% if p.is_self %}<span class="perm-you-tag">você</span>{% endif %}
+                </span>
+                <span class="perm-person-email">{{ p.email }}</span>
+              </div>
+              <div class="perm-roleseg {% if p.is_self %}is-locked{% endif %}" data-user-id="{{ p.id }}">
+                {% for r in role_options %}
+                  <button type="button" class="role-pill {% if p.role == r.value %}is-active{% endif %}"
+                          data-role="{{ r.value }}" {% if p.is_self %}disabled title="Você não pode alterar o seu próprio perfil"{% endif %}>
+                    <span class="role-ico" aria-hidden="true">{{ r.icon }}</span>
+                    <span>{{ r.label }}</span>
+                  </button>
+                {% endfor %}
+              </div>
+            </div>
+            {% empty %}
+            <p class="perm-people-empty">Nenhum atendente cadastrado ainda. Cadastre em Atendentes.</p>
+            {% endfor %}
+          </div>
+        </article>
+      </section>
+
       <!-- ============ ABA: BOTÕES DO PERFIL ============ -->
-      <section class="perm-panel {% if active_tab == 'perfis' %}is-active{% endif %}" data-panel="perfis">
+      <section class="perm-panel {% if active_tab == 'botoes' %}is-active{% endif %}" data-panel="botoes">
         <form method="post" class="perm-card" data-autosave="Perfis salvos.">
           {% csrf_token %}
           <input type="hidden" name="form_type" value="roles">
@@ -233,6 +270,43 @@
         var key = tab.dataset.tab;
         tabs.forEach(function (t) { t.classList.toggle('is-active', t === tab); });
         panels.forEach(function (p) { p.classList.toggle('is-active', p.dataset.panel === key); });
+      });
+    });
+
+    /* ── Definir perfil de cada pessoa (aba Perfis) ── */
+    document.querySelectorAll('.perm-roleseg[data-user-id]').forEach(function (seg) {
+      if (seg.classList.contains('is-locked')) return;
+      seg.querySelectorAll('.role-pill').forEach(function (pill) {
+        pill.addEventListener('click', function () {
+          var role = pill.dataset.role;
+          if (pill.classList.contains('is-active')) return;
+          var prev = seg.querySelector('.role-pill.is-active');
+          // Otimista: marca a nova, guarda a antiga para reverter se falhar.
+          seg.querySelectorAll('.role-pill').forEach(function (b) { b.classList.remove('is-active'); });
+          pill.classList.add('is-active');
+          var body = new FormData();
+          body.append('form_type', 'profile-role');
+          body.append('user_id', seg.dataset.userId);
+          body.append('role', role);
+          fetch(location.pathname, {
+            method: 'POST',
+            headers: {'X-Requested-With': 'XMLHttpRequest', 'X-CSRFToken': getCookie('csrftoken')},
+            body: body,
+          }).then(function (r) { return r.json(); }).then(function (d) {
+            if (d && d.ok) {
+              toast('success', d.message || 'Perfil atualizado.');
+            } else {
+              // Reverte para o perfil anterior.
+              seg.querySelectorAll('.role-pill').forEach(function (b) { b.classList.remove('is-active'); });
+              if (prev) prev.classList.add('is-active');
+              toast('error', (d && d.error) || 'Nao foi possivel alterar o perfil.');
+            }
+          }).catch(function () {
+            seg.querySelectorAll('.role-pill').forEach(function (b) { b.classList.remove('is-active'); });
+            if (prev) prev.classList.add('is-active');
+            toast('error', 'Nao foi possivel alterar o perfil.');
+          });
+        });
       });
     });
 
