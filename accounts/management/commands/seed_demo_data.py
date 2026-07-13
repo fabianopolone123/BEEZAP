@@ -80,8 +80,12 @@ class Command(BaseCommand):
             # Remove atendentes/usuarios ficticios (nunca o administrador).
             User.objects.filter(role__in=['usuario', 'leitor']).delete()
             Attendant.objects.exclude(user__role='adm').delete()
-            Sector.objects.all().delete()
-            self.stdout.write('Conteudo anterior removido (admin e configuracoes preservados).')
+            # Preserva o setor 'Geral' padrao (nunca e removido; ver Sector.ensure_general).
+            Sector.objects.exclude(name__iexact='Geral').delete()
+            self.stdout.write('Conteudo anterior removido (admin, Geral e configuracoes preservados).')
+
+        # Garante o setor 'Geral' padrao (com todos os atendentes por sinal).
+        Sector.ensure_general()
 
         # Setores + atendentes (um por setor).
         sectors, attendants = [], []

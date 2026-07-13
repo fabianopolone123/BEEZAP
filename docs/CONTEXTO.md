@@ -55,7 +55,14 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
   Na tela Setores, um atendente pode ficar em **vários setores** (fica sempre na
   coluna "disponíveis"; arrastar/"+ Adicionar" inclui, ✕ remove; cada card mostra
   "em N setores"). O selo **Admin/Administrador** identifica o admin em Setores e
-  Atendentes.
+  Atendentes. **Setor "Geral" PADRÃO** (`Sector.GENERAL_SECTOR_NAME='Geral'`,
+  `Sector.ensure_general()`, prop `is_general`): **sempre existe** (criado na migração
+  `0028`), **não pode ser excluído nem renomeado** (bloqueado no backend + sem botão de
+  excluir e com selo "padrão" na tela + nome travado na edição), e **todos os
+  atendentes fazem parte dele por padrão** (backfill na `0028` + sinal em
+  `signals.py` que adiciona todo atendente novo ao criar). É o destino garantido do
+  handoff da IA/chatbot (seções 13/14). Roteamento por atendente citado prefere um
+  setor **específico** (não o Geral) quando o atendente tem outro.
 - **PasswordResetCode** (recuperação de senha por código no WhatsApp).
 - **WapiConfiguration** (singleton `get_solo()`): `instance_id`, `token`,
   `webhook_token`. Credenciais reais ficam **aqui (no banco)**, editadas na tela
@@ -591,7 +598,7 @@ ligado.** Roda **sempre em background** (thread), nunca trava o webhook.
   "não consegui entender… vou pedir para um atendente…") — nunca transfere em
   silêncio nem repete a pergunta de esclarecimento — e **sempre encaminha para um
   SETOR real**: o `fallback_sector` configurado, um setor "Geral" existente ou, em
-  último caso, um "Geral" **criado na hora** (`_ensure_general_sector`). Assim a
+  último caso, o setor "Geral" padrão (`Sector.ensure_general()`). Assim a
   conversa **nunca fica órfã** (`pending` sem setor ficava invisível para os
   atendentes e fora de qualquer fila — parecia que "a IA não transferiu para
   ninguém"; era exatamente esse o bug). Criar o "Geral" dispara o sinal que inclui os
@@ -635,7 +642,7 @@ background, lock por conversa, nunca levanta exceção):
   e **conta a tentativa** (`Conversation.ai_turns`).
 - Ao atingir `max_attempts` tentativas inválidas → **avisa** (`handoff_message`) e
   encaminha para o `fallback_sector` ou, em último caso, um setor "Geral" **criado na
-  hora** (`_ensure_general_sector`) — igual à IA, a conversa **nunca fica órfã** sem
+  padrão** (`Sector.ensure_general()`) — igual à IA, a conversa **nunca fica órfã** sem
   setor.
 - **Guardas** (`_should_handle` + `_human_replied_in_segment`): pula se o modo não é
   `menu`, se é grupo, `closed`, já tem setor/atendente, ou se um **humano já respondeu**

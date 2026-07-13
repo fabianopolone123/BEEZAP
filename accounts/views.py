@@ -2006,8 +2006,11 @@ def sectors_view(request):
         if action == 'delete' and sector_id_str:
             try:
                 sector_obj = Sector.objects.get(pk=int(sector_id_str))
-                sector_obj.delete()
-                messages.success(request, 'Setor removido com sucesso.')
+                if sector_obj.is_general:
+                    messages.error(request, 'O setor Geral é padrão e não pode ser excluído.')
+                else:
+                    sector_obj.delete()
+                    messages.success(request, 'Setor removido com sucesso.')
             except (Sector.DoesNotExist, ValueError):
                 messages.error(request, 'Setor não encontrado.')
             return redirect('sectors')
@@ -2023,10 +2026,27 @@ def sectors_view(request):
         form = SectorForm(request.POST, instance=editing_sector)
         show_modal = True
 
+        # Captura ANTES de o form mutar a instancia (form.save altera o .name).
+        was_general = bool(editing_sector and editing_sector.is_general)
+
         if form.is_valid():
-            form.save()
-            msg = 'Setor atualizado com sucesso.' if editing_sector else 'Setor cadastrado com sucesso.'
-            messages.success(request, msg)
+            obj = form.save(commit=False)
+            # O nome do setor Geral padrao nao pode ser alterado (o sistema depende
+            # dele; ver Sector.ensure_general). A descricao pode ser editada.
+            renamed_general = (
+                was_general
+                and obj.name.strip().lower() != Sector.GENERAL_SECTOR_NAME.lower()
+            )
+            if renamed_general:
+                obj.name = Sector.GENERAL_SECTOR_NAME
+            obj.save()
+            if renamed_general:
+                messages.info(request, 'O nome do setor Geral não pode ser alterado.')
+            else:
+                messages.success(
+                    request,
+                    'Setor atualizado com sucesso.' if editing_sector else 'Setor cadastrado com sucesso.',
+                )
             return redirect('sectors')
 
         if 'name' in form.errors:

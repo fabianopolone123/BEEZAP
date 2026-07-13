@@ -55,3 +55,12 @@ def _add_admins_on_sector_save(sender, instance, raw=False, **kwargs):
     if raw:
         return
     add_admins_to_sector(instance)
+
+
+@receiver(post_save, sender='accounts.Attendant')
+def _add_attendant_to_general(sender, instance, created=False, raw=False, **kwargs):
+    """Todo atendente novo entra no setor 'Geral' padrao (por padrao faz parte dele)."""
+    if raw or not created:
+        return
+    from .models import Sector
+    Sector.ensure_general().attendants.add(instance)

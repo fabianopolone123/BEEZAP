@@ -5,7 +5,7 @@
 
 {% block extra_head %}
 <link rel="stylesheet" href="{% static 'css/dashboard.css' %}">
-<link rel="stylesheet" href="{% static 'css/sectors.css' %}?v=4">
+<link rel="stylesheet" href="{% static 'css/sectors.css' %}?v=5">
 {% endblock %}
 
 {% block content %}
@@ -126,7 +126,10 @@
             <div class="sector-head-left">
               <span class="sector-icon" aria-hidden="true">&#128193;</span>
               <div>
-                <span class="sector-name">{{ sector.name }}</span>
+                <span class="sector-name">
+                  <span class="sector-name-text">{{ sector.name }}</span>
+                  {% if sector.is_general %}<span class="sector-default-tag" title="Setor padrão">padrão</span>{% endif %}
+                </span>
                 <span class="sector-count"
                       data-sector-id="{{ sector.id }}">{{ sector.attendants.count }} atendente{{ sector.attendants.count|pluralize }}</span>
               </div>
@@ -136,13 +139,16 @@
                       data-sector-id="{{ sector.id }}"
                       data-sector-name="{{ sector.name|escapejs }}"
                       data-sector-description="{{ sector.description|escapejs }}"
+                      data-sector-general="{% if sector.is_general %}1{% else %}0{% endif %}"
                       aria-label="Editar setor {{ sector.name }}"
                       title="Editar setor">&#9998;</button>
+              {% if not sector.is_general %}
               <button type="button" class="sec-icon-btn btn-delete-sector"
                       data-sector-id="{{ sector.id }}"
                       data-sector-name="{{ sector.name|escapejs }}"
                       aria-label="Excluir setor {{ sector.name }}"
                       title="Excluir setor">&#8942;</button>
+              {% endif %}
             </div>
           </div>
 
@@ -565,7 +571,10 @@
   document.getElementById('btn-new-sector').addEventListener('click', function () {
     document.getElementById('sec-modal-title').textContent = 'Novo setor';
     document.getElementById('modal-sector-id').value = '';
-    document.getElementById('id_name').value = '';
+    const nameInput = document.getElementById('id_name');
+    nameInput.value = '';
+    nameInput.readOnly = false;  /* garante que o campo destrave apos editar o Geral */
+    nameInput.title = '';
     document.getElementById('id_description').value = '';
     openModal('sec-modal');
   });
@@ -578,8 +587,13 @@
     btn.addEventListener('click', function () {
       document.getElementById('sec-modal-title').textContent = 'Editar setor';
       document.getElementById('modal-sector-id').value       = btn.dataset.sectorId;
-      document.getElementById('id_name').value               = btn.dataset.sectorName;
+      const nameInput = document.getElementById('id_name');
+      nameInput.value = btn.dataset.sectorName;
       document.getElementById('id_description').value        = btn.dataset.sectorDescription;
+      /* O setor Geral padrao nao pode ser renomeado: trava o campo de nome. */
+      const isGeneral = btn.dataset.sectorGeneral === '1';
+      nameInput.readOnly = isGeneral;
+      nameInput.title = isGeneral ? 'O setor Geral é padrão e não pode ser renomeado.' : '';
       openModal('sec-modal');
     });
   });
@@ -706,6 +720,28 @@
 
   /* Mostra em quantos setores cada atendente ja esta (ele fica sempre disponivel). */
   updateAvailableBadges();
+
+  /* ─── Roda do mouse rola a area de setores na HORIZONTAL ──
+     A area (.sec-area) rola de lado. Ao girar a roda do mouse aqui dentro,
+     convertemos o movimento vertical em rolagem horizontal. Excecao: se o cursor
+     estiver sobre a lista de atendentes de um setor que AINDA pode rolar na vertical
+     (lista longa), deixamos essa lista rolar normalmente. */
+  const secArea = document.getElementById('sec-area');
+  if (secArea) {
+    secArea.addEventListener('wheel', function (e) {
+      if (e.deltaY === 0) return;
+      const list = e.target.closest('.sector-att-list');
+      if (list) {
+        const canDown = e.deltaY > 0 && list.scrollTop + list.clientHeight < list.scrollHeight - 1;
+        const canUp   = e.deltaY < 0 && list.scrollTop > 0;
+        if (canDown || canUp) return;  /* deixa a lista de atendentes rolar na vertical */
+      }
+      if (secArea.scrollWidth > secArea.clientWidth) {
+        e.preventDefault();
+        secArea.scrollLeft += e.deltaY;
+      }
+    }, { passive: false });
+  }
 
   /* ─── Abrir modal se houver erros de form ───────────── */
   {% if show_modal %}

@@ -402,14 +402,34 @@
 }
 
 .sector-name {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 6px;
   font-weight: 700;
   font-size: 0.92rem;
   color: #15213d;
+  max-width: 170px;
+}
+
+.sector-name-text {
+  min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 140px;
+}
+
+/* Selo "padrão" do setor Geral (nao pode ser excluido/renomeado). */
+.sector-default-tag {
+  flex-shrink: 0;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 0.6rem;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: #0d8d43;
+  background: rgba(33, 194, 94, 0.14);
+  white-space: nowrap;
 }
 
 .sector-count {

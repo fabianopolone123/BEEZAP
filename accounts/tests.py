@@ -1039,7 +1039,8 @@ class AiAttendantFlowTests(TestCase):
 
         self.financeiro = Sector.objects.create(name='Financeiro')
         self.suporte = Sector.objects.create(name='Suporte')
-        self.geral = Sector.objects.create(name='Geral')
+        # O setor 'Geral' ja existe (criado pela migracao 0028); reaproveita.
+        self.geral, _ = Sector.objects.get_or_create(name='Geral')
 
         fab_user = User.objects.create_user(email='fab@beezap.local', password='x', role='usuario')
         self.fabiano = Attendant.objects.create(user=fab_user, name='Fabiano')
@@ -1304,7 +1305,8 @@ class MenuBotFlowTests(TestCase):
 
         self.financeiro = Sector.objects.create(name='Financeiro')
         self.vendas = Sector.objects.create(name='Vendas')
-        self.geral = Sector.objects.create(name='Geral')
+        # O setor 'Geral' ja existe (criado pela migracao 0028); reaproveita.
+        self.geral, _ = Sector.objects.get_or_create(name='Geral')
 
         self.config = MenuBotConfiguration.get_solo()
         self.config.mode = MenuBotConfiguration.MODE_MENU
@@ -1460,6 +1462,54 @@ class AdminAttendantTests(TestCase):
         conv.refresh_from_db()
         self.assertEqual(conv.assigned_attendant_id, self.admin.attendant_profile.id)
         self.assertEqual(conv.status, 'open')
+
+
+class GeneralSectorTests(TestCase):
+    """Setor 'Geral' padrao: sempre existe, todos os atendentes fazem parte dele por
+    padrao, e ele nao pode ser excluido nem renomeado."""
+
+    def setUp(self):
+        from accounts.models import Sector
+        self.Sector = Sector
+        self.admin = User.objects.create_user(email='adm@x.com', password='x', role=User.Role.ADM)
+        self.client.force_login(self.admin)
+
+    def test_ensure_general_creates_and_adds_all_attendants(self):
+        self.Sector.objects.filter(name__iexact='Geral').delete()
+        user = User.objects.create_user(email='joao@x.com', password='x', role=User.Role.USUARIO)
+        att = Attendant.objects.create(user=user, name='Joao', must_change_password=False)
+        geral = self.Sector.ensure_general()
+        self.assertTrue(geral.is_general)
+        self.assertIn(att, geral.attendants.all())            # atendente ja existente entrou
+        self.assertIn(self.admin.attendant_profile, geral.attendants.all())  # admin tambem
+
+    def test_new_attendant_auto_joins_general(self):
+        geral = self.Sector.ensure_general()
+        user = User.objects.create_user(email='ana@x.com', password='x', role=User.Role.USUARIO)
+        att = Attendant.objects.create(user=user, name='Ana', must_change_password=False)
+        self.assertIn(att, geral.attendants.all())
+
+    def test_general_cannot_be_deleted(self):
+        geral = self.Sector.ensure_general()
+        r = self.client.post(reverse('sectors'), {'action': 'delete', 'sector_id': str(geral.id)}, follow=True)
+        self.assertEqual(r.status_code, 200)
+        self.assertTrue(self.Sector.objects.filter(pk=geral.id).exists())  # continua existindo
+        msgs = [m.message for m in get_messages(r.wsgi_request)]
+        self.assertTrue(any('não pode ser excluído' in m for m in msgs))
+
+    def test_general_cannot_be_renamed(self):
+        geral = self.Sector.ensure_general()
+        self.client.post(reverse('sectors'), {
+            'sector_id': str(geral.id), 'name': 'Outro Nome', 'description': 'nova desc',
+        }, follow=True)
+        geral.refresh_from_db()
+        self.assertEqual(geral.name, 'Geral')                 # nome mantido
+        self.assertEqual(geral.description, 'nova desc')      # descricao pode mudar
+
+    def test_regular_sector_can_be_deleted(self):
+        outro = self.Sector.objects.create(name='Financeiro')
+        self.client.post(reverse('sectors'), {'action': 'delete', 'sector_id': str(outro.id)}, follow=True)
+        self.assertFalse(self.Sector.objects.filter(pk=outro.id).exists())
 
 
 class MenuPermissionsTests(TestCase):
@@ -1748,7 +1798,9 @@ class DashboardTests(TestCase):
         admin = User.objects.create_user(email='adm@x.com', password='x', role=User.Role.ADM)
         call_command('seed_demo_data', verbosity=0)
 
-        self.assertEqual(Sector.objects.count(), 5)
+        # 5 setores de demo + o 'Geral' padrao (sempre presente).
+        self.assertEqual(Sector.objects.exclude(name__iexact='Geral').count(), 5)
+        self.assertTrue(Sector.objects.filter(name__iexact='Geral').exists())
         self.assertEqual(Conversation.objects.count(), 36)
         self.assertEqual(Conversation.objects.filter(status='closed').count(), 18)
         self.assertEqual(Conversation.objects.exclude(status='closed').count(), 18)

@@ -397,6 +397,11 @@ class Attendant(models.Model):
 
 
 class Sector(models.Model):
+    # Setor PADRAO de triagem: sempre existe, nao pode ser excluido nem renomeado, e
+    # todos os atendentes fazem parte dele por padrao. E o destino garantido do handoff
+    # da IA/chatbot (ver gpt/attendant.py e chatbot/handler.py).
+    GENERAL_SECTOR_NAME = 'Geral'
+
     name = models.CharField('Nome', max_length=100, unique=True)
     description = models.TextField('Descrição', blank=True, default='')
     attendants = models.ManyToManyField(
@@ -412,6 +417,26 @@ class Sector(models.Model):
         ordering = ['name']
         verbose_name = 'Setor'
         verbose_name_plural = 'Setores'
+
+    @property
+    def is_general(self):
+        """E o setor Geral padrao? (protegido contra exclusao/renomeacao)."""
+        return (self.name or '').strip().lower() == self.GENERAL_SECTOR_NAME.lower()
+
+    @classmethod
+    def ensure_general(cls):
+        """Garante o setor 'Geral' padrao (cria se faltar). Ao CRIAR, ja inclui TODOS
+        os atendentes — depois disso a adesao de novos atendentes e mantida por sinal
+        (ver accounts/signals.py)."""
+        sector, created = cls.objects.get_or_create(
+            name=cls.GENERAL_SECTOR_NAME,
+            defaults={'description': 'Setor padrão de triagem. Todos os atendentes fazem parte dele.'},
+        )
+        if created:
+            attendants = list(Attendant.objects.all())
+            if attendants:
+                sector.attendants.add(*attendants)
+        return sector
 
     def __str__(self):
         return self.name

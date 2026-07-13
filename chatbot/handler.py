@@ -207,24 +207,14 @@ def _route_to_sector(conversation, sector, confirmation=''):
     bot_logger.info('Chatbot encaminhou conv=%s para setor=%s (aguardando)', conversation.id, sector.name)
 
 
-def _ensure_general_sector():
-    """Garante um setor 'Geral' de triagem (cria se nao existir). Ultimo recurso do
-    handoff para a conversa NUNCA ficar orfa (pending sem setor ficava invisivel para
-    os atendentes e fora de qualquer fila). Criar o setor inclui os admins nele."""
-    from accounts.models import Sector
-    sector, _ = Sector.objects.get_or_create(
-        name='Geral', defaults={'description': 'Triagem / atendimentos gerais'},
-    )
-    return sector
-
-
 def _handoff(conversation, config):
     """Desiste do menu AVISANDO o cliente e SEMPRE encaminha para um setor humano: o
-    fallback configurado ou, em ultimo caso, um setor 'Geral' criado na hora. Antes,
-    sem fallback, a conversa ficava `pending` SEM setor (invisivel/fora de fila).
+    fallback configurado ou, em ultimo caso, o setor 'Geral' padrao. Antes, sem
+    fallback, a conversa ficava `pending` SEM setor (invisivel/fora de fila).
     Sem divisoria (ver _route_to_sector)."""
+    from accounts.models import Sector
     _send_reply(conversation, resolved_handoff_message(config))
-    fallback = config.fallback_sector or _ensure_general_sector()
+    fallback = config.fallback_sector or Sector.ensure_general()
     Conversation.objects.filter(pk=conversation.id).update(
         sector=fallback, assigned_attendant=None, status='pending', ai_turns=0,
     )

@@ -305,7 +305,12 @@ def _route_to_attendant(conversation, attendant):
     """Cliente citou um atendente: encaminha para o SETOR dele, deixando AGUARDANDO
     (fila do setor, sem atribuir a pessoa). A atribuicao acontece quando alguem
     assume. Sem divisoria (mesmo atendimento; ver _route_to_sector)."""
-    sector = attendant.sectors.first()
+    # Prefere um setor ESPECIFICO do atendente (todos estao no 'Geral' padrao, entao
+    # o Geral so e usado se o atendente nao tiver nenhum outro setor).
+    sectors = list(attendant.sectors.all())
+    sector = next((s for s in sectors if not s.is_general), None)
+    if sector is None:
+        sector = sectors[0] if sectors else None
     Conversation.objects.filter(pk=conversation.id).update(
         sector=sector, assigned_attendant=None, status='pending', ai_turns=0,
     )
@@ -320,16 +325,6 @@ def _resolve_fallback_sector(config):
     return Sector.objects.filter(name__iexact='Geral').first()
 
 
-def _ensure_general_sector():
-    """Garante um setor 'Geral' de triagem (cria se nao existir). Ultimo recurso do
-    handoff para a conversa NUNCA ficar orfa. Criar o setor dispara o sinal que inclui
-    os admins nele, entao o admin ja passa a ve-lo na fila."""
-    sector, _ = Sector.objects.get_or_create(
-        name='Geral', defaults={'description': 'Triagem / atendimentos gerais'},
-    )
-    return sector
-
-
 def _handoff_to_fallback(conversation, config):
     """Desiste da triagem AVISANDO o cliente e SEMPRE encaminha para um setor humano.
 
@@ -339,7 +334,7 @@ def _handoff_to_fallback(conversation, config):
     `pending` SEM setor: nao entrava em nenhuma fila e so o admin a via (parecia que
     'nao transferiu para ninguem'). Agora sempre cai numa fila real."""
     _send_ai_reply(conversation, HANDOFF_NOTICE)
-    fallback = _resolve_fallback_sector(config) or _ensure_general_sector()
+    fallback = _resolve_fallback_sector(config) or Sector.ensure_general()
     _route_to_sector(conversation, fallback)
 
 
