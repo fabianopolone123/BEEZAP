@@ -589,9 +589,13 @@ ligado.** Roda **sempre em background** (thread), nunca trava o webhook.
 - **Limite/fallback**: ao atingir `max_turns` sem decidir, `_handoff_to_fallback`
   **sempre avisa o cliente** com uma mensagem clara de handoff (`HANDOFF_NOTICE`:
   "não consegui entender… vou pedir para um atendente…") — nunca transfere em
-  silêncio nem repete a pergunta de esclarecimento — e então encaminha para
-  `fallback_sector` (ou um setor "Geral" automático). Sem nenhum fallback, avisa e
-  deixa `pending` sem setor, mantendo `ai_turns` no máximo para não repetir o aviso.
+  silêncio nem repete a pergunta de esclarecimento — e **sempre encaminha para um
+  SETOR real**: o `fallback_sector` configurado, um setor "Geral" existente ou, em
+  último caso, um "Geral" **criado na hora** (`_ensure_general_sector`). Assim a
+  conversa **nunca fica órfã** (`pending` sem setor ficava invisível para os
+  atendentes e fora de qualquer fila — parecia que "a IA não transferiu para
+  ninguém"; era exatamente esse o bug). Criar o "Geral" dispara o sinal que inclui os
+  admins nele, então o admin já vê a conversa em "Aguardando Geral".
 - **Guardas** (`_should_handle` + `_human_replied_in_segment`): pula se desligada,
   sem API Key, grupo, `closed`, já tem setor/atendente, ou se um **humano já
   respondeu** no atendimento atual (mensagem `out` com `is_ai=False` após a última
@@ -630,7 +634,9 @@ background, lock por conversa, nunca levanta exceção):
   divisória** — quem assumir vê o histórico do menu); opção inválida → reexibe o menu
   e **conta a tentativa** (`Conversation.ai_turns`).
 - Ao atingir `max_attempts` tentativas inválidas → **avisa** (`handoff_message`) e
-  encaminha para o `fallback_sector` (ou deixa `pending` sem setor).
+  encaminha para o `fallback_sector` ou, em último caso, um setor "Geral" **criado na
+  hora** (`_ensure_general_sector`) — igual à IA, a conversa **nunca fica órfã** sem
+  setor.
 - **Guardas** (`_should_handle` + `_human_replied_in_segment`): pula se o modo não é
   `menu`, se é grupo, `closed`, já tem setor/atendente, ou se um **humano já respondeu**
   no atendimento atual. Estado por segmento (após a última divisória): `_menu_already_presented`

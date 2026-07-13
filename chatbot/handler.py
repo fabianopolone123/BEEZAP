@@ -207,21 +207,28 @@ def _route_to_sector(conversation, sector, confirmation=''):
     bot_logger.info('Chatbot encaminhou conv=%s para setor=%s (aguardando)', conversation.id, sector.name)
 
 
+def _ensure_general_sector():
+    """Garante um setor 'Geral' de triagem (cria se nao existir). Ultimo recurso do
+    handoff para a conversa NUNCA ficar orfa (pending sem setor ficava invisivel para
+    os atendentes e fora de qualquer fila). Criar o setor inclui os admins nele."""
+    from accounts.models import Sector
+    sector, _ = Sector.objects.get_or_create(
+        name='Geral', defaults={'description': 'Triagem / atendimentos gerais'},
+    )
+    return sector
+
+
 def _handoff(conversation, config):
-    """Desiste do menu AVISANDO o cliente e encaminha para o fallback (ou deixa
-    aguardando um atendente, sem setor). Sem divisoria (ver _route_to_sector)."""
+    """Desiste do menu AVISANDO o cliente e SEMPRE encaminha para um setor humano: o
+    fallback configurado ou, em ultimo caso, um setor 'Geral' criado na hora. Antes,
+    sem fallback, a conversa ficava `pending` SEM setor (invisivel/fora de fila).
+    Sem divisoria (ver _route_to_sector)."""
     _send_reply(conversation, resolved_handoff_message(config))
-    fallback = config.fallback_sector
-    if fallback:
-        Conversation.objects.filter(pk=conversation.id).update(
-            sector=fallback, assigned_attendant=None, status='pending', ai_turns=0,
-        )
-        bot_logger.info('Chatbot handoff conv=%s -> setor=%s', conversation.id, fallback.name)
-    else:
-        Conversation.objects.filter(pk=conversation.id).update(
-            status='pending', ai_turns=config.max_attempts,
-        )
-        bot_logger.info('Chatbot handoff conv=%s sem setor (aguardando humano)', conversation.id)
+    fallback = config.fallback_sector or _ensure_general_sector()
+    Conversation.objects.filter(pk=conversation.id).update(
+        sector=fallback, assigned_attendant=None, status='pending', ai_turns=0,
+    )
+    bot_logger.info('Chatbot handoff conv=%s -> setor=%s', conversation.id, fallback.name)
 
 
 def _should_handle(conversation):

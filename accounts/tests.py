@@ -1114,25 +1114,40 @@ class AiAttendantFlowTests(TestCase):
         ).order_by('-created_at').first()
         self.assertEqual(last_out.text, HANDOFF_NOTICE)
 
-    def test_fallback_without_sector_announces_and_waits(self):
+    def test_handoff_creates_general_sector_when_no_fallback(self):
+        # Sem fallback configurado E sem setor "Geral": o handoff deve CRIAR o "Geral"
+        # e encaminhar a conversa para la (nunca deixar orfa/invisivel).
         from gpt.attendant import HANDOFF_NOTICE
-        self.config.fallback_sector = None  # sem fallback configurado
+        from accounts.models import Sector
+        self.config.fallback_sector = None
         self.config.save()
-        self.geral.delete()  # e sem setor "Geral" (fallback automatico)
+        self.geral.delete()  # remove o "Geral" pre-existente
+        self.assertFalse(Sector.objects.filter(name__iexact='Geral').exists())
         self.conv.ai_turns = 2
         self.conv.save(update_fields=['ai_turns'])
         _, mock_send = self._run(self._gpt(mensagem='segue confuso'))
         self.conv.refresh_from_db()
-        # Avisou o cliente, deixou aguardando sem setor e NAO fica re-tentando.
+        # Avisou o cliente com o handoff e encaminhou para o "Geral" recem-criado.
         mock_send.assert_called_once()
         self.assertEqual(mock_send.call_args.args[1], HANDOFF_NOTICE)
-        self.assertIsNone(self.conv.sector_id)
+        geral = Sector.objects.filter(name__iexact='Geral').first()
+        self.assertIsNotNone(geral)                     # foi criado
+        self.assertEqual(self.conv.sector_id, geral.id)  # conversa encaminhada
         self.assertEqual(self.conv.status, 'pending')
-        self.assertEqual(self.conv.ai_turns, self.config.max_turns)
-        # Proxima mensagem: como nao ha fallback e ja avisou, a IA fica quieta.
-        mock_gpt2, mock_send2 = self._run(self._gpt(mensagem='oi?'))
-        mock_gpt2.assert_not_called()
-        mock_send2.assert_not_called()
+        self.assertIsNone(self.conv.assigned_attendant_id)
+
+    def test_handoff_routes_to_existing_general_when_no_fallback(self):
+        # Sem fallback configurado, mas com um "Geral" existente: encaminha para ele
+        # (nao cria duplicado).
+        from accounts.models import Sector
+        self.config.fallback_sector = None
+        self.config.save()
+        self.conv.ai_turns = 2
+        self.conv.save(update_fields=['ai_turns'])
+        self._run(self._gpt(mensagem='segue confuso'))
+        self.conv.refresh_from_db()
+        self.assertEqual(self.conv.sector_id, self.geral.id)
+        self.assertEqual(Sector.objects.filter(name__iexact='Geral').count(), 1)
 
     def test_skips_group(self):
         self.conv.chat_type = 'group'
@@ -1359,6 +1374,24 @@ class MenuBotFlowTests(TestCase):
         self._run()
         self.conv.refresh_from_db()
         self.assertEqual(self.conv.sector_id, self.geral.id)  # fallback
+        self.assertEqual(self.conv.status, 'pending')
+
+    def test_handoff_creates_general_when_no_fallback(self):
+        # Sem fallback e sem "Geral": o handoff CRIA o "Geral" e encaminha (nao deixa orfa).
+        from accounts.models import Sector
+        self.config.fallback_sector = None
+        self.config.save(update_fields=['fallback_sector'])
+        self.geral.delete()
+        self.Message.objects.create(conversation=self.conv, direction='out',
+                                    message_type='text', text='menu...', is_ai=True)
+        self.conv.ai_turns = 2
+        self.conv.save(update_fields=['ai_turns'])
+        self._incoming('xyz')
+        self._run()
+        self.conv.refresh_from_db()
+        geral = Sector.objects.filter(name__iexact='Geral').first()
+        self.assertIsNotNone(geral)
+        self.assertEqual(self.conv.sector_id, geral.id)
         self.assertEqual(self.conv.status, 'pending')
 
     def test_skips_when_mode_not_menu(self):

@@ -59,6 +59,9 @@ DEFAULT_INSTRUCTIONS = (
     'disponiveis e avise o cliente com uma frase curta e educada.\n'
     '- Se o cliente pedir uma pessoa/atendente especifico que esteja na lista de atendentes, '
     'encaminhe para essa pessoa, confirmando de forma breve.\n'
+    '- Se o cliente citar uma pessoa que NAO esta na lista de atendentes, NAO diga que vai '
+    'verificar a disponibilidade dela nem prometa retorno; pergunte, em uma frase, qual e o '
+    'assunto, para encaminhar ao setor certo (ou ao setor geral).\n'
     '- Se a necessidade NAO se encaixar em nenhum setor especifico (por exemplo: vagas de '
     'emprego, parcerias ou assuntos gerais), encaminhe para o setor geral, em vez de tentar '
     'responder o conteudo.\n'
@@ -317,21 +320,27 @@ def _resolve_fallback_sector(config):
     return Sector.objects.filter(name__iexact='Geral').first()
 
 
-def _handoff_to_fallback(conversation, config):
-    """Desiste da triagem AVISANDO o cliente e encaminha para o fallback.
+def _ensure_general_sector():
+    """Garante um setor 'Geral' de triagem (cria se nao existir). Ultimo recurso do
+    handoff para a conversa NUNCA ficar orfa. Criar o setor dispara o sinal que inclui
+    os admins nele, entao o admin ja passa a ve-lo na fila."""
+    sector, _ = Sector.objects.get_or_create(
+        name='Geral', defaults={'description': 'Triagem / atendimentos gerais'},
+    )
+    return sector
 
-    Sempre envia a mensagem de handoff antes (nunca transfere em silencio). Se nao
-    houver setor de fallback, deixa a conversa aguardando um humano e mantem
-    `ai_turns` no maximo, para a IA nao voltar a tentar (nem repetir o aviso)."""
+
+def _handoff_to_fallback(conversation, config):
+    """Desiste da triagem AVISANDO o cliente e SEMPRE encaminha para um setor humano.
+
+    Sempre envia a mensagem de handoff antes (nunca transfere em silencio) e sempre
+    encaminha para um SETOR: o fallback configurado, um setor 'Geral' existente ou —
+    em ultimo caso — um 'Geral' criado na hora. Antes, sem fallback, a conversa ficava
+    `pending` SEM setor: nao entrava em nenhuma fila e so o admin a via (parecia que
+    'nao transferiu para ninguem'). Agora sempre cai numa fila real."""
     _send_ai_reply(conversation, HANDOFF_NOTICE)
-    fallback = _resolve_fallback_sector(config)
-    if fallback:
-        _route_to_sector(conversation, fallback)
-    else:
-        Conversation.objects.filter(pk=conversation.id).update(
-            status='pending', ai_turns=config.max_turns,
-        )
-        ai_logger.info('IA sem fallback: conv=%s avisou e deixou aguardando sem setor', conversation.id)
+    fallback = _resolve_fallback_sector(config) or _ensure_general_sector()
+    _route_to_sector(conversation, fallback)
 
 
 def _should_handle(conversation):
@@ -375,12 +384,10 @@ def handle_incoming_for_ai(conversation_id):
         ai_logger.info('IA nao atua (humano ja respondeu) conv=%s', conversation_id)
         return
 
-    # Limite de seguranca: se ja atingiu max_turns sem decidir. Se houver fallback
-    # (ex.: configurado depois), avisa e encaminha; senao ja avisou antes e fica
-    # quieta aguardando um atendente.
+    # Limite de seguranca: se ja atingiu max_turns sem decidir, avisa e encaminha
+    # (o handoff sempre acha/cria um setor, entao a conversa nao fica orfa).
     if conversation.ai_turns >= config.max_turns:
-        if _resolve_fallback_sector(config):
-            _handoff_to_fallback(conversation, config)
+        _handoff_to_fallback(conversation, config)
         return
 
     history = build_history(conversation)
