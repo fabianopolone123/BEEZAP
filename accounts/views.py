@@ -144,6 +144,28 @@ def deny_conversation_json(request, conversation):
     return None
 
 
+def deny_readonly_json(request):
+    """Retorna 403 JSON se o usuario e SOMENTE LEITURA (perfil leitor); senao None.
+    Usado nos endpoints AJAX que alteram dados (enviar, assumir, encerrar, etc.)."""
+    from .permissions import is_read_only
+    if is_read_only(request.user):
+        return JsonResponse(
+            {'ok': False, 'error': 'Seu perfil e somente leitura: voce pode visualizar, mas nao executar acoes.'},
+            status=403,
+        )
+    return None
+
+
+def block_readonly(request):
+    """Retorna 403 (pagina) se o usuario e SOMENTE LEITURA; senao None. Usado no
+    tratamento de POST das telas de formulario (contatos, atendentes, setores,
+    configuracoes)."""
+    from .permissions import is_read_only
+    if is_read_only(request.user):
+        return HttpResponseForbidden('Seu perfil e somente leitura.')
+    return None
+
+
 def _current_attendant_name(request):
     """Nome de quem esta enviando (mostrado em GRUPO, que e um numero so)."""
     attendant = getattr(request.user, 'attendant_profile', None)
@@ -578,6 +600,9 @@ def openai_settings_view(request):
     )
 
     if request.method == 'POST':
+        blocked = block_readonly(request)
+        if blocked:
+            return blocked
         form_type = request.POST.get('form_type')
         if form_type == 'config' and config_form.is_valid():
             new_key = config_form.cleaned_data['api_key'].strip()
@@ -672,6 +697,10 @@ def atendimento_view(request):
         },
     )
 
+    if request.method == 'POST':
+        blocked = block_readonly(request)
+        if blocked:
+            return blocked
     if request.method == 'POST' and request.POST.get('form_type') == 'chatbot' and config_form.is_valid():
         config.greeting = (config_form.cleaned_data['greeting'] or '').strip()
         config.menu_intro = (config_form.cleaned_data['menu_intro'] or '').strip()
@@ -738,6 +767,9 @@ def atendimento_set_mode_view(request):
     forbidden = require_feature(request, 'settings')
     if forbidden:
         return forbidden
+    blocked = block_readonly(request)
+    if blocked:
+        return blocked
     config = MenuBotConfiguration.get_solo()
     form = ReceptionModeForm(request.POST)
     if form.is_valid():
@@ -1035,6 +1067,9 @@ def wapi_settings_view(request):
     )
 
     if request.method == 'POST':
+        blocked = block_readonly(request)
+        if blocked:
+            return blocked
         form_type = request.POST.get('form_type')
         if form_type == 'config' and config_form.is_valid():
             config.instance_id = config_form.cleaned_data['instance_id'].strip()
@@ -1108,6 +1143,9 @@ def attendants_view(request):
     editing_attendant = None
 
     if request.method == 'POST':
+        blocked = block_readonly(request)
+        if blocked:
+            return blocked
         attendant_id = request.POST.get('attendant_id')
         if attendant_id:
             editing_attendant = get_object_or_404(Attendant, pk=attendant_id)
@@ -1421,8 +1459,9 @@ def conversations_view(request):
     forbidden = require_feature(request, 'conversations')
     if forbidden:
         return forbidden
-    from .permissions import visible_conversations
+    from .permissions import visible_conversations, is_read_only
     role = request.user.role
+    read_only = is_read_only(request.user)
     conversations = visible_conversations(
         request.user,
         Conversation.objects.select_related('contact', 'assigned_attendant', 'sector'),
@@ -1451,6 +1490,7 @@ def conversations_view(request):
             'filter_chips': filter_chips,
             'type_tabs': type_tabs,
             'waiting_count': counts.get('aguardando', 0),
+            'read_only': read_only,
         },
     )
 
@@ -1463,6 +1503,9 @@ def contacts_view(request):
     if forbidden:
         return forbidden
     if request.method == 'POST':
+        blocked = block_readonly(request)
+        if blocked:
+            return blocked
         action = (request.POST.get('action') or '').strip()
         if action == 'delete':
             Contact.objects.filter(pk=(request.POST.get('contact_id') or '').strip()).delete()
@@ -1490,6 +1533,7 @@ def contacts_view(request):
             messages.error(request, 'Ja existe um contato com esse telefone.')
         return redirect('contacts')
 
+    from .permissions import is_read_only
     term = (request.GET.get('q') or '').strip()
     contacts = Contact.objects.all()
     if term:
@@ -1504,6 +1548,7 @@ def contacts_view(request):
             'nav_items': build_nav_items(request.user, 'Contatos'),
             'role_label': request.user.get_role_display(),
             'user_initial': (request.user.first_name[:1] or request.user.email[:1]).upper(),
+            'read_only': is_read_only(request.user),
         },
     )
 
@@ -1583,6 +1628,9 @@ def conversation_send_view(request, conversation_id):
     conversation = get_object_or_404(
         Conversation.objects.select_related('contact'), pk=conversation_id
     )
+    readonly = deny_readonly_json(request)
+    if readonly:
+        return readonly
     denied = deny_conversation_json(request, conversation)
     if denied:
         return denied
@@ -1700,6 +1748,9 @@ def conversation_send_media_view(request, conversation_id):
     conversation = get_object_or_404(
         Conversation.objects.select_related('contact'), pk=conversation_id
     )
+    readonly = deny_readonly_json(request)
+    if readonly:
+        return readonly
     denied = deny_conversation_json(request, conversation)
     if denied:
         return denied
@@ -1806,6 +1857,9 @@ def conversation_send_media_view(request, conversation_id):
 @require_POST
 def conversation_sync_groups_view(request):
     """Busca os grupos na W-API e atualiza os nomes das conversas de grupo."""
+    readonly = deny_readonly_json(request)
+    if readonly:
+        return readonly
     result = sync_group_names()
     if not result.get('ok'):
         return JsonResponse(
@@ -1824,6 +1878,9 @@ def conversation_sync_groups_view(request):
 def conversation_name_contact_view(request):
     """Nomeia um numero (remetente de grupo ou mencionado) criando/atualizando um
     Contato. O nome passa a aparecer no lugar do numero nas mensagens."""
+    readonly = deny_readonly_json(request)
+    if readonly:
+        return readonly
     number = _digits(request.POST.get('number'))
     name = (request.POST.get('name') or '').strip()
     if not number or not name:
@@ -1839,6 +1896,9 @@ def conversation_name_contact_view(request):
 @require_POST
 def conversation_transfer_view(request, conversation_id):
     conversation = get_object_or_404(Conversation, pk=conversation_id)
+    readonly = deny_readonly_json(request)
+    if readonly:
+        return readonly
     denied = deny_conversation_json(request, conversation)
     if denied:
         return denied
@@ -1873,6 +1933,9 @@ def conversation_transfer_view(request, conversation_id):
 @require_POST
 def conversation_take_view(request, conversation_id):
     conversation = get_object_or_404(Conversation, pk=conversation_id)
+    readonly = deny_readonly_json(request)
+    if readonly:
+        return readonly
     denied = deny_conversation_json(request, conversation)
     if denied:
         return denied
@@ -1899,6 +1962,9 @@ def conversation_take_view(request, conversation_id):
 @require_POST
 def conversation_close_view(request, conversation_id):
     conversation = get_object_or_404(Conversation, pk=conversation_id)
+    readonly = deny_readonly_json(request)
+    if readonly:
+        return readonly
     denied = deny_conversation_json(request, conversation)
     if denied:
         return denied
@@ -1931,6 +1997,9 @@ def sectors_view(request):
     editing_sector = None
 
     if request.method == 'POST':
+        blocked = block_readonly(request)
+        if blocked:
+            return blocked
         action = request.POST.get('action', '')
         sector_id_str = request.POST.get('sector_id', '').strip()
 
@@ -2011,6 +2080,9 @@ def sectors_save_organization_view(request):
     from .permissions import user_can_access
     if not user_can_access(request.user, 'sectors'):
         return JsonResponse({'ok': False, 'error': 'Acesso restrito.'}, status=403)
+    readonly = deny_readonly_json(request)
+    if readonly:
+        return readonly
 
     try:
         data = json.loads(request.body)

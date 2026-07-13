@@ -1674,3 +1674,24 @@ body.conv-lightbox-open {
   text-align: center;
   max-width: 80%;
 }
+
+/* ── Perfil SOMENTE LEITURA (leitor): esconde tudo que executa acao ── */
+.conv-body.is-readonly .conv-chat-footer,
+.conv-body.is-readonly .conv-transfer,
+.conv-body.is-readonly .conv-service-actions {
+  display: none !important;
+}
+.conv-readonly-bar { display: none; }
+.conv-body.is-readonly [data-readonly-bar] {
+  display: flex !important;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 12px 12px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: rgba(45, 108, 223, 0.08);
+  border: 1px solid rgba(45, 108, 223, 0.18);
+  color: #2d6cdf;
+  font-size: 13px;
+  line-height: 1.3;
+}

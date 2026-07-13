@@ -5,7 +5,7 @@
 
 {% block extra_head %}
 <link rel="stylesheet" href="{% static 'css/dashboard.css' %}?v=5">
-<link rel="stylesheet" href="{% static 'css/conversations.css' %}?v=22">
+<link rel="stylesheet" href="{% static 'css/conversations.css' %}?v=23">
 {% endblock %}
 
 {% block content %}
@@ -53,9 +53,10 @@
     </header>
 
     <!-- Corpo: 3 colunas -->
-    <div class="conv-body"
+    <div class="conv-body{% if read_only %} is-readonly{% endif %}"
          data-conv-base="{% url 'conversations' %}"
          data-csrf="{{ csrf_token }}"
+         {% if read_only %}data-read-only="1"{% endif %}
          data-logo="{% static 'images/logo-transparent.png' %}">
 
       <!-- COLUNA ESQUERDA — Lista de conversas -->
@@ -204,6 +205,10 @@
               </svg>
             </button>
           </form>
+          <div class="conv-readonly-bar" data-readonly-bar hidden>
+            <span aria-hidden="true">👁️</span>
+            <span>Perfil somente leitura — você pode visualizar as conversas, mas não enviar mensagens.</span>
+          </div>
         </div>
       </div>
 

@@ -44,6 +44,14 @@ def role_default_keys(role):
     return list(DEFAULT_ROLE_KEYS.get(role, ['conversations']))
 
 
+def is_read_only(user):
+    """Perfil SOMENTE LEITURA (`leitor`): enxerga as telas liberadas em "Botoes do
+    perfil", mas NAO pode executar nenhuma acao que altere dados — enviar mensagem,
+    assumir/encerrar/transferir conversa, nomear contato, cadastrar/editar/excluir
+    contato/atendente/setor, salvar configuracoes, etc. So visualiza."""
+    return getattr(user, 'role', None) == 'leitor'
+
+
 def role_allowed_keys(role):
     """Conjunto de botoes de um PERFIL (config salva ou padrao). adm = tudo."""
     if role == 'adm':

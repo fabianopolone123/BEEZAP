@@ -57,7 +57,9 @@
           <input type="search" name="q" value="{{ search_term }}" placeholder="Buscar por nome ou telefone...">
           <button type="submit" class="secondary-button">Buscar</button>
         </form>
+        {% if not read_only %}
         <button type="button" class="primary-button" data-contact-new>Novo contato</button>
+        {% endif %}
       </section>
 
       <p class="contacts-count">{{ total_contacts }} contato(s) cadastrado(s).</p>
@@ -71,6 +73,7 @@
                 <strong class="contact-name">{{ c.name|default:"(sem nome)" }}</strong>
                 <span class="contact-phone">{{ c.phone }}</span>
               </div>
+              {% if not read_only %}
               <div class="contact-actions">
                 <button type="button" class="secondary-button"
                         data-contact-edit
@@ -84,6 +87,7 @@
                   <button type="submit" class="danger-link">Excluir</button>
                 </form>
               </div>
+              {% endif %}
             </article>
           {% endfor %}
         {% else %}

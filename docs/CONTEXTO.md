@@ -457,10 +457,9 @@ seed_demo_data [--no-clear]             # popula DEMO: 5 setores/atendentes + co
   mesmo; hoje o clique-para-nomear está no remetente e no cabeçalho da direta.
 - (Opcional) Retry de mídias falhas em **todas** as conversas (hoje o botão
   Atualizar age só na conversa aberta; existe o comando `retry_wapi_media` global).
-- **Perfil `leitor`**: decidir se vira **somente-leitura de verdade** (bloquear
-  enviar/assumir/encerrar/transferir/mídia nas views para `role='leitor'`) ou se o
-  perfil será **removido**. Hoje ele não restringe nada (só controla os botões do
-  menu), então se comporta igual ao `usuario`. Ver seção 15.
+- (Opcional) Decidir se o perfil `leitor` continua ou é **removido** no futuro. Hoje
+  ele já é **somente-leitura de verdade** (bloqueio no backend + UI escondida; ver
+  seção 15).
 
 ### Já concluído nesta fase (não são mais pendências)
 - Download de **documento** corrigido (nome/extensão reais, qualquer tipo; não mais `.bin`).
@@ -681,10 +680,7 @@ esconder o botão também bloqueia a URL.
     Promover a `adm` provisiona o atendente/setores via sinal (ver seção 3). É o
     **único lugar** onde se troca o papel pela interface. **Nota:** a edição de
     atendente (tela Atendentes) **não mexe mais no `role`** — o papel é definido só
-    aqui (antes o edit forçava `usuario` e apagaria a escolha). O perfil **`leitor`
-    hoje NÃO restringe ações** — só controla os botões do menu (igual a `usuario` na
-    prática); tornar `leitor` somente-leitura de verdade (ou removê-lo) é decisão
-    pendente.
+    aqui (antes o edit forçava `usuario` e apagaria a escolha).
   - **Botões do perfil**: toggles por perfil (Administrador travado como "acesso
     total") + seção "Personalizar um usuário" (select → toggles). Cada perfil/usuário
     tem também o toggle **"Ver conversa inteira"** (`full_history`).
@@ -701,6 +697,26 @@ esconder o botão também bloqueia a URL.
   automaticamente** ao clicar (fetch AJAX → `permissions_view` responde JSON quando
   `X-Requested-With`; toast de confirmação).
   `build_nav_items(user, active_label)` monta o menu a partir dessas regras.
+
+### Perfil SOMENTE LEITURA (`leitor`)
+- `is_read_only(user)` (`accounts/permissions.py`) = `role == 'leitor'`. O leitor
+  **enxerga** as telas liberadas em "Botões do perfil", mas **não executa nenhuma
+  ação que altere dados**. Enforçado no **backend** (autoritativo) e escondido no
+  **frontend** (UX).
+- **Backend:** `deny_readonly_json(request)` (endpoints AJAX) e `block_readonly(request)`
+  (telas de formulário) retornam **403** para leitor em: enviar texto/mídia, assumir,
+  encerrar, transferir, nomear contato, sincronizar grupos, salvar organização de
+  setores, CRUD de contatos/atendentes/setores e salvar Configurações (W-API/IA/
+  chatbot/modo). O que é **só leitura (GET)** — abrir Conversas, mensagens, listas —
+  continua liberado.
+- **Frontend:** `conversations_view`/`contacts_view` passam `read_only` ao template.
+  Em Conversas, `.conv-body.is-readonly` esconde o **composer**, a caixa de
+  **transferência** e os botões **Assumir/Encerrar**, e mostra uma barra
+  "👁️ Perfil somente leitura" (`conversations.css?v=23`). Em Contatos, somem
+  **Novo contato** e as ações **Editar/Excluir**.
+- Quais **botões** o leitor vê continua vindo de "Botões do perfil" (o admin habilita).
+  Ou seja: o admin escolhe **onde** o leitor entra; o perfil garante que ali ele
+  **só visualiza**.
 
 ### Separação das conversas (quem vê quais chats)
 - `visible_conversations(user, qs)` / `can_see_conversation(user, conv)` em

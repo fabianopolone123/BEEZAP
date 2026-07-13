@@ -1560,6 +1560,66 @@ class ProfileRoleTests(TestCase):
         self.assertEqual(resp.status_code, 403)
 
 
+class ReadOnlyLeitorTests(TestCase):
+    """Perfil `leitor` = somente leitura: enxerga as conversas, mas nao executa
+    NENHUMA acao (enviar/assumir/encerrar/transferir/cadastrar contato)."""
+
+    def setUp(self):
+        from accounts.models import Contact, Conversation, Sector
+        self.Contact = Contact
+        self.Conversation = Conversation
+        self.leitor = User.objects.create_user(email='leo@x.com', password='x', role=User.Role.LEITOR)
+        self.att = Attendant.objects.create(user=self.leitor, name='Leo', must_change_password=False)
+        self.vendas = Sector.objects.create(name='Vendas')
+        self.att.sectors.add(self.vendas)
+        ct = Contact.objects.create(name='Cliente', phone='5516988887777')
+        self.conv = Conversation.objects.create(
+            contact=ct, external_id='5516988887777', chat_type='private',
+            status='pending', sector=self.vendas)
+        self.client.force_login(self.leitor)
+
+    def test_can_view(self):
+        # VER e permitido: a tela e as mensagens abrem normalmente (GET).
+        self.assertEqual(self.client.get(reverse('conversations')).status_code, 200)
+        self.assertEqual(
+            self.client.get(reverse('conversation-messages', args=[self.conv.id])).status_code, 200
+        )
+
+    def test_conversations_page_marks_readonly(self):
+        html = self.client.get(reverse('conversations')).content.decode()
+        self.assertIn('is-readonly', html)
+
+    def test_cannot_send(self):
+        r = self.client.post(reverse('conversation-send', args=[self.conv.id]), {'text': 'oi'})
+        self.assertEqual(r.status_code, 403)
+        self.assertFalse(r.json()['ok'])
+
+    def test_cannot_take(self):
+        r = self.client.post(reverse('conversation-take', args=[self.conv.id]))
+        self.assertEqual(r.status_code, 403)
+        self.conv.refresh_from_db()
+        self.assertIsNone(self.conv.assigned_attendant)
+
+    def test_cannot_close(self):
+        r = self.client.post(reverse('conversation-close', args=[self.conv.id]))
+        self.assertEqual(r.status_code, 403)
+        self.conv.refresh_from_db()
+        self.assertEqual(self.conv.status, 'pending')
+
+    def test_cannot_transfer(self):
+        r = self.client.post(
+            reverse('conversation-transfer', args=[self.conv.id]),
+            {'sector_id': str(self.vendas.id)},
+        )
+        self.assertEqual(r.status_code, 403)
+
+    def test_cannot_create_contact(self):
+        before = self.Contact.objects.count()
+        r = self.client.post(reverse('contacts'), {'name': 'Novo', 'phone': '5511900000000'})
+        self.assertEqual(r.status_code, 403)
+        self.assertEqual(self.Contact.objects.count(), before)
+
+
 class ConversationVisibilityTests(TestCase):
     """Separacao das conversas: quem ve quais chats + escopo do historico."""
 
