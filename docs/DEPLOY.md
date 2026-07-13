@@ -115,7 +115,13 @@ bash deploy/deploy.sh
 ```
 
 O script faz: `git pull` → `pip install` → `migrate` → `collectstatic --noinput`
-→ `restart` do serviço.
+→ `restart` do serviço **com verificação automática do reinício**. Ele guarda os
+PIDs do gunicorn antes e depois do `restart`; se os workers **não reciclaram** (PIDs
+iguais ou nenhum processo), **força** o reinício de verdade (`stop` + `pkill` +
+`start`) e, se mesmo assim o gunicorn não subir, **aborta com erro** (`exit 1`). Ao
+final imprime o `etimes` dos processos (deve ser poucos segundos). Ou seja: a
+armadilha do template em cache (abaixo) passou a ser tratada **automaticamente** pelo
+`deploy.sh` — não precisa mais conferir na mão.
 
 ## ⚠️ Mudança de TEMPLATE não aparece? Reinicie o gunicorn de verdade
 
