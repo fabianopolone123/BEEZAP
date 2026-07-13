@@ -250,14 +250,24 @@
   min-width: 0;
 }
 
+/* Linha do nome: o NOME trunca (ellipsis), mas o selo "Admin" fica SEMPRE visivel
+   (fora da area cortada). Antes o selo ficava dentro do span com overflow:hidden e
+   sumia quando o nome era grande. */
 .sec-att-name {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
   font-size: 0.86rem;
   font-weight: 600;
+  color: #15213d;
+}
+
+.sec-att-name-text {
+  min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  color: #15213d;
 }
 
 .sec-att-email {
@@ -271,8 +281,8 @@
 
 /* Selo "Admin" ao lado do nome do atendente administrador. */
 .sec-att-admin-badge {
+  flex-shrink: 0;
   display: inline-block;
-  margin-left: 6px;
   padding: 1px 7px;
   border-radius: 999px;
   font-size: 0.65rem;
@@ -281,7 +291,7 @@
   text-transform: uppercase;
   color: #7c3aed;
   background: rgba(124, 58, 237, 0.12);
-  vertical-align: middle;
+  white-space: nowrap;
 }
 
 /* Indicador "em N setores" na coluna de disponiveis. */

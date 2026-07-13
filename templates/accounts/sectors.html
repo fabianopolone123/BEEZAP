@@ -5,7 +5,7 @@
 
 {% block extra_head %}
 <link rel="stylesheet" href="{% static 'css/dashboard.css' %}">
-<link rel="stylesheet" href="{% static 'css/sectors.css' %}?v=3">
+<link rel="stylesheet" href="{% static 'css/sectors.css' %}?v=4">
 {% endblock %}
 
 {% block content %}
@@ -99,7 +99,7 @@
             <div class="sec-att-avatar" aria-hidden="true">{{ att.name|first|upper }}</div>
             <div class="sec-att-info">
               <span class="sec-att-name">
-                {{ att.name }}
+                <span class="sec-att-name-text">{{ att.name }}</span>
                 {% if att.user.role == 'adm' %}<span class="sec-att-admin-badge">Admin</span>{% endif %}
               </span>
               <span class="sec-att-email">{{ att.user.email }}</span>
@@ -158,7 +158,7 @@
               <div class="sec-att-avatar" aria-hidden="true">{{ att.name|first|upper }}</div>
               <div class="sec-att-info">
                 <span class="sec-att-name">
-                  {{ att.name }}
+                  <span class="sec-att-name-text">{{ att.name }}</span>
                   {% if att.user.role == 'adm' %}<span class="sec-att-admin-badge">Admin</span>{% endif %}
                 </span>
                 <span class="sec-att-email">{{ att.user.email }}</span>
@@ -420,7 +420,7 @@
     li.innerHTML =
       '<div class="sec-att-avatar" aria-hidden="true">' + escHtml(att.initials) + '</div>' +
       '<div class="sec-att-info">' +
-        '<span class="sec-att-name">' + escHtml(att.name) + adminBadge + '</span>' +
+        '<span class="sec-att-name"><span class="sec-att-name-text">' + escHtml(att.name) + '</span>' + adminBadge + '</span>' +
         '<span class="sec-att-email">' + escHtml(att.email) + '</span>' +
       '</div>' +
       '<button type="button" class="sec-remove-btn" ' +
@@ -482,7 +482,12 @@
 
       if (!attId) return;
       if (!state[sectorId]) state[sectorId] = new Set();
-      if (state[sectorId].has(attId)) return; /* já está neste setor */
+      if (state[sectorId].has(attId)) {
+        /* Ja esta neste setor: avisa em vez de nao fazer nada (silencioso confundia). */
+        const att = ATTENDANTS[attId];
+        showToast('info', (att ? att.name : 'Este atendente') + ' já está neste setor.');
+        return;
+      }
 
       /* Adiciona ao setor alvo (o atendente CONTINUA disponivel para outros setores) */
       state[sectorId].add(attId);
@@ -621,7 +626,7 @@
       li.innerHTML =
         '<div class="sec-att-avatar" aria-hidden="true">' + escHtml(att.initials) + '</div>' +
         '<div class="sec-att-info">' +
-          '<span class="sec-att-name">' + escHtml(att.name) + adminBadge + '</span>' +
+          '<span class="sec-att-name"><span class="sec-att-name-text">' + escHtml(att.name) + '</span>' + adminBadge + '</span>' +
           '<span class="sec-att-email">' + escHtml(att.email) + '</span>' +
         '</div>';
 
@@ -660,7 +665,11 @@
 
   function addToSector(attId, sectorId) {
     if (!state[sectorId]) state[sectorId] = new Set();
-    if (state[sectorId].has(attId)) return;
+    if (state[sectorId].has(attId)) {
+      const att = ATTENDANTS[attId];
+      showToast('info', (att ? att.name : 'Este atendente') + ' já está neste setor.');
+      return;
+    }
     state[sectorId].add(attId);
     const list = document.querySelector('.sector-att-list[data-sector-id="' + sectorId + '"]');
     if (list) {
