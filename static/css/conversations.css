@@ -295,13 +295,9 @@
   box-shadow: inset 0 0 0 1px #21c25e;
 }
 
-.conv-notif-toggle.off {          /* precisa clicar para ativar */
+.conv-notif-toggle.off {          /* desativadas no navegador */
   background: #fffbeb;
   box-shadow: inset 0 0 0 1px #f59e0b;
-}
-
-.conv-notif-toggle.off:hover {
-  background: #fef3c7;
 }
 
 .conv-notif-toggle.blocked {      /* bloqueadas no navegador */
@@ -309,8 +305,13 @@
   box-shadow: inset 0 0 0 1px #ef4444;
 }
 
-.conv-notif-toggle.blocked:hover {
-  background: #fee2e2;
+/* O sino de notificacoes e SOMENTE informativo: nao e clicavel. */
+.conv-notif-indicator {
+  cursor: default;
+}
+
+.conv-notif-indicator:hover {
+  background: none;
 }
 
 .conv-sound-toggle.off {          /* som desligado */

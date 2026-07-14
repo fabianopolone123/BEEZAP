@@ -269,10 +269,14 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
   (o filtro/badge é só de conversas diretas).
 - **Notificações (estilo WhatsApp Web)**: pop-up do desktop (Web Notifications) +
   **aviso sonoro** (beep via Web Audio, sem arquivo) quando a janela **não** está em
-  foco (`document.hasFocus()`); toast interno quando em foco. Dois botões-ícone no
-  topo da lista: **Notificações** (mostra o estado da permissão — verde/âmbar/vermelho —
-  e força o pedido ao clicar) e **Som** (liga/desliga, salvo em `localStorage`).
-  Título da aba mostra o total de não lidas.
+  foco (`document.hasFocus()`); toast interno quando em foco. No topo da lista:
+  o **sino de Notificações** é um **indicador SOMENTE informativo** (não clicável,
+  `<span>` com `.conv-notif-indicator`): apenas reflete o estado da permissão do
+  navegador — verde = ativas, âmbar = desativadas, vermelho = bloqueadas — e se
+  atualiza sozinho via `navigator.permissions` quando muda (ex.: liberar no cadeado);
+  a permissão é concedida pelo próprio navegador (não pelo app). Ao lado, o botão
+  **Som** (liga/desliga, salvo em `localStorage`). Título da aba mostra o total de
+  não lidas.
 - **Botão Atualizar** (ícone de refresh, ao lado de Som/Notificações; substituiu o
   "Sincronizar grupos"): sincroniza os nomes dos grupos **e** retenta as mídias que
   falharam na conversa aberta.

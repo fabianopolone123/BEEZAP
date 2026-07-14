@@ -5,7 +5,7 @@
 
 {% block extra_head %}
 <link rel="stylesheet" href="{% static 'css/dashboard.css' %}?v=5">
-<link rel="stylesheet" href="{% static 'css/conversations.css' %}?v=23">
+<link rel="stylesheet" href="{% static 'css/conversations.css' %}?v=24">
 {% endblock %}
 
 {% block content %}
@@ -78,9 +78,9 @@
               <span class="conv-waiting-label">aguardando</span>
             </button>
 
-            <button type="button" class="conv-icon-btn conv-notif-toggle" data-notif-toggle title="Notificacoes do navegador" aria-label="Notificacoes do navegador">
+            <span class="conv-icon-btn conv-notif-toggle conv-notif-indicator" data-notif-toggle title="Notificacoes do navegador" role="img" aria-label="Estado das notificacoes do navegador">
               <span data-notif-icon aria-hidden="true">🔔</span>
-            </button>
+            </span>
 
             <button type="button" class="conv-icon-btn conv-sound-toggle" data-sound-toggle title="Aviso sonoro de novas mensagens" aria-label="Aviso sonoro de novas mensagens">
               <span data-sound-icon aria-hidden="true">🔊</span>
@@ -1524,7 +1524,8 @@
     return notifState() === 'granted';
   }
 
-  // Reflete o estado da permissao no botao (verde=ativa, ambar=ativar, vermelho=bloqueada).
+  // Indicador SOMENTE informativo (nao clicavel): apenas reflete se o navegador
+  // esta liberado para notificacoes (verde=ativas, ambar=desativadas, vermelho=bloqueadas).
   function setNotifUI() {
     if (!notifToggle) return;
     var s = notifState();
@@ -1537,52 +1538,19 @@
       if (notifLabel) notifLabel.textContent = 'Notificações ativas';
       notifToggle.title = 'Notificacoes do navegador ativas';
     } else if (s === 'default') {
-      if (notifIcon) notifIcon.textContent = '🔔';
-      if (notifLabel) notifLabel.textContent = 'Ativar notificações';
-      notifToggle.title = 'Clique para ativar as notificacoes do navegador';
+      if (notifIcon) notifIcon.textContent = '🔕';
+      if (notifLabel) notifLabel.textContent = 'Notificações desativadas';
+      notifToggle.title = 'Notificacoes do navegador desativadas — ative no cadeado ao lado do endereco (Configuracoes do site)';
     } else {
       if (notifIcon) notifIcon.textContent = '🔕';
       if (notifLabel) notifLabel.textContent = 'Notificações bloqueadas';
       notifToggle.title = 'Notificacoes bloqueadas — libere no cadeado da barra de endereco';
     }
-    notifToggle.setAttribute('aria-pressed', s === 'granted' ? 'true' : 'false');
-  }
-
-  function requestNotifyPermission() {
-    if (!('Notification' in window)) return;
-    var done = function () { setNotifUI(); if (canNotify()) showDesktopTestNotification(); };
-    try {
-      var p = Notification.requestPermission(done); // navegadores antigos: callback
-      if (p && typeof p.then === 'function') p.then(done); // modernos: Promise
-    } catch (e) {}
-  }
-
-  function showDesktopTestNotification() {
-    try {
-      var n = new Notification('BEEZap', {
-        body: 'Notificacoes ativadas! Voce sera avisado de novas mensagens.',
-        icon: NOTIF_ICON || undefined,
-      });
-      window.setTimeout(function () { n.close(); }, 4000);
-    } catch (e) {}
   }
 
   if (notifToggle) {
     setNotifUI();
-    notifToggle.addEventListener('click', function () {
-      var s = notifState();
-      if (s === 'unsupported') {
-        showToast('Este navegador nao suporta notificacoes.', 'error');
-      } else if (s === 'granted') {
-        showToast('Notificacoes ja estao ativadas.', 'success');
-        showDesktopTestNotification();
-      } else if (s === 'denied') {
-        showToast('Notificacoes bloqueadas no navegador. Reative no cadeado ao lado do endereco (Configuracoes do site).', 'error');
-      } else {
-        requestNotifyPermission(); // 'default' -> pede a permissao (gesto do usuario)
-      }
-    });
-    // Atualiza a cor sozinho se a permissao mudar (ex.: liberou no cadeado).
+    // Atualiza a cor sozinho se a permissao mudar no navegador (ex.: liberou no cadeado).
     if (navigator.permissions && navigator.permissions.query) {
       navigator.permissions.query({name: 'notifications'})
         .then(function (status) { status.onchange = setNotifUI; })
