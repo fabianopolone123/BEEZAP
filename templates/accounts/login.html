@@ -22,7 +22,7 @@
         <p>Use suas credenciais para acessar o ambiente.</p>
       </div>
 
-      <form class="login-form" method="post">
+      <form class="login-form" method="post" action="{% url 'login' %}">
         {% csrf_token %}
         <div class="login-field">
           <label for="{{ form.email.id_for_label }}">E-mail</label>
