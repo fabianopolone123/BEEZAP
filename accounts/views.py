@@ -839,13 +839,13 @@ def permissions_view(request):
             if is_ajax:
                 return JsonResponse({'ok': True})
             messages.success(request, f'Permissoes de {target.email} salvas.')
-            return redirect(f'{reverse("permissions")}?user={target.id}')
+            return redirect(f'{reverse("permissions")}?tab=botoes&user={target.id}')
 
         if form_type == 'user-reset':
             user_id = (request.POST.get('user_id') or '').strip()
             UserMenuPermission.objects.filter(user_id=user_id).delete()
             messages.success(request, 'Personalizacao removida (voltou ao padrao do perfil).')
-            return redirect('permissions')
+            return redirect(f'{reverse("permissions")}?tab=botoes&user={user_id}')
 
         if form_type == 'profile-role':
             user_id = (request.POST.get('user_id') or '').strip()

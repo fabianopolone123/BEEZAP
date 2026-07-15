@@ -145,6 +145,7 @@
           <div class="perm-head"><h2>Personalizar um usuário</h2></div>
 
           <form method="get" class="perm-user-picker">
+            <input type="hidden" name="tab" value="botoes">
             <select name="user" class="perm-select" onchange="this.form.submit()">
               <option value="">Selecione um usuário...</option>
               {% for u in users %}

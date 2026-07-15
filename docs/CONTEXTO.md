@@ -700,7 +700,10 @@ esconder o botão também bloqueia a URL.
     aqui (antes o edit forçava `usuario` e apagaria a escolha).
   - **Botões do perfil**: toggles por perfil (Administrador travado como "acesso
     total") + seção "Personalizar um usuário" (select → toggles). Cada perfil/usuário
-    tem também o toggle **"Ver conversa inteira"** (`full_history`).
+    tem também o toggle **"Ver conversa inteira"** (`full_history`). O select de
+    usuário (form GET) e os redirects de salvar/resetar a personalização **preservam
+    a aba** (`?tab=botoes&user=<id>`) — selecionar um usuário não joga mais de volta
+    para a aba Perfis.
   - **Grupos**: lista os grupos detectados (Conversation `chat_type='group'`) e libera
     cada um por **setor** e/ou **usuário** (grava em `GroupAccess`); botão **"Atualizar
     nomes"** chama `conversation-sync-groups` (nome real do grupo via W-API). O **nome
