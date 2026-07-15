@@ -1067,7 +1067,14 @@ def permissions_view(request):
     ]
 
     # ----- Aba "Visualização de conversas" -----
-    scope_options = [{'value': c.value, 'label': c.label} for c in ConversationViewScope]
+    # Niveis de alcance em ORDEM (menos -> mais visualizacao); o slider usa o indice.
+    scope_levels = [{'value': c.value, 'label': c.label} for c in ConversationViewScope]
+    scope_order = [c['value'] for c in scope_levels]
+    scope_label_by_value = {c['value']: c['label'] for c in scope_levels}
+
+    def scope_level_index(value):
+        return scope_order.index(value) if value in scope_order else scope_order.index('sector_open')
+
     view_sectors_ctx = []
     for s in sectors:
         view_sectors_ctx.append({
@@ -1075,9 +1082,9 @@ def permissions_view(request):
             'name': s.name,
             'is_general': s.is_general,
             'full_history': s.view_full_history,
-            'scope_options': [
-                {**opt, 'selected': opt['value'] == s.view_scope} for opt in scope_options
-            ],
+            'scope_value': s.view_scope,
+            'scope_level': scope_level_index(s.view_scope),
+            'scope_label': scope_label_by_value.get(s.view_scope, ''),
         })
     view_selected_ctx = None
     if selected:
@@ -1094,11 +1101,11 @@ def permissions_view(request):
             'custom': bool(ov and ov.is_customized),
             'effective_scope': effective_view_scope(selected),
             'effective_full_history': history_full_for(selected),
-            # '' (herdar) + os niveis de alcance.
-            'scope_options': (
-                [{'value': '', 'label': 'Herdar do setor', 'selected': ov_scope is None}]
-                + [{**opt, 'selected': opt['value'] == ov_scope} for opt in scope_options]
-            ),
+            'inherit_scope': ov_scope is None,
+            # Se herda, o slider comeca no efetivo (so referencia); senao no override.
+            'scope_value': ov_scope or '',
+            'scope_level': scope_level_index(ov_scope or effective_view_scope(selected)),
+            'scope_label': scope_label_by_value.get(ov_scope, '') if ov_scope else '',
             'full_history_value': fh_value,
         }
 
@@ -1122,6 +1129,7 @@ def permissions_view(request):
             'role_options': role_options,
             'view_sectors': view_sectors_ctx,
             'view_selected': view_selected_ctx,
+            'scope_levels': scope_levels,
             'active_tab': active_tab,
         },
     )
@@ -1721,11 +1729,9 @@ def conversation_messages_view(request, conversation_id):
             seg_mine[seg_idx] = True
         if not seg_sector.get(seg_idx) and conversation.sector_id:
             seg_sector[seg_idx] = conversation.sector_id
-    owner_tabs = (
-        not conversation.is_group
-        and any(seg_mine.values())
-        and any(not v for v in seg_mine.values())
-    )
+    # Mostra as abas por dono quando ha MAIS DE UM atendimento no historico visivel
+    # (mesmo que sejam todos meus) — assim o filtro fica descobrivel. So em direta.
+    owner_tabs = (not conversation.is_group) and len(seg_mine) >= 2
     # Setores presentes no historico (para o seletor da aba "Conversa do setor").
     present_sector_ids = [sid for sid in dict.fromkeys(seg_sector.values()) if sid]
     conv_sectors = [{'id': sid, 'name': sector_name_by_id.get(sid, 'Setor')}

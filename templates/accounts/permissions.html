@@ -4,7 +4,7 @@
 {% block title %}Permissões | BEEZap{% endblock %}
 {% block extra_head %}
 <link rel="stylesheet" href="{% static 'css/dashboard.css' %}">
-<link rel="stylesheet" href="{% static 'css/permissions.css' %}?v=7">
+<link rel="stylesheet" href="{% static 'css/permissions.css' %}?v=8">
 {% endblock %}
 
 {% block content %}
@@ -181,6 +181,7 @@
 
       <!-- ============ ABA: VISUALIZAÇÃO DE CONVERSAS ============ -->
       <section class="perm-panel {% if active_tab == 'visualizacao' %}is-active{% endif %}" data-panel="visualizacao">
+        {{ scope_levels|json_script:"scope-levels" }}
         <form method="post" class="perm-card" data-autosave="Visualização por setor salva.">
           {% csrf_token %}
           <input type="hidden" name="form_type" value="view-sectors">
@@ -202,14 +203,20 @@
               <span class="perm-view-sector-name">{{ s.name }}</span>
               {% if s.is_general %}<span class="perm-role-tag">padrão</span>{% endif %}
             </div>
-            <label class="perm-view-field">
-              <span class="perm-view-field-label">Alcance</span>
-              <select name="sector__{{ s.id }}__scope" class="perm-select">
-                {% for opt in s.scope_options %}
-                  <option value="{{ opt.value }}" {% if opt.selected %}selected{% endif %}>{{ opt.label }}</option>
-                {% endfor %}
-              </select>
-            </label>
+            <div class="perm-view-field perm-scope">
+              <span class="perm-view-field-label">Alcance de visualização</span>
+              <div class="perm-scope-slider" data-scope-slider>
+                <input type="hidden" name="sector__{{ s.id }}__scope" value="{{ s.scope_value }}" data-scope-value>
+                <input type="range" class="perm-scope-range" min="0" max="3" step="1"
+                       value="{{ s.scope_level }}" data-scope-range
+                       aria-label="Alcance de visualização do setor {{ s.name }}">
+                <div class="perm-scope-meta">
+                  <span class="perm-scope-end">Menos</span>
+                  <span class="perm-scope-current" data-scope-label>{{ s.scope_label }}</span>
+                  <span class="perm-scope-end">Mais</span>
+                </div>
+              </div>
+            </div>
             <label class="perm-toggle perm-toggle-history {% if s.full_history %}is-on{% endif %}">
               <input type="checkbox" name="sector__{{ s.id }}__full_history" {% if s.full_history %}checked{% endif %}>
               <span class="perm-ico">🕓</span>
@@ -247,14 +254,24 @@
             <input type="hidden" name="form_type" value="view-user">
             <input type="hidden" name="user_id" value="{{ view_selected.id }}">
             <div class="perm-view-user">
-              <label class="perm-view-field">
+              <div class="perm-view-field perm-scope perm-scope-user"
+                   data-scope-slider data-user-scope
+                   {% if view_selected.inherit_scope %}data-inherit="1"{% endif %}>
                 <span class="perm-view-field-label">Alcance das conversas</span>
-                <select name="user_scope" class="perm-select">
-                  {% for opt in view_selected.scope_options %}
-                    <option value="{{ opt.value }}" {% if opt.selected %}selected{% endif %}>{{ opt.label }}</option>
-                  {% endfor %}
-                </select>
-              </label>
+                <label class="perm-scope-inherit">
+                  <input type="checkbox" data-scope-inherit {% if view_selected.inherit_scope %}checked{% endif %}>
+                  <span>Herdar do setor</span>
+                </label>
+                <input type="hidden" name="user_scope" value="{{ view_selected.scope_value }}" data-scope-value>
+                <input type="range" class="perm-scope-range" min="0" max="3" step="1"
+                       value="{{ view_selected.scope_level }}" data-scope-range
+                       aria-label="Alcance de visualização do usuário">
+                <div class="perm-scope-meta">
+                  <span class="perm-scope-end">Menos</span>
+                  <span class="perm-scope-current" data-scope-label>{{ view_selected.scope_label }}</span>
+                  <span class="perm-scope-end">Mais</span>
+                </div>
+              </div>
               <label class="perm-view-field">
                 <span class="perm-view-field-label">Ver conversa inteira</span>
                 <select name="user_full_history" class="perm-select">
@@ -452,6 +469,42 @@
           scheduleSave(form);
         }
       });
+    });
+
+    /* ── Slider de "Alcance de visualizacao" (barra menos -> mais) ── */
+    var SCOPE_LEVELS = [];
+    var scopeData = document.getElementById('scope-levels');
+    if (scopeData) { try { SCOPE_LEVELS = JSON.parse(scopeData.textContent) || []; } catch (e) {} }
+
+    document.querySelectorAll('[data-scope-slider]').forEach(function (box) {
+      var range = box.querySelector('[data-scope-range]');
+      var hidden = box.querySelector('[data-scope-value]');
+      var label = box.querySelector('[data-scope-label]');
+      var form = box.closest('form[data-autosave]');
+      var inheritCb = box.querySelector('[data-scope-inherit]');
+      if (!range || !hidden || !SCOPE_LEVELS.length) return;
+
+      function paint() {
+        var max = parseInt(range.max, 10) || 3;
+        var pct = max ? (parseInt(range.value, 10) / max) * 100 : 0;
+        range.style.setProperty('--fill', pct + '%');
+      }
+      function render(doSave) {
+        var lvl = parseInt(range.value, 10) || 0;
+        var info = SCOPE_LEVELS[lvl] || {value: '', label: ''};
+        var inheriting = !!(inheritCb && inheritCb.checked);
+        box.classList.toggle('is-inherit', inheriting);
+        range.disabled = inheriting;
+        hidden.value = inheriting ? '' : info.value;
+        if (label) label.textContent = inheriting ? 'Herdando do setor' : info.label;
+        paint();
+        if (doSave && form) scheduleSave(form);
+      }
+
+      range.addEventListener('input', function () { render(false); });
+      range.addEventListener('change', function () { render(true); });
+      if (inheritCb) inheritCb.addEventListener('change', function () { render(true); });
+      render(false);  // estado inicial (pinta a barra e o rotulo)
     });
 
     /* ── Renomear grupo manualmente (salva ao sair do campo) ── */

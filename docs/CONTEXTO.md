@@ -262,11 +262,13 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
   um contato, filtra os **atendimentos** (segmentos entre as divisórias "Novo atendimento
   iniciado") por **dono** e por **setor**. Aparece quando há mais de um dono **ou** mais
   de um setor no histórico visível.
-  - **Abas por dono** (`.conv-owner-tabs`, mostradas quando `owner_tabs`): **Conversa do
-    setor** (padrão, tudo o que a pessoa pode ver) × **Conversa privada** (só os
+  - **Abas por dono** (`.conv-owner-tabs`, mostradas quando `owner_tabs` = **há mais de
+    um atendimento** no histórico visível, para o filtro ficar descobrível): **Conversa
+    do setor** (padrão, tudo o que a pessoa pode ver) × **Conversa privada** (só os
     atendimentos que ela mesma atendeu). "Meu" = o segmento tem resposta minha
     (`sender_name` == meu nome de atendente) ou a conversa está atribuída a mim no
-    segmento atual.
+    segmento atual. *(Depende de a pessoa ter "ver conversa inteira" — senão ela só
+    enxerga o atendimento atual, um único segmento, e não há o que separar.)*
   - **Seletor de setor** (`.conv-sector-chips`, só na aba "Conversa do setor", quando há
     ≥2 setores): **Todos os setores** + um chip por setor presente no histórico. O
     **setor de cada atendimento** é resolvido no endpoint como o **último setor não-nulo
@@ -743,15 +745,17 @@ esconder o botão também bloqueia a URL.
     Visualização de conversas.)*
   - **Visualização de conversas**: controla, **por setor** e com **exceção por
     usuário**, DUAS coisas (ver subseção "Separação das conversas" abaixo): (1) o
-    **Alcance** — quais conversas a pessoa enxerga (seletor de 4 níveis: `own` /
-    `sector_open` / `sector_all` / `all`, em `ConversationViewScope`); (2) **Ver
-    conversa inteira** (`view_full_history`) — todo o histórico do chat ou só o
+    **Alcance** — quais conversas a pessoa enxerga, num **slider de 4 níveis** (barra
+    "menos → mais visualização": `own` / `sector_open` / `sector_all` / `all`, em
+    `ConversationViewScope`; o slider grava o valor num `<input hidden>` e o rótulo do
+    nível aparece embaixo — ver `scope_levels` via `json_script` + JS `[data-scope-slider]`);
+    (2) **Ver conversa inteira** (`view_full_history`) — todo o histórico do chat ou só o
     atendimento atual. **Bloco "Por setor"** (`form_type=view-sectors`): um cartão por
-    setor com o seletor de Alcance + toggle "Ver conversa inteira", gravados em
+    setor com o slider de Alcance + toggle "Ver conversa inteira", gravados em
     `Sector.view_scope`/`Sector.view_full_history`. **Bloco "Personalizar um usuário"**
     (`form_type=view-user`, com `view-user-reset`): select da pessoa (preserva a aba,
-    `?tab=visualizacao&user=<id>`) → Alcance (opção **"Herdar do setor"** + os 4
-    níveis) e Ver conversa inteira (**Herdar** / Sim / Não), gravados em
+    `?tab=visualizacao&user=<id>`) → Alcance (checkbox **"Herdar do setor"** + o slider) e
+    Ver conversa inteira (**Herdar** / Sim / Não), gravados em
     `UserConversationView` (campos nulos = herdar; sem nenhuma personalização a linha
     é removida). Salva automático (o autosave do JS agora dispara em `<select>` também).
   - **Grupos**: lista os grupos detectados (Conversation `chat_type='group'`) e libera
