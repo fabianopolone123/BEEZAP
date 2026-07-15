@@ -670,7 +670,8 @@
       divider.dataset.msgSig = msgSignature(msg);
       var pill = document.createElement('span');
       pill.className = 'conv-divider-pill';
-      pill.textContent = (msg.text || '') + (msg.time ? ' · ' + msg.time : '');
+      var stamp = [msg.date, msg.time].filter(Boolean).join(' ');
+      pill.textContent = (msg.text || '') + (stamp ? ' · ' + stamp : '');
       divider.appendChild(pill);
       return divider;
     }
@@ -733,7 +734,8 @@
 
     var time = document.createElement('span');
     time.className = 'conv-msg-time';
-    time.textContent = msg.time + (msg.type === 'sent' ? ' ✓' : '');
+    var stampMsg = [msg.date, msg.time].filter(Boolean).join(' ');
+    time.textContent = stampMsg + (msg.type === 'sent' ? ' ✓' : '');
     bubble.appendChild(time);
     wrap.appendChild(bubble);
     return wrap;

@@ -245,6 +245,9 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
   aguardando / de outro → mostra **Assumir** + **Encerrar**.
 - **Chat via AJAX**: abrir zera não lidas; render por tipo; **composer fixo no
   rodapé** (corrigido com `min-height:0` na cadeia flex/grid e `[hidden]{display:none!important}`).
+  Cada mensagem mostra **data e hora** discretas no rodapé do balão (`.conv-msg-time`,
+  ex.: "14/07/2026 18:37 ✓"); o serializer (`_serialize_message`) expõe `date`
+  (`%d/%m/%Y`) e `time` (`%H:%M`).
 - **Poll incremental** (`syncMessages`): a atualização periódica só mexe no DOM
   quando chega mensagem nova ou muda o conteúdo (ex.: mídia baixada); **nunca**
   recria uma mídia que esteja tocando (não corta o play). Poll: mensagens 6s,
@@ -523,7 +526,8 @@ seed_demo_data [--no-clear]             # popula DEMO: 5 setores/atendentes + co
   finalizado, ou recém-encaminhado pela IA, mostra **todo o atendimento** (cliente + IA/menu),
   não só a divisória. Ver seção 15.
 - **Front**: `buildMessageEl` renderiza `kind='system'` como uma **pílula centralizada**
-  (`.conv-divider`, sem balão/horário); CSS em `conversations.css?v=21`.
+  (`.conv-divider`); a pílula mostra o texto + **data e hora** (ex.: "Atendimento
+  encerrado · 14/07/2026 18:44"). CSS em `conversations.css?v=21`.
 - **Chats já picotados** (do comportamento antigo de fork) são unificados pelo comando
   `merge_contact_conversations` (ver seção 9 / comandos de management).
 

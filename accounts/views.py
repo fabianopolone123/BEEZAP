@@ -1349,6 +1349,7 @@ def _serialize_message(message, name_map=None):
         'kind': message.message_type,
         'text': _resolve_mentions(message.text, name_map),
         'time': timezone.localtime(message.created_at).strftime('%H:%M'),
+        'date': timezone.localtime(message.created_at).strftime('%d/%m/%Y'),
         'status': message.status,
         'media_url': message.resolved_media_url,
         'media_mimetype': message.media_mimetype,
