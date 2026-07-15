@@ -35,7 +35,7 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
 > `wapi/` é um módulo Python comum (importa `accounts.models`); **não** está em
 > `INSTALLED_APPS`, por isso os models ficam em `accounts/models.py`.
 
-## 3. Modelos (`accounts/models.py`) — migração atual: `0027`
+## 3. Modelos (`accounts/models.py`) — migração atual: `0029`
 
 - **User** (AbstractUser, login por e-mail; `role`: `leitor`/`usuario`/`adm`).
 - **Attendant** (perfil de atendente, vínculo com User, troca de senha inicial).
@@ -62,7 +62,14 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
   atendentes fazem parte dele por padrão** (backfill na `0028` + sinal em
   `signals.py` que adiciona todo atendente novo ao criar). É o destino garantido do
   handoff da IA/chatbot (seções 13/14). Roteamento por atendente citado prefere um
-  setor **específico** (não o Geral) quando o atendente tem outro.
+  setor **específico** (não o Geral) quando o atendente tem outro. Campos de
+  **visualização** (aba Visualização de conversas, seção 15): `view_scope`
+  (`ConversationViewScope`: `own`/`sector_open`/`sector_all`/`all`, padrão
+  `sector_open`) e `view_full_history` (bool) — padrão do setor para o alcance de
+  conversas e "ver conversa inteira".
+- **UserConversationView** (OneToOne com User): **exceção por usuário** da
+  visualização de conversas, sobrepõe o setor. `view_scope` (nulo = herdar) e
+  `view_full_history` (nulo = herdar). Ver seção 15.
 - **PasswordResetCode** (recuperação de senha por código no WhatsApp).
 - **WapiConfiguration** (singleton `get_solo()`): `instance_id`, `token`,
   `webhook_token`. Credenciais reais ficam **aqui (no banco)**, editadas na tela
@@ -690,8 +697,9 @@ esconder o botão também bloqueia a URL.
 - **Landing pós-login**: quem não tem Dashboard cai na 1ª tela disponível
   (`first_landing_url_name`; `dashboard_view` redireciona).
 - **Tela Permissões** (`permissions_view`, rota `permissoes/`, `permissions.html` +
-  `permissions.css`, **só ADM**) — em **abas** (`Perfis` / `Botões do perfil` / `Grupos`;
-  aba padrão = Perfis; chaves internas `people`/`botoes`/`grupos` no `?tab=`):
+  `permissions.css`, **só ADM**) — em **abas** (`Perfis` / `Botões do perfil` /
+  `Visualização de conversas` / `Grupos`; aba padrão = Perfis; chaves internas
+  `people`/`botoes`/`visualizacao`/`grupos` no `?tab=`):
   - **Perfis**: define o **papel de cada pessoa** (`adm`/`usuario`/`leitor`). Lista
     todos os usuários ativos (avatar + nome + e-mail) com um **seletor visual de 3
     pílulas** (👑 Administrador · 🎧 Usuário · 👁️ Leitor), a ativa colorida por perfil.
@@ -703,11 +711,24 @@ esconder o botão também bloqueia a URL.
     atendente (tela Atendentes) **não mexe mais no `role`** — o papel é definido só
     aqui (antes o edit forçava `usuario` e apagaria a escolha).
   - **Botões do perfil**: toggles por perfil (Administrador travado como "acesso
-    total") + seção "Personalizar um usuário" (select → toggles). Cada perfil/usuário
-    tem também o toggle **"Ver conversa inteira"** (`full_history`). O select de
+    total") + seção "Personalizar um usuário" (select → toggles). O select de
     usuário (form GET) e os redirects de salvar/resetar a personalização **preservam
     a aba** (`?tab=botoes&user=<id>`) — selecionar um usuário não joga mais de volta
-    para a aba Perfis.
+    para a aba Perfis. *(O "Ver conversa inteira" saiu daqui — virou a aba
+    Visualização de conversas.)*
+  - **Visualização de conversas**: controla, **por setor** e com **exceção por
+    usuário**, DUAS coisas (ver subseção "Separação das conversas" abaixo): (1) o
+    **Alcance** — quais conversas a pessoa enxerga (seletor de 4 níveis: `own` /
+    `sector_open` / `sector_all` / `all`, em `ConversationViewScope`); (2) **Ver
+    conversa inteira** (`view_full_history`) — todo o histórico do chat ou só o
+    atendimento atual. **Bloco "Por setor"** (`form_type=view-sectors`): um cartão por
+    setor com o seletor de Alcance + toggle "Ver conversa inteira", gravados em
+    `Sector.view_scope`/`Sector.view_full_history`. **Bloco "Personalizar um usuário"**
+    (`form_type=view-user`, com `view-user-reset`): select da pessoa (preserva a aba,
+    `?tab=visualizacao&user=<id>`) → Alcance (opção **"Herdar do setor"** + os 4
+    níveis) e Ver conversa inteira (**Herdar** / Sim / Não), gravados em
+    `UserConversationView` (campos nulos = herdar; sem nenhuma personalização a linha
+    é removida). Salva automático (o autosave do JS agora dispara em `<select>` também).
   - **Grupos**: lista os grupos detectados (Conversation `chat_type='group'`) e libera
     cada um por **setor** e/ou **usuário** (grava em `GroupAccess`); botão **"Atualizar
     nomes"** chama `conversation-sync-groups` (nome real do grupo via W-API). O **nome
@@ -717,9 +738,9 @@ esconder o botão também bloqueia a URL.
     A lista de grupos é **dirigida por mensagem recebida** (um grupo aparece quando
     chega mensagem dele; não vem do `get-all-groups`), então grupos onde o número saiu
     podem ser removidos daqui; se chegar nova mensagem, o grupo reaparece.
-  **Sem botão "Salvar"**: as alterações (perfis, usuário e grupos) são **salvas
-  automaticamente** ao clicar (fetch AJAX → `permissions_view` responde JSON quando
-  `X-Requested-With`; toast de confirmação).
+  **Sem botão "Salvar"**: as alterações (perfis, botões, visualização e grupos) são
+  **salvas automaticamente** ao clicar/alterar (fetch AJAX → `permissions_view`
+  responde JSON quando `X-Requested-With`; toast de confirmação).
   `build_nav_items(user, active_label)` monta o menu a partir dessas regras.
 
 ### Perfil SOMENTE LEITURA (`leitor`)
@@ -742,16 +763,32 @@ esconder o botão também bloqueia a URL.
   Ou seja: o admin escolhe **onde** o leitor entra; o perfil garante que ali ele
   **só visualiza**.
 
-### Separação das conversas (quem vê quais chats)
-- `visible_conversations(user, qs)` / `can_see_conversation(user, conv)` em
-  `accounts/permissions.py`. **Admin vê tudo.** Não-admin vê: **diretas** atribuídas a
-  ele OU (do(s) setor(es) dele **E ainda não fechada**); **grupos** liberados para o(s)
-  setor(es) dele OU para ele (via `GroupAccess`). Um usuário novo/sem setor **não vê
-  nada** ("zerado"). **Finalizados** (fechadas) só aparecem para quem **atendeu** (por
-  atribuição), NÃO para o setor — cada atendente vê só os seus finalizados.
+### Separação das conversas (quem vê quais chats) — configurável
+- `visible_conversations(user, qs)` / `can_see_conversation(user, conv)` /
+  `visible_conversations_q(user)` em `accounts/permissions.py`. **Admin vê tudo.** Para
+  não-admin, as **diretas** dependem do **Alcance efetivo** (`effective_view_scope`,
+  configurado na aba Visualização de conversas):
+  - `own` → só as diretas **atribuídas a ele** (qualquer status);
+  - `sector_open` → atribuídas a ele **OU** do(s) setor(es) dele **E não fechada**
+    (**padrão de fábrica** = comportamento histórico: cada um só vê os PRÓPRIOS
+    finalizados);
+  - `sector_all` → atribuídas a ele **OU** do(s) setor(es) dele (**inclui finalizadas
+    de outros** do setor);
+  - `all` → **todas** as conversas diretas, de qualquer setor.
+  Os **grupos** **independem do Alcance**: seguem sempre a liberação individual da aba
+  Grupos (`GroupAccess`: por setor OU por usuário). Um usuário novo/sem setor e escopo
+  padrão **não vê nada** ("zerado").
+- **Alcance efetivo** (`effective_view_scope`): admin → `all`; senão a personalização
+  do usuário (`UserConversationView.view_scope`, se definida) > o **mais permissivo**
+  entre os setores dele (`Sector.view_scope`) > padrão de fábrica (`sector_open`).
+  Ordem de permissividade em `VIEW_SCOPE_RANK`.
 - Aplicado na lista (`conversations_view`, `conversation_list_view` — inclusive os
   contadores) e nas ações (`conversation-messages/send/take/transfer/close/send-media`
   retornam 403 se o usuário não pode ver a conversa).
 - **Escopo do histórico** (`history_full_for`): ao abrir uma conversa, quem não tem
   "Ver conversa inteira" vê só o **atendimento atual** (mensagens a partir da última
-  divisória); admin/`full_history` vê tudo.
+  divisória); admin vê tudo. Fonte: exceção do usuário
+  (`UserConversationView.view_full_history`, se definida) > algum setor dele com
+  `Sector.view_full_history=True` > padrão `False`. *(Antes vinha de
+  `RoleMenuPermission`/`UserMenuPermission.full_history`; essas colunas ficaram
+  legadas/sem uso — o controle migrou para a aba Visualização de conversas.)*

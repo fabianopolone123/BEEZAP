@@ -130,20 +130,61 @@ def user_sector_ids(user):
     return list(Sector.objects.filter(attendants__user=user).values_list('id', flat=True))
 
 
-def visible_conversations_q(user):
-    """Q das conversas que um usuario NAO-admin pode ver:
-    - diretas: atribuidas a ele OU (do(s) setor(es) dele E ainda NAO fechada);
-    - grupos: liberados para o(s) setor(es) dele OU para ele (GroupAccess).
+# Alcance de visualizacao (ver models.ConversationViewScope). Ordem crescente de
+# permissividade — usada para resolver o efetivo quando o usuario esta em varios
+# setores (vence o MAIS permissivo).
+VIEW_SCOPE_RANK = {'own': 0, 'sector_open': 1, 'sector_all': 2, 'all': 3}
+DEFAULT_VIEW_SCOPE = 'sector_open'  # comportamento historico (padrao de fabrica)
 
-    Regra dos FINALIZADOS: uma conversa fechada so aparece para quem a ATENDEU
-    (por atribuicao), NAO para o setor inteiro — cada atendente ve so os seus
-    finalizados. (O admin ve tudo, ver visible_conversations.)"""
+
+def effective_view_scope(user):
+    """Alcance EFETIVO de conversas do usuario. Admin = 'all'. Personalizacao do
+    usuario (UserConversationView.view_scope) > o MAIS PERMISSIVO entre os setores
+    dele > padrao de fabrica ('sector_open')."""
+    if not getattr(user, 'is_authenticated', False):
+        return DEFAULT_VIEW_SCOPE
+    if user.role == 'adm':
+        return 'all'
+    from .models import Sector, UserConversationView
+    override = UserConversationView.objects.filter(user=user).first()
+    if override is not None and override.view_scope:
+        return override.view_scope
+    scopes = list(
+        Sector.objects.filter(attendants__user=user)
+        .values_list('view_scope', flat=True)
+    )
+    if scopes:
+        return max(scopes, key=lambda s: VIEW_SCOPE_RANK.get(s, 0))
+    return DEFAULT_VIEW_SCOPE
+
+
+def visible_conversations_q(user):
+    """Q das conversas que um usuario NAO-admin pode ver, conforme o alcance efetivo
+    (effective_view_scope):
+    - `own`         → so as DIRETAS atribuidas a ele (qualquer status);
+    - `sector_open` → atribuidas a ele OU do(s) setor(es) dele E ainda NAO fechada
+                      (comportamento historico: cada um so ve os PROPRIOS finalizados);
+    - `sector_all`  → atribuidas a ele OU do(s) setor(es) dele (inclui finalizadas de
+                      outros do setor);
+    - `all`         → todas as conversas diretas, de qualquer setor.
+
+    GRUPOS: independem do alcance — seguem sempre a liberacao individual da aba
+    Grupos (GroupAccess: por setor OU por usuario). (O admin ve tudo, ver
+    visible_conversations.)"""
     from django.db.models import Q
     sector_ids = user_sector_ids(user)
-    direct = Q(chat_type='private') & (
-        Q(assigned_attendant__user=user)
-        | (Q(sector_id__in=sector_ids) & ~Q(status='closed'))
-    )
+    scope = effective_view_scope(user)
+    assigned = Q(assigned_attendant__user=user)
+    if scope == 'all':
+        direct = Q(chat_type='private')
+    elif scope == 'sector_all':
+        direct = Q(chat_type='private') & (assigned | Q(sector_id__in=sector_ids))
+    elif scope == 'own':
+        direct = Q(chat_type='private') & assigned
+    else:  # 'sector_open' (padrao)
+        direct = Q(chat_type='private') & (
+            assigned | (Q(sector_id__in=sector_ids) & ~Q(status='closed'))
+        )
     group = Q(chat_type='group') & (
         Q(access__sectors__id__in=sector_ids) | Q(access__users=user)
     )
@@ -172,16 +213,16 @@ def can_see_conversation(user, conversation):
 
 def history_full_for(user):
     """O usuario ve a conversa INTEIRA (True) ou so o atendimento atual (False)?
-    Admin sempre ve tudo. Personalizacao do usuario > perfil > padrao (False)."""
+    Admin sempre ve tudo. Personalizacao do usuario
+    (UserConversationView.view_full_history, se definida) > algum setor dele com
+    "ver conversa inteira" ligado > padrao (False). Configurado na aba
+    "Visualização de conversas" em Permissoes."""
     if not getattr(user, 'is_authenticated', False):
         return False
     if user.role == 'adm':
         return True
-    from .models import RoleMenuPermission, UserMenuPermission
-    override = UserMenuPermission.objects.filter(user=user).first()
-    if override is not None:
-        return bool(override.full_history)
-    row = RoleMenuPermission.objects.filter(role=user.role).first()
-    if row is not None:
-        return bool(row.full_history)
-    return False
+    from .models import Sector, UserConversationView
+    override = UserConversationView.objects.filter(user=user).first()
+    if override is not None and override.view_full_history is not None:
+        return bool(override.view_full_history)
+    return Sector.objects.filter(attendants__user=user, view_full_history=True).exists()

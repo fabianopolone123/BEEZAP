@@ -1578,6 +1578,42 @@ class MenuPermissionsTests(TestCase):
         })
         self.assertFalse(UserMenuPermission.objects.filter(user=self.user).exists())
 
+    def test_view_tab_renders(self):
+        self.client.force_login(self.admin)
+        html = self.client.get(reverse('permissions') + '?tab=visualizacao').content.decode()
+        self.assertIn('data-panel="visualizacao"', html)
+        self.assertIn('Visualização por setor', html)
+
+    def test_save_sector_view(self):
+        from accounts.models import Sector
+        sec = Sector.objects.create(name='Suporte')
+        self.client.force_login(self.admin)
+        self.client.post(reverse('permissions'), {
+            'form_type': 'view-sectors',
+            f'sector__{sec.id}__scope': 'all',
+            f'sector__{sec.id}__full_history': 'on',
+        })
+        sec.refresh_from_db()
+        self.assertEqual(sec.view_scope, 'all')
+        self.assertTrue(sec.view_full_history)
+
+    def test_save_and_reset_user_view(self):
+        from accounts.models import UserConversationView
+        self.client.force_login(self.admin)
+        self.client.post(reverse('permissions'), {
+            'form_type': 'view-user', 'user_id': str(self.user.id),
+            'user_scope': 'sector_all', 'user_full_history': 'yes',
+        })
+        ov = UserConversationView.objects.get(user=self.user)
+        self.assertEqual(ov.view_scope, 'sector_all')
+        self.assertTrue(ov.view_full_history)
+        # Herdar em tudo remove a linha (sem personalizacao).
+        self.client.post(reverse('permissions'), {
+            'form_type': 'view-user', 'user_id': str(self.user.id),
+            'user_scope': '', 'user_full_history': 'inherit',
+        })
+        self.assertFalse(UserConversationView.objects.filter(user=self.user).exists())
+
 
 class ProfileRoleTests(TestCase):
     """Aba Perfis: o admin define o papel (adm/usuario/leitor) de cada pessoa."""
@@ -1763,7 +1799,7 @@ class ConversationVisibilityTests(TestCase):
     def test_history_scope(self):
         from datetime import timedelta
         from django.utils import timezone
-        from accounts.models import Message, RoleMenuPermission
+        from accounts.models import Message
         base = timezone.now()
         old = Message.objects.create(conversation=self.direct_vendas, direction='in',
                                      message_type='text', text='mensagem antiga')
@@ -1781,12 +1817,66 @@ class ConversationVisibilityTests(TestCase):
         texts = [m['text'] for m in data['messages']]
         self.assertIn('mensagem nova', texts)
         self.assertNotIn('mensagem antiga', texts)
-        # Com "conversa inteira" no perfil, ve tudo.
-        RoleMenuPermission.objects.update_or_create(
-            role='usuario', defaults={'allowed_keys': ['conversations'], 'full_history': True})
+        # Com "ver conversa inteira" ligado no SETOR do atendente, ve tudo.
+        self.vendas.view_full_history = True
+        self.vendas.save(update_fields=['view_full_history'])
         data = self.client.get(reverse('conversation-messages', args=[self.direct_vendas.id])).json()
         texts = [m['text'] for m in data['messages']]
         self.assertIn('mensagem antiga', texts)
+
+    def test_history_full_user_override_beats_sector(self):
+        """Excecao do usuario (view_full_history) sobrepoe o setor."""
+        from accounts.models import UserConversationView
+        from accounts.permissions import history_full_for
+        self.vendas.view_full_history = True
+        self.vendas.save(update_fields=['view_full_history'])
+        self.assertTrue(history_full_for(self.uuser))
+        UserConversationView.objects.create(user=self.uuser, view_full_history=False)
+        self.assertFalse(history_full_for(self.uuser))
+
+    def test_scope_own_sees_only_assigned(self):
+        from accounts.models import UserConversationView
+        UserConversationView.objects.create(user=self.uuser, view_scope='own')
+        # direct_vendas eh do setor dele, mas NAO atribuida -> com 'own' some.
+        self.assertNotIn(self.direct_vendas.id, self._visible_ids(self.uuser))
+        self.direct_vendas.assigned_attendant = self.att
+        self.direct_vendas.save(update_fields=['assigned_attendant'])
+        ids = self._visible_ids(self.uuser)
+        self.assertIn(self.direct_vendas.id, ids)
+        self.assertNotIn(self.direct_compras.id, ids)
+
+    def test_scope_all_sees_other_sectors(self):
+        from accounts.models import UserConversationView
+        UserConversationView.objects.create(user=self.uuser, view_scope='all')
+        ids = self._visible_ids(self.uuser)
+        self.assertIn(self.direct_vendas.id, ids)
+        self.assertIn(self.direct_compras.id, ids)  # de outro setor
+
+    def test_scope_sector_all_sees_closed_of_sector(self):
+        from accounts.models import Contact, Conversation, UserConversationView
+        ct = Contact.objects.create(name='C', phone='5533333333333')
+        closed_vendas = Conversation.objects.create(
+            contact=ct, external_id='5533333333333', chat_type='private',
+            status='closed', sector=self.vendas)
+        # sector_open (padrao): fechada do setor que nao eh dele -> nao ve.
+        self.assertNotIn(closed_vendas.id, self._visible_ids(self.uuser))
+        UserConversationView.objects.create(user=self.uuser, view_scope='sector_all')
+        self.assertIn(closed_vendas.id, self._visible_ids(self.uuser))
+
+    def test_sector_scope_field_drives_visibility(self):
+        # O padrao do SETOR (sem override de usuario) ja muda o alcance.
+        self.vendas.view_scope = 'all'
+        self.vendas.save(update_fields=['view_scope'])
+        self.assertIn(self.direct_compras.id, self._visible_ids(self.uuser))
+
+    def test_effective_scope_most_permissive_multi_sector(self):
+        from accounts.permissions import effective_view_scope
+        self.att.sectors.add(self.compras)  # agora em vendas + compras
+        self.vendas.view_scope = 'own'
+        self.vendas.save(update_fields=['view_scope'])
+        self.compras.view_scope = 'sector_all'
+        self.compras.save(update_fields=['view_scope'])
+        self.assertEqual(effective_view_scope(self.uuser), 'sector_all')
 
 
 class DashboardTests(TestCase):

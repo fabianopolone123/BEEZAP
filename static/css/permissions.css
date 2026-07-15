@@ -432,3 +432,58 @@
   color: var(--muted);
   padding: 8px 2px;
 }
+
+/* ── Aba "Visualização de conversas" ── */
+.perm-view-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 14px 18px;
+  padding: 14px 0;
+  border-top: 1px solid var(--card-border);
+}
+.perm-view-row:first-of-type { border-top: none; }
+
+.perm-view-sector {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 170px;
+  flex: 1 1 170px;
+  font-weight: 600;
+}
+.perm-view-sector-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.perm-view-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.perm-view-field-label {
+  font-size: 0.72rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.perm-view-field .perm-select {
+  width: auto;
+  min-width: 240px;
+  max-width: 100%;
+  padding: 9px 11px;
+}
+
+.perm-view-row .perm-toggle-history {
+  align-self: center;
+  margin-top: 18px;
+}
+
+.perm-view-user {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px 22px;
+  margin-top: 14px;
+}

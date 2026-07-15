@@ -6,6 +6,15 @@ from django.utils import timezone
 import re
 
 
+class ConversationViewScope(models.TextChoices):
+    """Alcance de visualizacao de conversas (quais chats diretos a pessoa enxerga).
+    Ordem crescente de permissividade (ver VIEW_SCOPE_RANK em accounts/permissions.py)."""
+    OWN = 'own', 'Somente as próprias conversas'
+    SECTOR_OPEN = 'sector_open', 'Conversas em aberto do setor'
+    SECTOR_ALL = 'sector_all', 'Todas do setor (inclui finalizadas)'
+    ALL = 'all', 'Conversas de todos os setores'
+
+
 class UserManager(BaseUserManager):
     use_in_migrations = True
 
@@ -410,6 +419,16 @@ class Sector(models.Model):
         related_name='sectors',
         verbose_name='Atendentes',
     )
+    # Visualizacao de conversas (padrao do setor; usuario pode ter excecao propria em
+    # UserConversationView). Ver aba "Visualização de conversas" em Permissoes e
+    # accounts/permissions.py (effective_view_scope / history_full_for).
+    view_scope = models.CharField(
+        'Alcance de visualização',
+        max_length=20,
+        choices=ConversationViewScope.choices,
+        default=ConversationViewScope.SECTOR_OPEN,
+    )
+    view_full_history = models.BooleanField('Ver conversa inteira', default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -440,6 +459,31 @@ class Sector(models.Model):
 
     def __str__(self):
         return self.name
+
+
+class UserConversationView(models.Model):
+    """Excecao POR USUARIO da visualizacao de conversas — sobrepoe o padrao do(s)
+    setor(es). Campos NULOS = herdar do setor. A existencia da linha (com algum campo
+    preenchido) significa que o usuario tem uma personalizacao propria."""
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='conversation_view')
+    # null = herdar do setor.
+    view_scope = models.CharField(
+        max_length=20, choices=ConversationViewScope.choices, null=True, blank=True
+    )
+    # null = herdar do setor; True/False = forcar.
+    view_full_history = models.BooleanField(null=True, blank=True, default=None)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'Visualização de conversas (usuário)'
+        verbose_name_plural = 'Visualizações de conversas (usuários)'
+
+    def __str__(self):
+        return f'Visualização de {self.user.email}'
+
+    @property
+    def is_customized(self):
+        return self.view_scope is not None or self.view_full_history is not None
 
 
 class PasswordResetCode(models.Model):

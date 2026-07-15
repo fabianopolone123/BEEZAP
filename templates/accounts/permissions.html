@@ -4,7 +4,7 @@
 {% block title %}Permissões | BEEZap{% endblock %}
 {% block extra_head %}
 <link rel="stylesheet" href="{% static 'css/dashboard.css' %}">
-<link rel="stylesheet" href="{% static 'css/permissions.css' %}?v=6">
+<link rel="stylesheet" href="{% static 'css/permissions.css' %}?v=7">
 {% endblock %}
 
 {% block content %}
@@ -52,6 +52,7 @@
       <nav class="perm-tabs" role="tablist">
         <button type="button" class="perm-tab {% if active_tab == 'people' %}is-active{% endif %}" data-tab="people">Perfis</button>
         <button type="button" class="perm-tab {% if active_tab == 'botoes' %}is-active{% endif %}" data-tab="botoes">Botões do perfil</button>
+        <button type="button" class="perm-tab {% if active_tab == 'visualizacao' %}is-active{% endif %}" data-tab="visualizacao">Visualização de conversas</button>
         <button type="button" class="perm-tab {% if active_tab == 'grupos' %}is-active{% endif %}" data-tab="grupos">Grupos</button>
       </nav>
 
@@ -130,12 +131,6 @@
                   <span class="perm-switch" aria-hidden="true"></span>
                 </label>
               {% endfor %}
-              <label class="perm-toggle perm-toggle-history {% if role.full_history %}is-on{% endif %}">
-                <input type="checkbox" name="role__{{ role.role }}__full_history" {% if role.full_history %}checked{% endif %}>
-                <span class="perm-ico">🕓</span>
-                <span class="perm-label">Ver conversa inteira</span>
-                <span class="perm-switch" aria-hidden="true"></span>
-              </label>
             </div>
           </div>
           {% endfor %}
@@ -170,12 +165,6 @@
                   <span class="perm-switch" aria-hidden="true"></span>
                 </label>
               {% endfor %}
-              <label class="perm-toggle perm-toggle-history {% if selected_user.full_history %}is-on{% endif %}">
-                <input type="checkbox" name="userkey__full_history" {% if selected_user.full_history %}checked{% endif %}>
-                <span class="perm-ico">🕓</span>
-                <span class="perm-label">Ver conversa inteira</span>
-                <span class="perm-switch" aria-hidden="true"></span>
-              </label>
             </div>
           </form>
           {% if selected_user.custom %}
@@ -184,6 +173,104 @@
             <input type="hidden" name="form_type" value="user-reset">
             <input type="hidden" name="user_id" value="{{ selected_user.id }}">
             <button type="submit" class="secondary-button">Voltar ao padrão do perfil</button>
+          </form>
+          {% endif %}
+          {% endif %}
+        </article>
+      </section>
+
+      <!-- ============ ABA: VISUALIZAÇÃO DE CONVERSAS ============ -->
+      <section class="perm-panel {% if active_tab == 'visualizacao' %}is-active{% endif %}" data-panel="visualizacao">
+        <form method="post" class="perm-card" data-autosave="Visualização por setor salva.">
+          {% csrf_token %}
+          <input type="hidden" name="form_type" value="view-sectors">
+
+          <div class="perm-head">
+            <h2>Visualização por setor</h2>
+            <span class="perm-autosave-hint">Salva automaticamente ao alterar.</span>
+          </div>
+          <p class="perm-note">
+            Defina, para cada setor, <strong>quais conversas</strong> os atendentes dele
+            enxergam e se veem a <strong>conversa inteira</strong> (todo o histórico) ou só
+            o atendimento atual. É possível abrir uma exceção por pessoa logo abaixo.
+          </p>
+
+          {% for s in view_sectors %}
+          <div class="perm-view-row">
+            <div class="perm-view-sector">
+              <span class="perm-ico">🗂️</span>
+              <span class="perm-view-sector-name">{{ s.name }}</span>
+              {% if s.is_general %}<span class="perm-role-tag">padrão</span>{% endif %}
+            </div>
+            <label class="perm-view-field">
+              <span class="perm-view-field-label">Alcance</span>
+              <select name="sector__{{ s.id }}__scope" class="perm-select">
+                {% for opt in s.scope_options %}
+                  <option value="{{ opt.value }}" {% if opt.selected %}selected{% endif %}>{{ opt.label }}</option>
+                {% endfor %}
+              </select>
+            </label>
+            <label class="perm-toggle perm-toggle-history {% if s.full_history %}is-on{% endif %}">
+              <input type="checkbox" name="sector__{{ s.id }}__full_history" {% if s.full_history %}checked{% endif %}>
+              <span class="perm-ico">🕓</span>
+              <span class="perm-label">Ver conversa inteira</span>
+              <span class="perm-switch" aria-hidden="true"></span>
+            </label>
+          </div>
+          {% empty %}
+          <p class="perm-note">Cadastre setores primeiro (menu Setores) para configurar a visualização.</p>
+          {% endfor %}
+        </form>
+
+        <article class="perm-card">
+          <div class="perm-head"><h2>Personalizar um usuário</h2></div>
+          <p class="perm-note">
+            Uma exceção por pessoa <strong>sobrepõe</strong> o padrão do setor dela.
+            Deixe em <em>“Herdar do setor”</em> para seguir o setor.
+          </p>
+
+          <form method="get" class="perm-user-picker">
+            <input type="hidden" name="tab" value="visualizacao">
+            <select name="user" class="perm-select" onchange="this.form.submit()">
+              <option value="">Selecione um usuário...</option>
+              {% for u in users %}
+                <option value="{{ u.id }}" {% if view_selected and view_selected.id == u.id %}selected{% endif %}>
+                  {{ u.name }} ({{ u.role_label }})
+                </option>
+              {% endfor %}
+            </select>
+          </form>
+
+          {% if view_selected %}
+          <form method="post" class="perm-user-form" data-autosave="Visualização do usuário salva.">
+            {% csrf_token %}
+            <input type="hidden" name="form_type" value="view-user">
+            <input type="hidden" name="user_id" value="{{ view_selected.id }}">
+            <div class="perm-view-user">
+              <label class="perm-view-field">
+                <span class="perm-view-field-label">Alcance das conversas</span>
+                <select name="user_scope" class="perm-select">
+                  {% for opt in view_selected.scope_options %}
+                    <option value="{{ opt.value }}" {% if opt.selected %}selected{% endif %}>{{ opt.label }}</option>
+                  {% endfor %}
+                </select>
+              </label>
+              <label class="perm-view-field">
+                <span class="perm-view-field-label">Ver conversa inteira</span>
+                <select name="user_full_history" class="perm-select">
+                  <option value="inherit" {% if view_selected.full_history_value == 'inherit' %}selected{% endif %}>Herdar do setor</option>
+                  <option value="yes" {% if view_selected.full_history_value == 'yes' %}selected{% endif %}>Sim</option>
+                  <option value="no" {% if view_selected.full_history_value == 'no' %}selected{% endif %}>Não</option>
+                </select>
+              </label>
+            </div>
+          </form>
+          {% if view_selected.custom %}
+          <form method="post" class="perm-reset-form">
+            {% csrf_token %}
+            <input type="hidden" name="form_type" value="view-user-reset">
+            <input type="hidden" name="user_id" value="{{ view_selected.id }}">
+            <button type="submit" class="secondary-button">Voltar ao padrão do setor</button>
           </form>
           {% endif %}
           {% endif %}
@@ -356,9 +443,12 @@
 
     document.querySelectorAll('form[data-autosave]').forEach(function (form) {
       form.addEventListener('change', function (e) {
-        if (e.target && e.target.matches('input[type="checkbox"]')) {
+        if (!e.target) return;
+        if (e.target.matches('input[type="checkbox"]')) {
           var wrap = e.target.closest('.perm-toggle, .perm-chip');
           if (wrap) wrap.classList.toggle('is-on', e.target.checked);
+          scheduleSave(form);
+        } else if (e.target.matches('select')) {
           scheduleSave(form);
         }
       });

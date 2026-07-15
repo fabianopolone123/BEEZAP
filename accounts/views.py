@@ -42,6 +42,7 @@ from .models import (
     Attendant,
     Contact,
     Conversation,
+    ConversationViewScope,
     GroupAccess,
     MenuBotConfiguration,
     MenuOption,
@@ -51,6 +52,7 @@ from .models import (
     RoleMenuPermission,
     Sector,
     User,
+    UserConversationView,
     UserMenuPermission,
     WapiConfiguration,
     WapiWebhookEvent,
@@ -795,7 +797,7 @@ def permissions_view(request):
 
     from .permissions import (
         EDITABLE_ROLES, MENU_FEATURES, ALL_FEATURE_KEYS,
-        role_allowed_keys, allowed_keys_for, history_full_for,
+        role_allowed_keys, allowed_keys_for, history_full_for, effective_view_scope,
     )
     is_ajax = request.headers.get('x-requested-with') == 'XMLHttpRequest'
 
@@ -809,10 +811,7 @@ def permissions_view(request):
                           if request.POST.get(f'role__{role}__{k}') == 'on']
                 RoleMenuPermission.objects.update_or_create(
                     role=role,
-                    defaults={
-                        'allowed_keys': chosen,
-                        'full_history': request.POST.get(f'role__{role}__full_history') == 'on',
-                    },
+                    defaults={'allowed_keys': chosen},
                 )
             if is_ajax:
                 return JsonResponse({'ok': True})
@@ -831,10 +830,7 @@ def permissions_view(request):
                       if request.POST.get(f'userkey__{k}') == 'on']
             UserMenuPermission.objects.update_or_create(
                 user=target,
-                defaults={
-                    'allowed_keys': chosen,
-                    'full_history': request.POST.get('userkey__full_history') == 'on',
-                },
+                defaults={'allowed_keys': chosen},
             )
             if is_ajax:
                 return JsonResponse({'ok': True})
@@ -846,6 +842,54 @@ def permissions_view(request):
             UserMenuPermission.objects.filter(user_id=user_id).delete()
             messages.success(request, 'Personalizacao removida (voltou ao padrao do perfil).')
             return redirect(f'{reverse("permissions")}?tab=botoes&user={user_id}')
+
+        # ----- Aba "Visualização de conversas" -----
+        valid_scopes = {c.value for c in ConversationViewScope}
+
+        if form_type == 'view-sectors':
+            for sector in Sector.objects.all():
+                scope = (request.POST.get(f'sector__{sector.id}__scope') or '').strip()
+                if scope not in valid_scopes:
+                    scope = ConversationViewScope.SECTOR_OPEN
+                full = request.POST.get(f'sector__{sector.id}__full_history') == 'on'
+                Sector.objects.filter(pk=sector.id).update(
+                    view_scope=scope, view_full_history=full
+                )
+            if is_ajax:
+                return JsonResponse({'ok': True})
+            messages.success(request, 'Visualizacao por setor salva.')
+            return redirect(f'{reverse("permissions")}?tab=visualizacao')
+
+        if form_type == 'view-user':
+            user_id = (request.POST.get('user_id') or '').strip()
+            target = User.objects.filter(pk=user_id).exclude(role='adm').first() if user_id else None
+            if not target:
+                if is_ajax:
+                    return JsonResponse({'ok': False, 'error': 'Selecione um usuario valido.'}, status=400)
+                messages.error(request, 'Selecione um usuario valido.')
+                return redirect(f'{reverse("permissions")}?tab=visualizacao')
+            scope_raw = (request.POST.get('user_scope') or '').strip()
+            scope = scope_raw if scope_raw in valid_scopes else None  # '' = herdar do setor
+            fh_raw = (request.POST.get('user_full_history') or 'inherit').strip()
+            full_history = None if fh_raw == 'inherit' else (fh_raw == 'yes')
+            if scope is None and full_history is None:
+                # Sem nenhuma personalizacao: remove a linha (volta a herdar do setor).
+                UserConversationView.objects.filter(user=target).delete()
+            else:
+                UserConversationView.objects.update_or_create(
+                    user=target,
+                    defaults={'view_scope': scope, 'view_full_history': full_history},
+                )
+            if is_ajax:
+                return JsonResponse({'ok': True})
+            messages.success(request, f'Visualizacao de {target.email} salva.')
+            return redirect(f'{reverse("permissions")}?tab=visualizacao&user={target.id}')
+
+        if form_type == 'view-user-reset':
+            user_id = (request.POST.get('user_id') or '').strip()
+            UserConversationView.objects.filter(user_id=user_id).delete()
+            messages.success(request, 'Personalizacao de visualizacao removida (voltou ao padrao do setor).')
+            return redirect(f'{reverse("permissions")}?tab=visualizacao&user={user_id}')
 
         if form_type == 'profile-role':
             user_id = (request.POST.get('user_id') or '').strip()
@@ -925,17 +969,12 @@ def permissions_view(request):
             return redirect(f'{reverse("permissions")}?tab=grupos')
 
     # ----- GET -----
-    def role_history(role):
-        row = RoleMenuPermission.objects.filter(role=role).first()
-        return bool(row.full_history) if row else False
-
     roles_ctx = []
     for entry in EDITABLE_ROLES:
         keys = role_allowed_keys(entry['role'])
         roles_ctx.append({
             'role': entry['role'],
             'label': entry['label'],
-            'full_history': role_history(entry['role']),
             'features': [
                 {**f, 'checked': f['key'] in keys} for f in MENU_FEATURES
             ],
@@ -964,7 +1003,6 @@ def permissions_view(request):
             'name': selected.get_full_name() or selected.email,
             'role_label': selected.get_role_display(),
             'custom': selected.id in override_ids,
-            'full_history': history_full_for(selected),
             'features': [{**f, 'checked': f['key'] in keys} for f in MENU_FEATURES],
         }
 
@@ -1028,8 +1066,44 @@ def permissions_view(request):
         {'value': User.Role.LEITOR, 'label': 'Leitor', 'icon': '👁️'},
     ]
 
+    # ----- Aba "Visualização de conversas" -----
+    scope_options = [{'value': c.value, 'label': c.label} for c in ConversationViewScope]
+    view_sectors_ctx = []
+    for s in sectors:
+        view_sectors_ctx.append({
+            'id': s.id,
+            'name': s.name,
+            'is_general': s.is_general,
+            'full_history': s.view_full_history,
+            'scope_options': [
+                {**opt, 'selected': opt['value'] == s.view_scope} for opt in scope_options
+            ],
+        })
+    view_selected_ctx = None
+    if selected:
+        ov = UserConversationView.objects.filter(user=selected).first()
+        ov_scope = ov.view_scope if ov else None
+        ov_full = ov.view_full_history if ov else None
+        if ov_full is None:
+            fh_value = 'inherit'
+        else:
+            fh_value = 'yes' if ov_full else 'no'
+        view_selected_ctx = {
+            'id': selected.id,
+            'name': selected.get_full_name() or selected.email,
+            'custom': bool(ov and ov.is_customized),
+            'effective_scope': effective_view_scope(selected),
+            'effective_full_history': history_full_for(selected),
+            # '' (herdar) + os niveis de alcance.
+            'scope_options': (
+                [{'value': '', 'label': 'Herdar do setor', 'selected': ov_scope is None}]
+                + [{**opt, 'selected': opt['value'] == ov_scope} for opt in scope_options]
+            ),
+            'full_history_value': fh_value,
+        }
+
     tab = request.GET.get('tab')
-    active_tab = tab if tab in ('people', 'botoes', 'grupos') else 'people'
+    active_tab = tab if tab in ('people', 'botoes', 'grupos', 'visualizacao') else 'people'
 
     return render(
         request,
@@ -1046,6 +1120,8 @@ def permissions_view(request):
             'has_sectors': bool(sectors),
             'people': people_ctx,
             'role_options': role_options,
+            'view_sectors': view_sectors_ctx,
+            'view_selected': view_selected_ctx,
             'active_tab': active_tab,
         },
     )
