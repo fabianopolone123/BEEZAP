@@ -5,7 +5,7 @@
 
 {% block extra_head %}
 <link rel="stylesheet" href="{% static 'css/dashboard.css' %}?v=5">
-<link rel="stylesheet" href="{% static 'css/conversations.css' %}?v=24">
+<link rel="stylesheet" href="{% static 'css/conversations.css' %}?v=25">
 {% endblock %}
 
 {% block content %}
@@ -168,6 +168,11 @@
             </div>
           </div>
 
+          <div class="conv-owner-tabs" data-owner-tabs hidden role="tablist" aria-label="Filtrar conversa">
+            <button type="button" class="conv-owner-tab is-active" data-owner-tab="setor">Conversa do setor</button>
+            <button type="button" class="conv-owner-tab" data-owner-tab="privada">Conversa privada</button>
+          </div>
+
           <div class="conv-messages" id="conv-messages" role="log" aria-label="Mensagens da conversa" aria-live="polite" data-conv-messages></div>
 
           <form class="conv-chat-footer" data-conv-send-form autocomplete="off">
@@ -289,6 +294,7 @@
   var placeholderEl = document.querySelector('[data-conv-placeholder]');
   var panelEl = document.querySelector('[data-conv-panel]');
   var messagesEl = document.querySelector('[data-conv-messages]');
+  var ownerTabsEl = document.querySelector('[data-owner-tabs]');
   var sendForm = document.querySelector('[data-conv-send-form]');
   var inputEl = document.querySelector('[data-conv-input]');
   var sendBtn = document.querySelector('[data-conv-send]');
@@ -668,6 +674,7 @@
       divider.className = 'conv-divider';
       divider.dataset.msgId = msg.id;
       divider.dataset.msgSig = msgSignature(msg);
+      divider.dataset.segMine = msg.seg_mine ? '1' : '0';
       var pill = document.createElement('span');
       pill.className = 'conv-divider-pill';
       var stamp = [msg.date, msg.time].filter(Boolean).join(' · ');
@@ -681,6 +688,7 @@
     if (kind !== 'text') wrap.classList.add('conv-msg-kind-' + kind);
     wrap.dataset.msgId = msg.id;
     wrap.dataset.msgSig = msgSignature(msg);
+    wrap.dataset.segMine = msg.seg_mine ? '1' : '0';
     var bubble = document.createElement('div');
     bubble.className = 'conv-bubble';
 
@@ -764,6 +772,33 @@
     messages.forEach(function (msg) { frag.appendChild(buildMessageEl(msg)); });
     messagesEl.replaceChildren(frag);
     scrollToBottom();
+  }
+
+  // ---------- Abas "Conversa do setor" x "Conversa privada" ----------
+  // Filtra os ATENDIMENTOS pelo dono (segmento). "privada" = so os meus; "setor" =
+  // tudo o que vejo. E so um filtro visual (classe no container), aplicado tambem
+  // as mensagens que chegam pelo poll (elas ja vem marcadas com data-seg-mine).
+  function applyOwnerFilter(mode) {
+    messagesEl.classList.toggle('filter-mine', mode === 'privada');
+    if (ownerTabsEl) {
+      ownerTabsEl.querySelectorAll('.conv-owner-tab').forEach(function (b) {
+        b.classList.toggle('is-active', b.dataset.ownerTab === mode);
+      });
+    }
+    if (isNearBottom()) scrollToBottom();
+  }
+
+  function setupOwnerTabs(show) {
+    if (!ownerTabsEl) return;
+    ownerTabsEl.hidden = !show;
+    // Ao abrir/trocar de conversa, sempre volta para "Conversa do setor" (tudo).
+    applyOwnerFilter('setor');
+  }
+
+  if (ownerTabsEl) {
+    ownerTabsEl.querySelectorAll('.conv-owner-tab').forEach(function (btn) {
+      btn.addEventListener('click', function () { applyOwnerFilter(btn.dataset.ownerTab); });
+    });
   }
 
   // Atualizacao INCREMENTAL — usada pelo poll. So mexe no DOM quando chega
@@ -885,6 +920,7 @@
         if (!data.ok) throw new Error('fail');
         fillInfo(data.contact, data.sectors, data.attendants);
         renderMessages(data.messages);
+        setupOwnerTabs(!!data.owner_tabs);
         // Zera o badge de nao lidas do item aberto na lista (feedback imediato).
         var item = listEl.querySelector('.conv-item[data-conv-id="' + id + '"]');
         if (item) {

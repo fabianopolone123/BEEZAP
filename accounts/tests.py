@@ -1878,6 +1878,53 @@ class ConversationVisibilityTests(TestCase):
         self.compras.save(update_fields=['view_scope'])
         self.assertEqual(effective_view_scope(self.uuser), 'sector_all')
 
+    def test_owner_tabs_split_private_vs_sector(self):
+        """Abas 'Conversa privada' x 'Conversa do setor': separa os atendimentos por
+        dono (o meu segmento x o de outro atendente)."""
+        from datetime import timedelta
+        from django.utils import timezone
+        from accounts.models import Message, UserConversationView
+        from wapi.services import SYSTEM_NEW_SERVICE_TEXT
+        # Ana ve tudo e a conversa inteira.
+        UserConversationView.objects.create(
+            user=self.uuser, view_scope='all', view_full_history=True)
+        base = timezone.now()
+
+        def mk(txt, direction='in', mtype='text', sender='', off=0):
+            m = Message.objects.create(conversation=self.direct_vendas, direction=direction,
+                                       message_type=mtype, text=txt, sender_name=sender)
+            Message.objects.filter(pk=m.pk).update(created_at=base + timedelta(minutes=off))
+            return m
+
+        mk('oi 1', off=1)
+        mk('resp bruno', 'out', sender='Bruno', off=2)          # outro atendente
+        mk(SYSTEM_NEW_SERVICE_TEXT, 'out', 'system', off=3)     # divisoria
+        mk('oi 2', off=4)
+        mk('resp ana', 'out', sender='Joao', off=5)             # eu (Attendant.name='Joao')
+
+        self.client.force_login(self.uuser)
+        data = self.client.get(
+            reverse('conversation-messages', args=[self.direct_vendas.id])).json()
+        self.assertTrue(data['owner_tabs'])
+        by_text = {m['text']: m for m in data['messages']}
+        self.assertFalse(by_text['resp bruno']['seg_mine'])   # segmento do outro
+        self.assertTrue(by_text['resp ana']['seg_mine'])      # meu segmento
+        self.assertTrue(by_text['oi 2']['seg_mine'])          # cliente no meu segmento
+
+    def test_owner_tabs_hidden_when_single_owner(self):
+        """Sem atendimento de outro atendente, nao mostra as abas."""
+        from accounts.models import Message, UserConversationView
+        UserConversationView.objects.create(
+            user=self.uuser, view_scope='all', view_full_history=True)
+        Message.objects.create(conversation=self.direct_vendas, direction='in',
+                               message_type='text', text='oi')
+        Message.objects.create(conversation=self.direct_vendas, direction='out',
+                               message_type='text', text='resp', sender_name='Joao')
+        self.client.force_login(self.uuser)
+        data = self.client.get(
+            reverse('conversation-messages', args=[self.direct_vendas.id])).json()
+        self.assertFalse(data['owner_tabs'])
+
 
 class DashboardTests(TestCase):
     """Dashboard com dados reais + comando de dados de demonstracao."""

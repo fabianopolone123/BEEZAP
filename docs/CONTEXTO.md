@@ -253,8 +253,23 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
 - **Chat via AJAX**: abrir zera não lidas; render por tipo; **composer fixo no
   rodapé** (corrigido com `min-height:0` na cadeia flex/grid e `[hidden]{display:none!important}`).
   Cada mensagem mostra **data e hora** discretas no rodapé do balão (`.conv-msg-time`,
-  ex.: "14/07/2026 18:37 ✓"); o serializer (`_serialize_message`) expõe `date`
+  ex.: "14/07/2026 · 18:37 ✓"); o serializer (`_serialize_message`) expõe `date`
   (`%d/%m/%Y`) e `time` (`%H:%M`).
+- **Abas "Conversa do setor" × "Conversa privada"** (só em conversa **direta**): ao
+  abrir um contato, se o histórico visível tiver atendimentos de **mais de um dono**,
+  aparece uma barra de abas (`.conv-owner-tabs`) abaixo do cabeçalho. **Conversa do
+  setor** (padrão) mostra tudo o que a pessoa pode ver; **Conversa privada** mostra só
+  os **atendimentos que ela mesma atendeu**. É um **filtro visual** por segmento: o
+  endpoint `conversation-messages` divide as mensagens em atendimentos (entre as
+  divisórias "Novo atendimento iniciado") e marca cada uma com `seg` (índice) e
+  `seg_mine` (o segmento tem resposta minha — `sender_name` == meu nome de atendente —
+  ou a conversa está atribuída a mim no segmento atual); retorna `owner_tabs` (só
+  quando há segmento meu **e** de outro). O front aplica `.conv-messages.filter-mine`
+  (esconde `[data-seg-mine="0"]`); o filtro persiste no poll (elementos já vêm
+  marcados). Reseta para "Conversa do setor" ao trocar de conversa. **Limitação
+  atual:** a separação é por **atendente** (dono do atendimento), não por setor
+  histórico — o banco só guarda o setor **atual** da conversa; um seletor por setor
+  exigiria gravar o setor por atendimento (próxima etapa).
 - **Poll incremental** (`syncMessages`): a atualização periódica só mexe no DOM
   quando chega mensagem nova ou muda o conteúdo (ex.: mídia baixada); **nunca**
   recria uma mídia que esteja tocando (não corta o play). Poll: mensagens 6s,
