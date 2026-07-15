@@ -668,6 +668,12 @@ class Message(models.Model):
     ]
 
     conversation = models.ForeignKey(Conversation, on_delete=models.CASCADE, related_name='messages')
+    # Setor da conversa NO MOMENTO em que a mensagem foi criada (para separar os
+    # atendimentos por setor na aba "Conversa do setor"). Nulo enquanto sem setor
+    # (ex.: triagem da IA antes de rotear). Ver conversation_messages_view.
+    sector = models.ForeignKey(
+        Sector, null=True, blank=True, on_delete=models.SET_NULL, related_name='messages'
+    )
     direction = models.CharField(max_length=10, choices=DIRECTION_CHOICES)
     message_type = models.CharField(max_length=20, choices=TYPE_CHOICES, default='text')
     text = models.TextField(blank=True, default='')

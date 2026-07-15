@@ -298,6 +298,7 @@ def save_system_message(conversation, text):
     conversa (divisoria nao deve virar a 'ultima mensagem' na lista)."""
     return Message.objects.create(
         conversation=conversation,
+        sector_id=conversation.sector_id,
         direction='out',
         message_type='system',
         text=text or '',
@@ -638,6 +639,7 @@ def save_incoming_message(conversation, ctx, message_type='text', text='',
 
     message = Message.objects.create(
         conversation=conversation,
+        sector_id=conversation.sector_id,
         direction=direction,
         message_type=message_type,
         text=text or '',
@@ -849,6 +851,7 @@ def save_outgoing_media_message(conversation, message_type, uploaded_file, capti
     ext = os.path.splitext(original_name)[1].lower()[:10]
     message = Message(
         conversation=conversation,
+        sector_id=conversation.sector_id,
         direction='out',
         message_type=message_type,
         text=caption or '',
@@ -878,6 +881,7 @@ def save_outgoing_message(conversation, message_type='text', text='', external_m
     mostrar qual atendente mandou cada mensagem)."""
     message = Message.objects.create(
         conversation=conversation,
+        sector_id=conversation.sector_id,
         direction='out',
         message_type=message_type,
         text=text or '',

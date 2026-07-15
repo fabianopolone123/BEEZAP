@@ -5,7 +5,7 @@
 
 {% block extra_head %}
 <link rel="stylesheet" href="{% static 'css/dashboard.css' %}?v=5">
-<link rel="stylesheet" href="{% static 'css/conversations.css' %}?v=25">
+<link rel="stylesheet" href="{% static 'css/conversations.css' %}?v=26">
 {% endblock %}
 
 {% block content %}
@@ -168,9 +168,12 @@
             </div>
           </div>
 
-          <div class="conv-owner-tabs" data-owner-tabs hidden role="tablist" aria-label="Filtrar conversa">
-            <button type="button" class="conv-owner-tab is-active" data-owner-tab="setor">Conversa do setor</button>
-            <button type="button" class="conv-owner-tab" data-owner-tab="privada">Conversa privada</button>
+          <div class="conv-filter-bar" data-filter-bar hidden>
+            <div class="conv-owner-tabs" data-owner-tabs hidden role="tablist" aria-label="Filtrar conversa">
+              <button type="button" class="conv-owner-tab is-active" data-owner-tab="setor">Conversa do setor</button>
+              <button type="button" class="conv-owner-tab" data-owner-tab="privada">Conversa privada</button>
+            </div>
+            <div class="conv-sector-chips" data-sector-chips hidden aria-label="Filtrar por setor"></div>
           </div>
 
           <div class="conv-messages" id="conv-messages" role="log" aria-label="Mensagens da conversa" aria-live="polite" data-conv-messages></div>
@@ -675,6 +678,7 @@
       divider.dataset.msgId = msg.id;
       divider.dataset.msgSig = msgSignature(msg);
       divider.dataset.segMine = msg.seg_mine ? '1' : '0';
+      divider.dataset.segSector = msg.seg_sector ? String(msg.seg_sector) : '';
       var pill = document.createElement('span');
       pill.className = 'conv-divider-pill';
       var stamp = [msg.date, msg.time].filter(Boolean).join(' · ');
@@ -689,6 +693,7 @@
     wrap.dataset.msgId = msg.id;
     wrap.dataset.msgSig = msgSignature(msg);
     wrap.dataset.segMine = msg.seg_mine ? '1' : '0';
+    wrap.dataset.segSector = msg.seg_sector ? String(msg.seg_sector) : '';
     var bubble = document.createElement('div');
     bubble.className = 'conv-bubble';
 
@@ -774,30 +779,84 @@
     scrollToBottom();
   }
 
-  // ---------- Abas "Conversa do setor" x "Conversa privada" ----------
-  // Filtra os ATENDIMENTOS pelo dono (segmento). "privada" = so os meus; "setor" =
-  // tudo o que vejo. E so um filtro visual (classe no container), aplicado tambem
-  // as mensagens que chegam pelo poll (elas ja vem marcadas com data-seg-mine).
-  function applyOwnerFilter(mode) {
-    messagesEl.classList.toggle('filter-mine', mode === 'privada');
+  // ---------- Abas "Conversa do setor" x "Conversa privada" + filtro por setor ----------
+  // Filtra os ATENDIMENTOS por DONO (segmento) e por SETOR. "privada" = so os meus;
+  // "setor" = tudo o que vejo (com um seletor de setor: Todos ou um especifico). E so
+  // um filtro visual (classe .conv-msg-hidden por elemento), reaplicado tambem apos o
+  // poll (as mensagens ja vem marcadas com data-seg-mine e data-seg-sector).
+  var filterBarEl = document.querySelector('[data-filter-bar]');
+  var sectorChipsEl = document.querySelector('[data-sector-chips]');
+  var ownerMode = 'setor';   // 'setor' (tudo) | 'privada' (so os meus)
+  var sectorFilter = '';     // '' = todos | id do setor
+
+  function applyFilters() {
+    var els = messagesEl.querySelectorAll('[data-seg-mine]');
+    els.forEach(function (el) {
+      var okOwner = ownerMode === 'setor' || el.dataset.segMine === '1';
+      var okSector = ownerMode === 'privada' || !sectorFilter
+        || el.dataset.segSector === sectorFilter;
+      el.classList.toggle('conv-msg-hidden', !(okOwner && okSector));
+    });
+    // O seletor de setor so faz sentido na aba "Conversa do setor".
+    if (sectorChipsEl) sectorChipsEl.hidden = (ownerMode === 'privada') || !sectorChipsEl.dataset.has;
+    if (isNearBottom()) scrollToBottom();
+  }
+
+  function setOwnerMode(mode) {
+    ownerMode = mode;
     if (ownerTabsEl) {
       ownerTabsEl.querySelectorAll('.conv-owner-tab').forEach(function (b) {
         b.classList.toggle('is-active', b.dataset.ownerTab === mode);
       });
     }
-    if (isNearBottom()) scrollToBottom();
+    applyFilters();
   }
 
-  function setupOwnerTabs(show) {
-    if (!ownerTabsEl) return;
-    ownerTabsEl.hidden = !show;
-    // Ao abrir/trocar de conversa, sempre volta para "Conversa do setor" (tudo).
-    applyOwnerFilter('setor');
+  function setSectorFilter(id) {
+    sectorFilter = id || '';
+    if (sectorChipsEl) {
+      sectorChipsEl.querySelectorAll('.conv-sector-chip').forEach(function (b) {
+        b.classList.toggle('is-active', (b.dataset.sectorId || '') === sectorFilter);
+      });
+    }
+    applyFilters();
+  }
+
+  function buildSectorChips(sectors) {
+    if (!sectorChipsEl) return;
+    sectorChipsEl.replaceChildren();
+    var hasChips = (sectors || []).length >= 2;
+    sectorChipsEl.dataset.has = hasChips ? '1' : '';
+    if (!hasChips) return;
+    function chip(id, label) {
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'conv-sector-chip' + (String(id) === sectorFilter ? ' is-active' : '');
+      b.dataset.sectorId = String(id);
+      b.textContent = label;
+      b.addEventListener('click', function () { setSectorFilter(b.dataset.sectorId); });
+      sectorChipsEl.appendChild(b);
+    }
+    chip('', 'Todos os setores');
+    sectors.forEach(function (s) { chip(s.id, s.name); });
+  }
+
+  // Configura a barra ao abrir/trocar de conversa: volta para "Conversa do setor" +
+  // "Todos os setores"; mostra/esconde a barra e o seletor conforme o que existe.
+  function setupFilters(ownerTabs, convSectors) {
+    ownerMode = 'setor';
+    sectorFilter = '';
+    if (ownerTabsEl) ownerTabsEl.hidden = !ownerTabs;
+    buildSectorChips(convSectors);
+    var hasSectorChips = (convSectors || []).length >= 2;
+    if (filterBarEl) filterBarEl.hidden = !(ownerTabs || hasSectorChips);
+    setOwnerMode('setor');
+    setSectorFilter('');
   }
 
   if (ownerTabsEl) {
     ownerTabsEl.querySelectorAll('.conv-owner-tab').forEach(function (btn) {
-      btn.addEventListener('click', function () { applyOwnerFilter(btn.dataset.ownerTab); });
+      btn.addEventListener('click', function () { setOwnerMode(btn.dataset.ownerTab); });
     });
   }
 
@@ -817,6 +876,7 @@
         existing.replaceWith(buildMessageEl(msg));
       }
     });
+    applyFilters();  // novas mensagens tambem respeitam o filtro ativo (dono/setor)
     if (appended && wasNearBottom) scrollToBottom();
   }
 
@@ -920,7 +980,7 @@
         if (!data.ok) throw new Error('fail');
         fillInfo(data.contact, data.sectors, data.attendants);
         renderMessages(data.messages);
-        setupOwnerTabs(!!data.owner_tabs);
+        setupFilters(!!data.owner_tabs, data.conv_sectors || []);
         // Zera o badge de nao lidas do item aberto na lista (feedback imediato).
         var item = listEl.querySelector('.conv-item[data-conv-id="' + id + '"]');
         if (item) {

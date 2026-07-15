@@ -35,7 +35,7 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
 > `wapi/` é um módulo Python comum (importa `accounts.models`); **não** está em
 > `INSTALLED_APPS`, por isso os models ficam em `accounts/models.py`.
 
-## 3. Modelos (`accounts/models.py`) — migração atual: `0029`
+## 3. Modelos (`accounts/models.py`) — migração atual: `0030`
 
 - **User** (AbstractUser, login por e-mail; `role`: `leitor`/`usuario`/`adm`).
 - **Attendant** (perfil de atendente, vínculo com User, troca de senha inicial).
@@ -110,7 +110,10 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
   `last_message_text`, `last_message_at`, `unread_count`, `ai_turns` (respostas
   da IA no atendimento atual; zera ao transferir/encerrar/reabrir). Propriedades:
   `is_group`, `display_title`, `display_initials`, `recipient` (destino de envio).
-- **Message**: `conversation`, `direction` (`in`/`out`), `message_type`
+- **Message**: `conversation`, `sector` (FK, **setor da conversa NO MOMENTO** em que a
+  mensagem foi criada — carimbado em todos os pontos de criação; nulo enquanto sem setor,
+  ex.: triagem da IA; usado para separar os atendimentos por setor na aba "Conversa do
+  setor"), `direction` (`in`/`out`), `message_type`
   (`text/image/audio/video/document/sticker/gif/reaction/location/contact/unknown/system`;
   `system` = **divisória** de atendimento no meio do chat),
   `text`, `sender_name`, `sender_id`/`participant_id` (quem enviou; em grupo é o
@@ -255,21 +258,28 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
   Cada mensagem mostra **data e hora** discretas no rodapé do balão (`.conv-msg-time`,
   ex.: "14/07/2026 · 18:37 ✓"); o serializer (`_serialize_message`) expõe `date`
   (`%d/%m/%Y`) e `time` (`%H:%M`).
-- **Abas "Conversa do setor" × "Conversa privada"** (só em conversa **direta**): ao
-  abrir um contato, se o histórico visível tiver atendimentos de **mais de um dono**,
-  aparece uma barra de abas (`.conv-owner-tabs`) abaixo do cabeçalho. **Conversa do
-  setor** (padrão) mostra tudo o que a pessoa pode ver; **Conversa privada** mostra só
-  os **atendimentos que ela mesma atendeu**. É um **filtro visual** por segmento: o
-  endpoint `conversation-messages` divide as mensagens em atendimentos (entre as
-  divisórias "Novo atendimento iniciado") e marca cada uma com `seg` (índice) e
-  `seg_mine` (o segmento tem resposta minha — `sender_name` == meu nome de atendente —
-  ou a conversa está atribuída a mim no segmento atual); retorna `owner_tabs` (só
-  quando há segmento meu **e** de outro). O front aplica `.conv-messages.filter-mine`
-  (esconde `[data-seg-mine="0"]`); o filtro persiste no poll (elementos já vêm
-  marcados). Reseta para "Conversa do setor" ao trocar de conversa. **Limitação
-  atual:** a separação é por **atendente** (dono do atendimento), não por setor
-  histórico — o banco só guarda o setor **atual** da conversa; um seletor por setor
-  exigiria gravar o setor por atendimento (próxima etapa).
+- **Barra de filtro do chat** (`.conv-filter-bar`, só em conversa **direta**): ao abrir
+  um contato, filtra os **atendimentos** (segmentos entre as divisórias "Novo atendimento
+  iniciado") por **dono** e por **setor**. Aparece quando há mais de um dono **ou** mais
+  de um setor no histórico visível.
+  - **Abas por dono** (`.conv-owner-tabs`, mostradas quando `owner_tabs`): **Conversa do
+    setor** (padrão, tudo o que a pessoa pode ver) × **Conversa privada** (só os
+    atendimentos que ela mesma atendeu). "Meu" = o segmento tem resposta minha
+    (`sender_name` == meu nome de atendente) ou a conversa está atribuída a mim no
+    segmento atual.
+  - **Seletor de setor** (`.conv-sector-chips`, só na aba "Conversa do setor", quando há
+    ≥2 setores): **Todos os setores** + um chip por setor presente no histórico. O
+    **setor de cada atendimento** é resolvido no endpoint como o **último setor não-nulo
+    do segmento** (com fallback para `Conversation.sector` no segmento atual) — então o
+    atendimento **inteiro** (inclusive a triagem sem setor) entra no setor onde terminou.
+  - Backend (`conversation_messages_view`): marca cada mensagem com `seg` (índice),
+    `seg_mine` e `seg_sector` (id); retorna `owner_tabs` e `conv_sectors` (setores
+    presentes). Front (`buildMessageEl` grava `data-seg-mine`/`data-seg-sector`;
+    `applyFilters()` combina dono + setor com a classe `.conv-msg-hidden`), reaplicado
+    no poll e resetado ("Conversa do setor" + "Todos") ao trocar de conversa.
+  - **Dado por trás:** `Message.sector` é carimbado na criação com o setor da conversa
+    naquele momento (migração `0030` faz backfill do atendimento **atual**; atendimentos
+    antigos fechados ficam sem setor — não há como saber o setor histórico deles).
 - **Poll incremental** (`syncMessages`): a atualização periódica só mexe no DOM
   quando chega mensagem nova ou muda o conteúdo (ex.: mídia baixada); **nunca**
   recria uma mídia que esteja tocando (não corta o play). Poll: mensagens 6s,

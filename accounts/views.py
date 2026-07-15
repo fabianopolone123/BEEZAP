@@ -1694,27 +1694,42 @@ def conversation_messages_view(request, conversation_id):
     # separa os ATENDIMENTOS (segmentos entre as divisorias "Novo atendimento iniciado")
     # por dono. Um segmento e MEU se eu enviei alguma mensagem nele (comparo o nome do
     # atendente que respondeu) ou se a conversa esta atribuida a mim (segmento atual).
-    # So faz sentido em conversa DIRETA. Marca cada mensagem com o segmento e se e minha.
+    # So faz sentido em conversa DIRETA. Marca cada mensagem com o segmento, se e minha
+    # e o SETOR do atendimento (resolvido por segmento).
     msg_objs = list(messages_qs)
     mine_name = _current_attendant_name(request)
     my_att_id = getattr(getattr(request.user, 'attendant_profile', None), 'id', None)
+    sector_name_by_id = {s.id: s.name for s in sectors}
     seg_of = {}
     seg_mine = {}
+    seg_sector = {}  # idx -> id do setor do atendimento (ultimo setor nao-nulo do segmento)
     seg_idx = 0
     for m in msg_objs:
         if m.message_type == 'system' and m.text == SYSTEM_NEW_SERVICE_TEXT:
             seg_idx += 1
         seg_of[m.id] = seg_idx
         seg_mine.setdefault(seg_idx, False)
+        seg_sector.setdefault(seg_idx, None)
         if m.direction == 'out' and not m.is_ai and m.sender_name and m.sender_name == mine_name:
             seg_mine[seg_idx] = True
-    if my_att_id and conversation.assigned_attendant_id == my_att_id and seg_mine:
-        seg_mine[seg_idx] = True  # o atendimento ATUAL (ultimo segmento) e meu
+        if m.sector_id:
+            seg_sector[seg_idx] = m.sector_id  # ultimo setor visto no segmento
+    if seg_mine:
+        # O atendimento ATUAL (ultimo segmento): se atribuido a mim, e meu; e o setor
+        # atual da conversa vale se o segmento ainda nao tem setor carimbado.
+        if my_att_id and conversation.assigned_attendant_id == my_att_id:
+            seg_mine[seg_idx] = True
+        if not seg_sector.get(seg_idx) and conversation.sector_id:
+            seg_sector[seg_idx] = conversation.sector_id
     owner_tabs = (
         not conversation.is_group
         and any(seg_mine.values())
         and any(not v for v in seg_mine.values())
     )
+    # Setores presentes no historico (para o seletor da aba "Conversa do setor").
+    present_sector_ids = [sid for sid in dict.fromkeys(seg_sector.values()) if sid]
+    conv_sectors = [{'id': sid, 'name': sector_name_by_id.get(sid, 'Setor')}
+                    for sid in present_sector_ids]
 
     data_messages = []
     for m in msg_objs:
@@ -1722,6 +1737,7 @@ def conversation_messages_view(request, conversation_id):
         idx = seg_of.get(m.id, 0)
         d['seg'] = idx
         d['seg_mine'] = bool(seg_mine.get(idx))
+        d['seg_sector'] = seg_sector.get(idx) or ''
         data_messages.append(d)
 
     return JsonResponse({
@@ -1729,6 +1745,7 @@ def conversation_messages_view(request, conversation_id):
         'contact': _serialize_contact_info(conversation, request.user),
         'messages': data_messages,
         'owner_tabs': owner_tabs,
+        'conv_sectors': conv_sectors,
         'sectors': [{'id': s.id, 'name': s.name} for s in sectors],
         'attendants': [{'id': a.id, 'name': a.name} for a in attendants],
     })

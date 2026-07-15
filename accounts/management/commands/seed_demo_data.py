@@ -124,7 +124,7 @@ class Command(BaseCommand):
                 unread_count=unread, last_message_text=client_text, last_message_at=base,
             )
             msg_in = Message.objects.create(
-                conversation=conv, direction='in', message_type='text',
+                conversation=conv, sector=sector, direction='in', message_type='text',
                 text=client_text, phone=contact.phone, status='received',
             )
             Message.objects.filter(pk=msg_in.pk).update(created_at=base)
@@ -133,7 +133,7 @@ class Command(BaseCommand):
                 reply_at = base + timedelta(minutes=rnd.randint(1, 12))
                 reply_text = rnd.choice(AGENT_MSGS)
                 msg_out = Message.objects.create(
-                    conversation=conv, direction='out', message_type='text',
+                    conversation=conv, sector=sector, direction='out', message_type='text',
                     text=reply_text, status='sent',
                 )
                 Message.objects.filter(pk=msg_out.pk).update(created_at=reply_at)

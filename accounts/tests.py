@@ -1925,6 +1925,46 @@ class ConversationVisibilityTests(TestCase):
             reverse('conversation-messages', args=[self.direct_vendas.id])).json()
         self.assertFalse(data['owner_tabs'])
 
+    def test_segment_sector_resolution(self):
+        """Cada atendimento (segmento) recebe o SETOR resolvido: o ultimo setor
+        nao-nulo do segmento vale para o segmento INTEIRO (inclui a triagem sem setor)."""
+        from datetime import timedelta
+        from django.utils import timezone
+        from accounts.models import Message, UserConversationView
+        from wapi.services import SYSTEM_NEW_SERVICE_TEXT
+        self.admin_view = UserConversationView.objects.create(
+            user=self.uuser, view_scope='all', view_full_history=True)
+        base = timezone.now()
+
+        def mk(txt, mtype='text', sec=None, off=0, direction='in'):
+            m = Message.objects.create(conversation=self.direct_vendas, sector=sec,
+                                       direction=direction, message_type=mtype, text=txt)
+            Message.objects.filter(pk=m.pk).update(created_at=base + timedelta(minutes=off))
+            return m
+
+        mk('oi vendas', sec=self.vendas, off=1)
+        mk(SYSTEM_NEW_SERVICE_TEXT, 'system', None, 2, 'out')  # divisoria sem setor
+        mk('triagem', sec=None, off=3)                          # ainda sem setor
+        mk('agora compras', sec=self.compras, off=4)            # roteou p/ Compras
+        self.client.force_login(self.uuser)
+        data = self.client.get(
+            reverse('conversation-messages', args=[self.direct_vendas.id])).json()
+        by_text = {m['text']: m for m in data['messages']}
+        self.assertEqual(by_text['oi vendas']['seg_sector'], self.vendas.id)
+        # A divisoria e a triagem (sem setor) herdam o setor do atendimento: Compras.
+        self.assertEqual(by_text['triagem']['seg_sector'], self.compras.id)
+        self.assertEqual(by_text['agora compras']['seg_sector'], self.compras.id)
+        present = {s['id'] for s in data['conv_sectors']}
+        self.assertEqual(present, {self.vendas.id, self.compras.id})
+
+    def test_new_message_stamps_sector(self):
+        """Mensagem nova nasce carimbada com o setor atual da conversa."""
+        from wapi.services import save_outgoing_text_message
+        self.direct_vendas.sector = self.compras
+        self.direct_vendas.save(update_fields=['sector'])
+        m = save_outgoing_text_message(self.direct_vendas, 'ola', sender_name='Joao')
+        self.assertEqual(m.sector_id, self.compras.id)
+
 
 class DashboardTests(TestCase):
     """Dashboard com dados reais + comando de dados de demonstracao."""
