@@ -199,10 +199,18 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
 ### Serviços (`wapi/services.py`)
 - `ingest_wapi_payload(payload)` é o **ponto único** de entrada de mensagem recebida
   (usado pelo webhook e pelo comando `sync_wapi_events_to_conversations`): normaliza
-  o contexto, resolve a conversa e cria a mensagem; deduplica pelo id externo.
-  **Ignora (não cria nada):** canal/transmissão (`is_ignorable_jid`), Status
-  (`is_status_or_broadcast`) e mensagens de **sistema/tipo `unknown`**
-  (ex.: `senderKeyDistributionMessage`/`protocolMessage`, comuns em grupos).
+  o contexto, **resolve o conteúdo (tipo/texto/mídia) e só então** resolve a conversa e
+  cria a mensagem; deduplica pelo id externo.
+  **Ignora (não cria NADA — nem conversa):** canal/transmissão (`is_ignorable_jid`),
+  Status (`is_status_or_broadcast`), mensagens de **sistema/tipo `unknown`**
+  (`senderKeyDistributionMessage`/`protocolMessage`/`action`+`participants` em grupos,
+  `templateMessage` de empresa/propaganda) e **texto vazio**.
+  > **Ordem importa (bug já corrigido):** a conversa era resolvida/criada **antes**
+  > desses descartes, então todo payload descartado deixava uma **conversa vazia** (sem
+  > nenhuma mensagem, aparecendo na lista com o JID/`@lid` cru no título) e, em grupo
+  > novo, ainda gastava uma chamada à W-API em `resolve_group_name`. Hoje a conversa só
+  > é criada quando há conteúdo de verdade — e uma conversa **encerrada não reabre**
+  > (`_reopen_for_new_service`) por causa de um evento de sistema.
 - `resolve_conversation_for_context(ctx)` acha/cria a conversa certa: **grupo** →
   keyed pelo JID (`external_id`, `chat_type='group'`, sem contato); **direta com
   telefone** → contato + conversa aberta (comportamento antigo); **direta com id

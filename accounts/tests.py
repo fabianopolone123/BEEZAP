@@ -437,6 +437,112 @@ class ContactDefaultsToNumberTests(TestCase):
         self.assertEqual(_build_name_map(conv)['5516993364676'], 'Jose Silva')
 
 
+class DiscardedPayloadLeavesNoConversationTests(TestCase):
+    """Payload descartado nao pode deixar CONVERSA VAZIA para tras.
+
+    Regressao real (producao): a conversa era resolvida/criada ANTES dos descartes por
+    tipo nao suportado / texto vazio, entao mensagem de sistema de grupo
+    (`protocolMessage`), evento de participantes e `templateMessage` de empresa criavam
+    conversas sem nenhuma mensagem (apareciam na lista com o JID/@lid cru no titulo)."""
+
+    def _direct(self, content, message_id='DISC1'):
+        return {
+            'connectedPhone': '5514988208134',
+            'isGroup': False,
+            'messageId': message_id,
+            'chat': {'id': '103445042315337@lid'},
+            'sender': {'id': '5519971548270', 'pushName': 'Alguem'},
+            'msgContent': content,
+        }
+
+    def _group(self, content, message_id='DISCG1'):
+        return {
+            'connectedPhone': '5514988208134',
+            'isGroup': True,
+            'messageId': message_id,
+            'chat': {'id': '120363408906113722@g.us'},
+            'sender': {'id': '5519971548270', 'pushName': 'Alguem'},
+            'msgContent': content,
+        }
+
+    def test_template_message_creates_no_conversation(self):
+        from wapi.services import ingest_wapi_payload
+        from accounts.models import Contact, Conversation
+
+        payload = self._direct({
+            'messageContextInfo': {'deviceListMetadataVersion': 2},
+            'templateMessage': {'hydratedTemplate': {'hydratedContentText': 'Oferta!'}},
+        })
+        self.assertIsNone(ingest_wapi_payload(payload, trigger_ai=False))
+        self.assertEqual(Conversation.objects.count(), 0)
+        self.assertEqual(Contact.objects.count(), 0)
+
+    def test_group_system_message_creates_no_conversation(self):
+        from wapi.services import ingest_wapi_payload
+        from accounts.models import Conversation
+
+        payload = self._group({
+            'messageContextInfo': {'deviceListMetadataVersion': 2},
+            'protocolMessage': {'type': 'REVOKE'},
+        })
+        # resolve_group_name NAO deve nem ser chamado (gastava requisicao na W-API).
+        with patch('wapi.services.resolve_group_name') as resolve_name:
+            self.assertIsNone(ingest_wapi_payload(payload, trigger_ai=False))
+        resolve_name.assert_not_called()
+        self.assertEqual(Conversation.objects.count(), 0)
+
+    def test_empty_text_creates_no_conversation(self):
+        from wapi.services import ingest_wapi_payload
+        from accounts.models import Conversation
+
+        self.assertIsNone(
+            ingest_wapi_payload(self._direct({'conversation': ''}), trigger_ai=False)
+        )
+        self.assertEqual(Conversation.objects.count(), 0)
+
+    def test_real_message_still_creates_conversation_and_message(self):
+        from wapi.services import ingest_wapi_payload
+        from accounts.models import Conversation, Message
+
+        msg = ingest_wapi_payload(self._direct({'conversation': 'ola'}), trigger_ai=False)
+
+        self.assertIsNotNone(msg)
+        self.assertEqual(Conversation.objects.count(), 1)
+        self.assertEqual(Message.objects.count(), 1)
+        self.assertEqual(msg.text, 'ola')
+
+    def test_media_still_arrives_with_metadata(self):
+        from wapi.services import ingest_wapi_payload
+        from accounts.models import Message
+
+        payload = self._direct({'imageMessage': {
+            'mimetype': 'image/jpeg', 'mediaKey': 'K', 'directPath': '/d', 'caption': 'foto',
+        }}, message_id='DISCIMG')
+        with patch('wapi.services._try_download_media'):
+            msg = ingest_wapi_payload(payload, trigger_ai=False)
+
+        self.assertIsNotNone(msg)
+        self.assertEqual(msg.message_type, 'image')
+        self.assertEqual(msg.text, 'foto')
+        self.assertEqual(msg.media_mimetype, 'image/jpeg')
+        self.assertEqual(Message.objects.count(), 1)
+
+    def test_system_event_does_not_reopen_closed_conversation(self):
+        """Conversa FINALIZADA nao pode reabrir por causa de um evento de sistema."""
+        from wapi.services import ingest_wapi_payload
+        from accounts.models import Contact, Conversation
+
+        contact = Contact.objects.create(phone='5519971548270', name='')
+        conv = Conversation.objects.create(contact=contact, external_id='103445042315337@lid',
+                                           chat_type='private', status='closed')
+
+        payload = self._direct({'protocolMessage': {'type': 'REVOKE'}}, message_id='DISCSYS')
+        self.assertIsNone(ingest_wapi_payload(payload, trigger_ai=False))
+
+        conv.refresh_from_db()
+        self.assertEqual(conv.status, 'closed')
+
+
 class LidRealPhoneTests(TestCase):
     """W-API Lite entrega a conversa DIRETA chaveada por `@lid` (id interno), mas manda
     o TELEFONE real no remetente (`sender.id`). O contato tem de ser resolvido por esse

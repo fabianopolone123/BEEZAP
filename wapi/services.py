@@ -739,18 +739,15 @@ def ingest_wapi_payload(payload, trigger_ai=True):
         ingest_logger.info('[WAPI WEBHOOK] ignorado (status/canal/transmissao): %s', ctx['chat_id'])
         return None
 
-    conversation = resolve_conversation_for_context(ctx)
-    if conversation is None:
-        return None
-
     media_info = parse_wapi_media(payload)
     message_type = media_info['message_type']
     external_message_id = parsed.get('message_id', '')
 
     # Tipos nao reconhecidos sao, em quase todos os casos, mensagens de SISTEMA do
-    # WhatsApp (ex.: senderKeyDistributionMessage/protocolMessage em grupos) sem
-    # conteudo para o usuario. Ignoramos em vez de poluir o chat com "Tipo de
-    # mensagem nao suportado". O log guarda as chaves para diagnostico.
+    # WhatsApp (ex.: senderKeyDistributionMessage/protocolMessage em grupos, ou
+    # templateMessage de empresa/propaganda) sem conteudo para o usuario. Ignoramos em
+    # vez de poluir o chat com "Tipo de mensagem nao suportado". O log guarda as chaves
+    # para diagnostico.
     if message_type == 'unknown':
         ingest_logger.info(
             '[WAPI WEBHOOK] ignorado (tipo nao suportado): chat=%s content=%s',
@@ -758,39 +755,45 @@ def ingest_wapi_payload(payload, trigger_ai=True):
         )
         return None
 
-    def _finish(message):
-        if trigger_ai:
-            _maybe_trigger_reception(conversation, message)
-        return message
-
+    # O conteudo (texto/legenda/midia) e resolvido ANTES de tocar no banco, para que um
+    # payload descartado nao deixe rastro.
+    media = None
     if message_type == 'text':
         text = parsed.get('message_text', '')
         if not text:
+            ingest_logger.info(
+                '[WAPI WEBHOOK] ignorado (texto vazio): chat=%s', ctx.get('chat_id') or '-'
+            )
             return None
-        return _finish(save_incoming_message(
-            conversation, ctx, message_type='text', text=text,
-            external_message_id=external_message_id, payload=payload,
-        ))
-
-    if message_type == 'reaction':
-        return _finish(save_incoming_message(
-            conversation, ctx, message_type='reaction',
-            text=media_info.get('reaction', ''),
-            external_message_id=external_message_id, payload=payload,
-        ))
-
-    # imagem/audio/video/documento/sticker/gif/location/contact/unknown
-    return _finish(save_incoming_message(
-        conversation, ctx, message_type=message_type,
-        text=media_info.get('caption') or parsed.get('message_text', ''),
-        external_message_id=external_message_id, payload=payload,
-        media={
+    elif message_type == 'reaction':
+        text = media_info.get('reaction', '')
+    else:
+        # imagem/audio/video/documento/sticker/gif/location/contact
+        text = media_info.get('caption') or parsed.get('message_text', '')
+        media = {
             'media_url': media_info.get('media_url'),
             'media_mimetype': media_info.get('media_mimetype'),
             'media_key': media_info.get('media_key'),
             'direct_path': media_info.get('direct_path'),
-        },
-    ))
+        }
+
+    # SO AGORA a conversa e criada/reaberta — ja sabemos que existe conteudo para
+    # salvar. ANTES a conversa era resolvida no inicio, entao todo payload descartado
+    # acima (mensagem de sistema de grupo, templateMessage, texto vazio) deixava uma
+    # conversa VAZIA para tras (e, em grupo novo, ainda gastava a chamada a W-API em
+    # resolve_group_name). Bonus: uma conversa encerrada nao reabre
+    # (`_reopen_for_new_service`) por causa de um evento de sistema.
+    conversation = resolve_conversation_for_context(ctx)
+    if conversation is None:
+        return None
+
+    message = save_incoming_message(
+        conversation, ctx, message_type=message_type, text=text,
+        external_message_id=external_message_id, payload=payload, media=media,
+    )
+    if trigger_ai:
+        _maybe_trigger_reception(conversation, message)
+    return message
 
 
 def save_outgoing_text_message(conversation, text, external_message_id='', status='sent',
