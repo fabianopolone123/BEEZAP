@@ -437,6 +437,218 @@ class ContactDefaultsToNumberTests(TestCase):
         self.assertEqual(_build_name_map(conv)['5516993364676'], 'Jose Silva')
 
 
+class LidRealPhoneTests(TestCase):
+    """W-API Lite entrega a conversa DIRETA chaveada por `@lid` (id interno), mas manda
+    o TELEFONE real no remetente (`sender.id`). O contato tem de ser resolvido por esse
+    telefone: a conversa aparece pelo NUMERO (nao pelo pushName) e a pessoa fica
+    unificada com os grupos e a tela Contatos."""
+
+    LID = '53094503153686@lid'
+    PHONE = '5519971548270'
+    OURS = '5514988208134'
+
+    def _payload(self, message_id='LID1', from_me=False, sender_id=None, chat_id=None):
+        return {
+            'event': 'webhookReceived',
+            'connectedPhone': self.OURS,
+            'connectedLid': '253222916751588@lid',
+            'isGroup': False,
+            'messageId': message_id,
+            'fromMe': from_me,
+            'chat': {'id': chat_id or self.LID},
+            'sender': {'id': sender_id or self.PHONE,
+                       'senderLid': self.LID,
+                       'pushName': 'elvisgoncalves123'},
+            'msgContent': {'conversation': 'oi'},
+        }
+
+    def test_parser_exposes_real_phone_and_our_number(self):
+        ctx = normalize_wapi_message_context(self._payload())
+        self.assertFalse(ctx['is_group'])
+        self.assertEqual(ctx['chat_id'], self.LID)        # conversa segue chaveada pelo @lid
+        self.assertEqual(ctx['sender_phone'], self.PHONE)  # telefone REAL de quem enviou
+        self.assertEqual(ctx['connected_phone'], self.OURS)
+
+    def test_parser_has_no_phone_when_sender_is_only_a_lid(self):
+        ctx = normalize_wapi_message_context({
+            'chat': {'id': self.LID},
+            'sender': {'id': self.LID, 'pushName': 'X'},
+            'msgContent': {'conversation': 'oi'},
+        })
+        self.assertEqual(ctx['sender_phone'], '')
+
+    def test_incoming_lid_message_links_contact_of_real_phone(self):
+        from wapi.services import ingest_wapi_payload
+        from accounts.models import Contact
+
+        msg = ingest_wapi_payload(self._payload(), trigger_ai=False)
+
+        conv = msg.conversation
+        self.assertEqual(conv.external_id, self.LID)   # chave de envio preservada
+        self.assertEqual(conv.chat_type, 'private')
+        self.assertIsNotNone(conv.contact_id)
+        self.assertEqual(conv.contact.phone, self.PHONE)
+        self.assertEqual(conv.contact.name, '')        # nasce sem nome
+        self.assertEqual(conv.display_title, self.PHONE)  # aparece pelo NUMERO
+        self.assertFalse(Contact.objects.filter(phone=self.OURS).exists())
+
+    def test_naming_the_number_names_the_lid_conversation(self):
+        from wapi.services import ingest_wapi_payload
+        user = User.objects.create_user(email='adm@beezap.com', password='1234', role=User.Role.ADM)
+        msg = ingest_wapi_payload(self._payload(), trigger_ai=False)
+        self.client.force_login(user)
+
+        r = self.client.post(reverse('conversation-name-contact'),
+                             {'number': self.PHONE, 'name': 'Elvis'})
+        self.assertEqual(r.status_code, 200)
+
+        msg.conversation.refresh_from_db()
+        self.assertEqual(msg.conversation.display_title, 'Elvis')
+
+    def test_contact_is_shared_with_group_messages(self):
+        """Mesmo telefone = mesmo Contato: nomear pela direta nomeia no grupo tambem."""
+        from wapi.services import ingest_wapi_payload
+        from accounts.views import _build_name_map
+        from accounts.models import Contact, Conversation, Message
+
+        ingest_wapi_payload(self._payload(), trigger_ai=False)
+        group = Conversation.objects.create(external_id='120363@g.us', chat_type='group', name='Grupo')
+        Message.objects.create(conversation=group, direction='in', message_type='text',
+                               text='oi', is_group=True, sender_id=self.PHONE,
+                               sender_name='elvisgoncalves123')
+
+        self.assertEqual(_build_name_map(group), {})  # sem cadastro: numero no grupo
+
+        Contact.objects.filter(phone=self.PHONE).update(name='Elvis')
+        self.assertEqual(_build_name_map(group)[self.PHONE], 'Elvis')
+
+    def test_our_own_outgoing_message_does_not_become_the_contact(self):
+        """Em mensagem NOSSA (`fromMe`), `sender.id` e o numero da instancia — nunca
+        pode virar o contato da conversa."""
+        from wapi.services import ingest_wapi_payload
+        from accounts.models import Contact
+
+        msg = ingest_wapi_payload(
+            self._payload(message_id='LIDME', from_me=True, sender_id=self.OURS),
+            trigger_ai=False,
+        )
+
+        self.assertIsNone(msg.conversation.contact_id)
+        self.assertFalse(Contact.objects.filter(phone=self.OURS).exists())
+
+    def test_connected_phone_is_never_the_contact(self):
+        from wapi.services import ingest_wapi_payload
+        from accounts.models import Contact
+
+        # Remetente igual ao numero conectado (eco/anomalia): nao vira contato.
+        msg = ingest_wapi_payload(
+            self._payload(message_id='LIDECHO', sender_id=self.OURS), trigger_ai=False
+        )
+
+        self.assertIsNone(msg.conversation.contact_id)
+        self.assertFalse(Contact.objects.filter(phone=self.OURS).exists())
+
+    def test_group_participant_never_gets_private_contact(self):
+        from wapi.services import ingest_wapi_payload
+        from accounts.models import Contact, Conversation
+
+        payload = self._payload(message_id='GRP1', chat_id='120363144038483540@g.us')
+        payload['isGroup'] = True
+        with patch('wapi.services.resolve_group_name', return_value='Grupo'):
+            msg = ingest_wapi_payload(payload, trigger_ai=False)
+
+        self.assertTrue(msg.conversation.is_group)
+        self.assertIsNone(msg.conversation.contact_id)
+        self.assertEqual(Contact.objects.count(), 0)
+        self.assertEqual(Conversation.objects.filter(chat_type='private').count(), 0)
+
+    def test_existing_lid_conversation_gets_contact_on_next_message(self):
+        """Conversa antiga (sem contato) se resolve sozinha quando chega mensagem."""
+        from wapi.services import ingest_wapi_payload
+        from accounts.models import Conversation
+
+        old = Conversation.objects.create(external_id=self.LID, chat_type='private',
+                                          name='elvisgoncalves123', contact=None)
+
+        ingest_wapi_payload(self._payload(message_id='LID2'), trigger_ai=False)
+
+        old.refresh_from_db()
+        self.assertEqual(Conversation.objects.filter(external_id=self.LID).count(), 1)
+        self.assertEqual(old.contact.phone, self.PHONE)
+        self.assertEqual(old.display_title, self.PHONE)  # `name` (pushName) deixa de valer
+
+
+class LinkLidContactsCommandTests(TestCase):
+    """`link_lid_contacts`: resolve pelo historico o telefone das conversas `@lid` que
+    ficaram sem contato (criadas antes do tratamento) e anexa o Contato."""
+
+    LID = '53094503153686@lid'
+    PHONE = '5519971548270'
+    OURS = '5514988208134'
+
+    def _old_conversation(self, with_messages=True):
+        from accounts.models import Conversation, Message
+        conv = Conversation.objects.create(external_id=self.LID, chat_type='private',
+                                           name='elvisgoncalves123', contact=None)
+        if with_messages:
+            Message.objects.create(conversation=conv, direction='in', message_type='text',
+                                   text='oi', sender_id=self.PHONE, sender_name='elvis',
+                                   raw_payload={'connectedPhone': self.OURS})
+        return conv
+
+    def _run(self, *args):
+        from io import StringIO
+        from django.core.management import call_command
+        out = StringIO()
+        call_command('link_lid_contacts', *args, stdout=out)
+        return out.getvalue()
+
+    def test_dry_run_lists_without_changing(self):
+        conv = self._old_conversation()
+
+        out = self._run()
+
+        self.assertIn(self.PHONE, out)
+        self.assertIn('Dry-run', out)
+        conv.refresh_from_db()
+        self.assertIsNone(conv.contact_id)
+
+    def test_apply_links_contact_and_shows_number(self):
+        conv = self._old_conversation()
+
+        self._run('--apply')
+
+        conv.refresh_from_db()
+        self.assertEqual(conv.contact.phone, self.PHONE)
+        self.assertEqual(conv.contact.name, '')
+        self.assertEqual(conv.display_title, self.PHONE)
+
+    def test_apply_reuses_contact_already_named_elsewhere(self):
+        from accounts.models import Contact
+        Contact.objects.create(phone=self.PHONE, name='Elvis')  # nomeado num grupo
+        conv = self._old_conversation()
+
+        out = self._run('--apply')
+
+        conv.refresh_from_db()
+        self.assertEqual(conv.display_title, 'Elvis')   # nome cadastrado vale na direta
+        self.assertEqual(Contact.objects.filter(phone=self.PHONE).count(), 1)
+        self.assertIn('nome cadastrado', out)
+
+    def test_conversation_without_history_is_left_alone(self):
+        conv = self._old_conversation(with_messages=False)
+
+        out = self._run('--apply')
+
+        conv.refresh_from_db()
+        self.assertIsNone(conv.contact_id)
+        self.assertIn('sem telefone no historico', out)
+
+    def test_nothing_to_do(self):
+        out = self._run('--apply')
+        self.assertIn('Nenhuma conversa direta sem contato', out)
+
+
 class CleanupPushnameContactsCommandTests(TestCase):
     """`cleanup_pushname_contacts`: limpa o nome herdado do pushName (o contato volta
     a aparecer pelo numero) e PRESERVA nome cadastrado a mao."""

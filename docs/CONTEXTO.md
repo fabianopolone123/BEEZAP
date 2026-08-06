@@ -106,10 +106,14 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
   **Contatos**) ou cadastra manualmente na tela Contatos. **Nome cadastrado a mão
   nunca é sobrescrito** por nada automático. O `phone` (dígitos) é a chave usada para
   trocar número→nome nas mensagens de grupo (remetente e menções `@`).
-  *Exceção:* conversa direta **sem telefone** (`@lid`) mantém o pushName como título —
-  não há número para clicar/cadastrar, então o alternativo seria um id interno
-  impossível de nomear. Contatos criados **antes** desta regra continuam com o nome
-  antigo; o comando `cleanup_pushname_contacts` (seção 9) desfaz isso.
+  **Conversa `@lid` também tem contato:** a W-API Lite entrega a conversa direta
+  chaveada por um id interno (`@lid`), mas manda o **telefone real** no remetente
+  (`sender.id`); `attach_contact_from_sender` resolve o Contact por esse telefone (ver
+  seção 4), então essas conversas também aparecem pelo **número** e a pessoa fica
+  **unificada** com os grupos e a tela Contatos (mesmo telefone = mesmo Contato:
+  cadastrar o nome uma vez vale em todo lugar). Contatos criados **antes** desta regra
+  continuam com o nome antigo (`cleanup_pushname_contacts`) e conversas `@lid` antigas
+  ficaram sem contato (`link_lid_contacts`) — ver seção 9.
 - **Conversation**: **um único chat por pessoa/grupo** (padrão WhatsApp — não dá mais
   fork por atendimento). `contact` (**opcional** — grupo não tem contato individual),
   `chat_type` (`private`/`group`), `external_id` (JID do grupo `@g.us`, telefone
@@ -173,9 +177,15 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
   Usa `is_group_jid` para decidir: JID coletivo ⇒ **grupo** (chat_id = JID, remetente
   separado em `sender_id`/`participant_id`); número puro / `@s.whatsapp.net` / `@lid`
   ⇒ **direta**. Retorna `chat_id`, `chat_type`, `is_group`, `sender_id`,
-  `participant_id`, `sender_name`, `from_me`, `display_name`, `source`. O JID de
-  grupo tem **prioridade** sobre telefone/remetente em qualquer campo. `_valid_name`
-  exige ≥1 caractere alfanumérico (rejeita nomes só de pontuação, ex.: ".").
+  `participant_id`, `sender_phone`, `connected_phone`, `sender_name`, `from_me`,
+  `display_name`, `source`. O JID de grupo tem **prioridade** sobre telefone/remetente
+  em qualquer campo. `_valid_name` exige ≥1 caractere alfanumérico (rejeita nomes só de
+  pontuação, ex.: ".").
+  - **`sender_phone`** = telefone REAL de quem enviou (`normalize_phone` do
+    participante/remetente; **vazio** quando o remetente é só um id interno). É o que
+    permite achar o número de uma conversa `@lid`.
+  - **`connected_phone`** = o NOSSO número (`connectedPhone`), usado como **guarda**:
+    nunca pode virar o contato da conversa.
 - `normalize_recipient(value)` → destino de **envio**: mantém `@g.us`/`@lid`
   intactos (a W-API precisa do JID); telefone comum vira só dígitos.
 - **Formato real do payload (W-API Lite):** o número do remetente vem em
@@ -195,9 +205,22 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
   (ex.: `senderKeyDistributionMessage`/`protocolMessage`, comuns em grupos).
 - `resolve_conversation_for_context(ctx)` acha/cria a conversa certa: **grupo** →
   keyed pelo JID (`external_id`, `chat_type='group'`, sem contato); **direta com
-  telefone** → contato + conversa aberta (comportamento antigo); **direta sem
-  telefone (`@lid`)** → keyed pelo próprio chat_id, sem contato. **Nunca cria
-  contato privado para quem escreve no grupo.**
+  telefone** → contato + conversa aberta (comportamento antigo); **direta com id
+  interno (`@lid`)** → keyed pelo próprio chat_id **e com o contato resolvido pelo
+  telefone real** (`attach_contact_from_sender`). **Nunca cria contato privado para
+  quem escreve no grupo.**
+- `attach_contact_from_sender(conversation, ctx)` — **o caso normal da W-API Lite**: o
+  chat da conversa direta vem como id interno (`53094503153686@lid`), mas o **telefone
+  de verdade** vem no remetente (`sender.id`, ex.: `5519971548270`). A função anexa o
+  `Contact` desse telefone à conversa, então ela aparece pelo **número** (clicável para
+  cadastrar) em vez do pushName, e a pessoa fica **unificada** com grupos/Contatos. A
+  conversa **continua chaveada pelo `@lid`** (`external_id`), que é o destino que a
+  W-API exige no envio — nada é dividido nem unido. **Guardas:** não faz nada se a
+  conversa já tem contato, se é grupo, se a mensagem é **nossa** (`from_me` — aí
+  `sender.id` é o número da instância), se o remetente não é telefone válido, ou se o
+  número é o `connected_phone`. Chamada em toda mensagem recebida, então conversas
+  antigas sem contato **se resolvem sozinhas** na próxima mensagem (para as paradas,
+  ver `link_lid_contacts` na seção 9).
 - `save_incoming_message(conversation, ctx, ...)` cria a mensagem por tipo;
   para mídia, chama `download-media` e **salva o arquivo localmente** em
   `MEDIA/whatsapp/` (o `fileLink` da W-API expira). Estados `pending/ok/unavailable`.
@@ -505,6 +528,7 @@ cleanup_status_messages [--delete]      # remove mensagens de Status que viraram
 cleanup_unknown_messages [--delete]     # remove mensagens de tipo 'unknown' (sistema)
 cleanup_nonpersonal_conversations [--delete]  # remove conversas de canal/transmissão/"status"
 cleanup_pushname_contacts [--apply]     # limpa nome herdado do pushName (contato volta a aparecer pelo NÚMERO)
+link_lid_contacts [--apply]             # conversas diretas @lid antigas: acha o telefone real no histórico e anexa o Contato
 merge_contact_conversations [--apply]   # unifica conversas picotadas em 1 chat por pessoa/grupo (dry-run)
 seed_demo_data [--no-clear]             # popula DEMO: 5 setores/atendentes + conversas 7 dias (preserva admin/config)
 ```
@@ -514,6 +538,10 @@ seed_demo_data [--no-clear]             # popula DEMO: 5 setores/atendentes + co
 > O `cleanup_pushname_contacts` só limpa o nome quando ele é **idêntico** (ignorando
 > caixa/espaços) ao pushName registrado em alguma mensagem recebida daquele número —
 > nome digitado por uma pessoa não bate com pushName nenhum e é **preservado**.
+> O `link_lid_contacts` resolve o telefone pelo remetente **mais frequente** das
+> mensagens **recebidas** da conversa (nunca o `connectedPhone`) e **não altera** nome
+> de contato já cadastrado; conversa sem mensagem recebida fica como está (resolve
+> sozinha quando chegar uma).
 
 ## 10. Pendências / próximas etapas
 

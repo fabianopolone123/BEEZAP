@@ -200,6 +200,39 @@ def get_or_create_contact(phone):
     return contact
 
 
+def attach_contact_from_sender(conversation, ctx):
+    """Anexa o Contato do TELEFONE REAL a uma conversa direta chaveada por `@lid`.
+
+    A W-API Lite entrega a conversa direta com um identificador interno (`@lid`) no
+    chat, mas manda o TELEFONE de verdade no remetente (`sender.id`) de cada mensagem
+    RECEBIDA. Sem usar isso a conversa fica sem contato e acaba exibindo o pushName;
+    com o contato anexado ela aparece pelo **numero** (clicavel para cadastrar) e a
+    pessoa fica **unificada** com os grupos e a tela Contatos (mesmo telefone = mesmo
+    Contato). A conversa continua **chaveada pelo `@lid`** (`external_id`), que e o
+    destino que a W-API exige no envio.
+
+    Nao faz nada quando: a conversa ja tem contato, e grupo, a mensagem e NOSSA
+    (`from_me` — nesse caso `sender.id` e o numero da propria instancia), o remetente
+    nao e um telefone valido (so id interno) ou o numero e o da instancia conectada.
+    """
+    if conversation is None or conversation.contact_id or conversation.is_group:
+        return conversation
+    if ctx.get('from_me'):
+        return conversation
+    phone = normalize_phone(ctx.get('sender_phone') or '')
+    if not phone:
+        return conversation
+    connected = normalize_phone(ctx.get('connected_phone') or '')
+    if connected and phone == connected:
+        return conversation
+    contact = get_or_create_contact(phone)
+    if contact is None:
+        return conversation
+    conversation.contact = contact
+    conversation.save(update_fields=['contact', 'updated_at'])
+    return conversation
+
+
 def resolve_conversation_for_context(ctx):
     """Encontra (ou cria) a conversa certa a partir do contexto normalizado.
 
@@ -259,7 +292,11 @@ def resolve_conversation_for_context(ctx):
             return conversation
         return Conversation.objects.create(contact=contact, external_id=phone, chat_type='private')
 
-    # Conversa direta sem telefone (ex.: identificador interno @lid).
+    # Conversa direta cujo chat_id NAO e telefone (identificador interno @lid, o caso
+    # normal da W-API Lite). A conversa fica chaveada pelo proprio chat_id, mas o
+    # CONTATO e resolvido pelo telefone real do remetente — ver
+    # attach_contact_from_sender (e com contato, `display_title` mostra o numero, nao
+    # o `name`/pushName).
     conversation = (
         Conversation.objects
         .filter(external_id=chat_id, chat_type='private')
@@ -267,19 +304,20 @@ def resolve_conversation_for_context(ctx):
         .first()
     )
     if conversation:
+        attach_contact_from_sender(conversation, ctx)
         if conversation.status == 'closed':
             _reopen_for_new_service(conversation)
         return conversation
-    # Aqui NAO ha telefone (identificador interno @lid), logo nao ha numero para
-    # clicar e cadastrar: o pushName segue como titulo, senao a conversa ficaria com
-    # um id interno impossivel de nomear. Conversa direta COM telefone nasce sem nome
-    # (ver get_or_create_contact).
-    return Conversation.objects.create(
+    # `name` = pushName fica apenas como ULTIMO recurso de titulo (conversa que nunca
+    # recebeu mensagem, onde nao ha telefone para resolver); com contato anexado ele
+    # deixa de ser usado na exibicao.
+    conversation = Conversation.objects.create(
         external_id=chat_id,
         chat_type='private',
         name=ctx.get('sender_name') or '',
         contact=None,
     )
+    return attach_contact_from_sender(conversation, ctx)
 
 
 def update_conversation_summary(conversation, text, direction):

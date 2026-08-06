@@ -646,6 +646,14 @@ _PARTICIPANT_PATHS = (
     ('data', 'messages', 0, 'key', 'participant'),
 )
 
+# Numero da PROPRIA instancia conectada (o NOSSO numero). Serve de guarda: nunca
+# pode virar o contato da conversa.
+_CONNECTED_PHONE_PATHS = (
+    ('connectedPhone',),
+    ('data', 'connectedPhone'),
+    ('instance', 'connectedPhone'),
+)
+
 _FROM_ME_PATHS = (
     ('fromMe',),
     ('from_me',),
@@ -718,8 +726,10 @@ def normalize_wapi_message_context(payload):
     e o remetente individual (participant) NUNCA vira o chat_id. Caso contrario
     (numero puro, "@s.whatsapp.net" ou "@lid"), a conversa e DIRETA/PRIVADA.
 
-    Retorna: chat_id, chat_type, is_group, sender_id, participant_id, sender_name,
-    from_me, display_name e source (campo de onde o chat_id foi extraido, para log).
+    Retorna: chat_id, chat_type, is_group, sender_id, participant_id, sender_phone
+    (telefone REAL de quem enviou, vazio se o remetente for so um id interno),
+    connected_phone (o NOSSO numero), sender_name, from_me, display_name e source
+    (campo de onde o chat_id foi extraido, para log).
     """
     if not isinstance(payload, dict):
         payload = {}
@@ -752,6 +762,14 @@ def normalize_wapi_message_context(payload):
     if not participant_raw and not is_group:
         participant_raw = chat_id
     participant_id = normalize_phone(participant_raw) or _only_digits(strip_jid(participant_raw))
+    # TELEFONE de verdade de quem enviou (vazio quando o remetente e so um id interno
+    # tipo @lid). A W-API Lite entrega a conversa direta chaveada por @lid, mas manda o
+    # telefone real no remetente (`sender.id`) — e isso que permite resolver o numero do
+    # contato. Guarda: em mensagem NOSSA (`from_me`) esse numero e o da propria
+    # instancia, por isso `connected_phone` volta junto (ver wapi/services.py).
+    sender_phone = normalize_phone(participant_raw)
+    connected_raw, _ = _first_present(payload, _CONNECTED_PHONE_PATHS)
+    connected_phone = normalize_phone(connected_raw)
 
     # 3) from_me (mensagem enviada pela propria conta conectada).
     from_me_value = None
@@ -776,6 +794,8 @@ def normalize_wapi_message_context(payload):
         'is_group': is_group,
         'sender_id': participant_id,
         'participant_id': participant_id,
+        'sender_phone': sender_phone,
+        'connected_phone': connected_phone,
         'sender_name': sender_name,
         'from_me': from_me,
         'display_name': group_name if is_group else sender_name,
