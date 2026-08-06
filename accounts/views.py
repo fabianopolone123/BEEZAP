@@ -1386,24 +1386,22 @@ def _digits(value):
 
 def _build_name_map(conversation):
     """Mapa {digitos: nome} dos participantes do grupo, para exibir o remetente e
-    resolver mencoes (@numero). Fonte: pushName com que a pessoa enviou; um
-    Contato salvo manualmente (mesmo numero) tem PRIORIDADE sobre o pushName."""
-    names = {}       # digitos -> pushName valido
+    resolver mencoes (@numero). Fonte UNICA: Contato CADASTRADO. O pushName do
+    WhatsApp NAO entra aqui — sem contato cadastrado o numero fica visivel (e
+    clicavel, para cadastrar na hora); so nome cadastrado aparece como nome."""
     numbers = set()  # numeros relevantes (remetentes + mencionados)
-    rows = conversation.messages.values_list('sender_id', 'sender_name', 'text')
-    for sender_id, sender_name, text in rows:
+    rows = conversation.messages.values_list('sender_id', 'text')
+    for sender_id, text in rows:
         digits = _digits(sender_id)
         if digits:
             numbers.add(digits)
-            name = (sender_name or '').strip()
-            if name and any(ch.isalnum() for ch in name) and digits not in names:
-                names[digits] = name
         for mentioned in _MENTION_RE.findall(text or ''):
             numbers.add(mentioned)
+    names = {}
     if numbers:
         for phone, cname in Contact.objects.filter(phone__in=numbers).values_list('phone', 'name'):
             if cname and cname.strip():
-                names[phone] = cname.strip()  # Contato salvo vence o pushName
+                names[phone] = cname.strip()
     return names
 
 
@@ -1440,8 +1438,8 @@ def _serialize_message(message, name_map=None):
         'media_status': message.media_status,
         # Nome real do arquivo (documento) para baixar com nome/extensao corretos.
         'filename': document_filename(message) if message.message_type == 'document' else '',
-        # Em grupo, o front mostra o nome de quem enviou (nome resolvido: Contato
-        # salvo > pushName). Se vazio, o front exibe o numero (sender_id) clicavel.
+        # Em grupo, o front mostra o nome de quem enviou (so o do Contato CADASTRADO).
+        # Sem cadastro fica vazio e o front exibe o numero (sender_id) clicavel.
         'is_group': message.is_group,
         'from_me': message.from_me,
         'sender_name': sender_display,
@@ -1464,6 +1462,10 @@ def _serialize_contact_info(conversation, current_user=None):
         'name': conversation.display_title,
         'initials': conversation.display_initials,
         'phone': contact.phone if contact else '',
+        # Nome REALMENTE cadastrado no Contato (vazio quando ninguem cadastrou ainda).
+        # `name` acima cai para o numero nesse caso, entao o front usa este campo para
+        # saber se ainda falta cadastrar (e para nao pre-preencher o modal com o numero).
+        'contact_name': (contact.name or '').strip() if contact else '',
         'is_group': is_group,
         'chat_type': conversation.chat_type,
         'status': conversation.status,  # cru (open/pending/closed) — o front decide os botoes

@@ -753,6 +753,18 @@
   text-decoration-color: #94a3b8;
 }
 
+/* Contato AINDA sem nome: o cabecalho mostra o numero, e o destaque fica visivel
+   (sem hover) para convidar o clique que cadastra o contato. */
+.conv-chat-name-unnamed {
+  color: #475569;
+  text-decoration: underline dotted #94a3b8;
+}
+
+.conv-chat-name-unnamed:hover {
+  color: #0d8d43;
+  text-decoration-color: #0d8d43;
+}
+
 .conv-chat-phone {
   font-size: 0.78rem;
   color: #64748b;

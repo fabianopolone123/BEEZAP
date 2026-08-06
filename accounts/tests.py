@@ -357,6 +357,156 @@ class ContactNamingTests(TestCase):
         self.assertEqual(r.status_code, 400)
 
 
+class ContactDefaultsToNumberTests(TestCase):
+    """A conversa nasce mostrando o NUMERO: nome nunca vem do WhatsApp (pushName).
+    So aparece nome depois que alguem CADASTRA o contato (clicando no numero), e o
+    cadastro cai na tela Contatos."""
+
+    PHONE = '5516999997777'
+
+    def setUp(self):
+        self.user = User.objects.create_user(email='adm@beezap.com', password='1234', role=User.Role.ADM)
+
+    def _incoming_direct(self, push_name='Marcia Nunes', message_id='DIR1'):
+        from wapi.services import ingest_wapi_payload
+        return ingest_wapi_payload({
+            'sender': {'id': self.PHONE, 'pushName': push_name},
+            'chat': {'id': self.PHONE},
+            'msgContent': {'conversation': 'ola'},
+            'messageId': message_id,
+        }, trigger_ai=False)
+
+    def test_incoming_direct_message_creates_contact_without_name(self):
+        from accounts.models import Contact
+
+        msg = self._incoming_direct()
+
+        self.assertIsNotNone(msg)
+        contact = Contact.objects.get(phone=self.PHONE)
+        self.assertEqual(contact.name, '')                        # nao herda o pushName
+        self.assertEqual(contact.display_name, self.PHONE)        # exibe o numero
+        self.assertEqual(msg.conversation.display_title, self.PHONE)
+        self.assertEqual(msg.sender_name, 'Marcia Nunes')         # pushName segue guardado
+
+    def test_pushname_never_overwrites_registered_name(self):
+        from accounts.models import Contact
+        Contact.objects.create(phone=self.PHONE, name='Cliente Antigo')
+
+        self._incoming_direct(push_name='Apelido do WhatsApp')
+
+        self.assertEqual(Contact.objects.get(phone=self.PHONE).name, 'Cliente Antigo')
+
+    def test_messages_endpoint_shows_number_and_marks_as_unnamed(self):
+        msg = self._incoming_direct()
+        self.client.force_login(self.user)
+
+        r = self.client.get(reverse('conversation-messages', args=[msg.conversation_id]))
+
+        contact = r.json()['contact']
+        self.assertEqual(contact['name'], self.PHONE)   # cabecalho/lista mostram o numero
+        self.assertEqual(contact['contact_name'], '')   # front sabe que falta cadastrar
+        self.assertEqual(contact['phone'], self.PHONE)
+
+    def test_naming_the_number_registers_contact_and_shows_name(self):
+        from accounts.models import Contact
+        msg = self._incoming_direct()
+        self.client.force_login(self.user)
+
+        r = self.client.post(reverse('conversation-name-contact'),
+                             {'number': self.PHONE, 'name': 'Marcia'})
+        self.assertEqual(r.status_code, 200)
+
+        self.assertTrue(Contact.objects.filter(phone=self.PHONE, name='Marcia').exists())
+        msg.conversation.refresh_from_db()
+        self.assertEqual(msg.conversation.display_title, 'Marcia')
+        # E o cadastro aparece na tela Contatos.
+        self.assertContains(self.client.get(reverse('contacts')), 'Marcia')
+
+    def test_group_sender_shows_number_until_registered(self):
+        from accounts.views import _build_name_map
+        from accounts.models import Contact, Conversation, Message
+        conv = Conversation.objects.create(external_id='120363@g.us', chat_type='group', name='Grupo')
+        Message.objects.create(conversation=conv, direction='in', message_type='text',
+                               text='oi', is_group=True, sender_id='5516993364676',
+                               sender_name='Ze do WhatsApp')
+
+        # Sem contato cadastrado: nenhum nome resolvido (o front mostra o numero).
+        self.assertEqual(_build_name_map(conv), {})
+
+        Contact.objects.create(phone='5516993364676', name='Jose Silva')
+        self.assertEqual(_build_name_map(conv)['5516993364676'], 'Jose Silva')
+
+
+class CleanupPushnameContactsCommandTests(TestCase):
+    """`cleanup_pushname_contacts`: limpa o nome herdado do pushName (o contato volta
+    a aparecer pelo numero) e PRESERVA nome cadastrado a mao."""
+
+    def _incoming(self, phone, push_name, message_id):
+        from accounts.models import Contact, Conversation, Message
+        contact, _ = Contact.objects.get_or_create(phone=phone, defaults={'name': ''})
+        conv, _ = Conversation.objects.get_or_create(contact=contact, defaults={
+            'external_id': phone, 'chat_type': 'private',
+        })
+        Message.objects.create(conversation=conv, direction='in', message_type='text',
+                               text='oi', sender_id=phone, sender_name=push_name,
+                               external_message_id=message_id)
+        return contact
+
+    def _run(self, *args):
+        from io import StringIO
+        from django.core.management import call_command
+        out = StringIO()
+        call_command('cleanup_pushname_contacts', *args, stdout=out)
+        return out.getvalue()
+
+    def test_dry_run_lists_without_changing(self):
+        contact = self._incoming('5516999990001', 'Marcia Nunes', 'M1')
+        contact.name = 'Marcia Nunes'
+        contact.save(update_fields=['name'])
+
+        out = self._run()
+
+        self.assertIn('5516999990001', out)
+        self.assertIn('Dry-run', out)
+        contact.refresh_from_db()
+        self.assertEqual(contact.name, 'Marcia Nunes')
+
+    def test_apply_clears_pushname_and_keeps_manual_name(self):
+        from_push = self._incoming('5516999990001', 'Marcia Nunes', 'M1')
+        from_push.name = 'Marcia Nunes'
+        from_push.save(update_fields=['name'])
+        # Mesmo numero com pushName no historico, mas nome DIGITADO diferente.
+        manual = self._incoming('5516999990002', 'Ze do Zap', 'M2')
+        manual.name = 'Jose da Silva (financeiro)'
+        manual.save(update_fields=['name'])
+
+        self._run('--apply')
+
+        from_push.refresh_from_db()
+        manual.refresh_from_db()
+        self.assertEqual(from_push.name, '')                            # volta ao numero
+        self.assertEqual(manual.name, 'Jose da Silva (financeiro)')     # preservado
+
+    def test_ignores_case_and_extra_spaces(self):
+        contact = self._incoming('5516999990003', 'Marcia  Nunes', 'M3')
+        contact.name = 'marcia nunes'
+        contact.save(update_fields=['name'])
+
+        self._run('--apply')
+
+        contact.refresh_from_db()
+        self.assertEqual(contact.name, '')
+
+    def test_nothing_to_do(self):
+        from accounts.models import Contact
+        Contact.objects.create(phone='5516999990004', name='So Cadastro')
+
+        out = self._run('--apply')
+
+        self.assertIn('Nenhum contato com nome vindo do WhatsApp', out)
+        self.assertEqual(Contact.objects.get(phone='5516999990004').name, 'So Cadastro')
+
+
 class ContactsPageTests(TestCase):
     def setUp(self):
         self.user = User.objects.create_user(email='adm@beezap.com', password='1234', role=User.Role.ADM)

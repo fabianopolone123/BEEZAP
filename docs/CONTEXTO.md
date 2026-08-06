@@ -98,10 +98,18 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
   digita, `label`, `sector` FK). `key` = `order`.
 - **Contact**: `name`, `phone` (único, guardado **só em dígitos**), `display_name`,
   `initials`. É a base da tela **Contatos** e da resolução de nomes: criado
-  **automaticamente** na 1ª mensagem de uma conversa **direta** (nome = pushName),
-  e também ao **nomear** um participante de grupo (clique no número) ou cadastrar
-  manualmente. O `phone` (dígitos) é a chave usada para trocar número→nome nas
-  mensagens de grupo (remetente e menções `@`).
+  **automaticamente** na 1ª mensagem de uma conversa **direta**, mas **SEM nome**
+  (`name=''`) — o nome **nunca** vem do WhatsApp (pushName). Enquanto ninguém
+  cadastrar, `display_name` cai para o **número**, então Conversas mostra o número; o
+  nome só aparece quando alguém **clica no número e cadastra** (endpoint
+  `conversation-name-contact`, que grava o Contact e por isso já aparece em
+  **Contatos**) ou cadastra manualmente na tela Contatos. **Nome cadastrado a mão
+  nunca é sobrescrito** por nada automático. O `phone` (dígitos) é a chave usada para
+  trocar número→nome nas mensagens de grupo (remetente e menções `@`).
+  *Exceção:* conversa direta **sem telefone** (`@lid`) mantém o pushName como título —
+  não há número para clicar/cadastrar, então o alternativo seria um id interno
+  impossível de nomear. Contatos criados **antes** desta regra continuam com o nome
+  antigo; o comando `cleanup_pushname_contacts` (seção 9) desfaz isso.
 - **Conversation**: **um único chat por pessoa/grupo** (padrão WhatsApp — não dá mais
   fork por atendimento). `contact` (**opcional** — grupo não tem contato individual),
   `chat_type` (`private`/`group`), `external_id` (JID do grupo `@g.us`, telefone
@@ -292,9 +300,19 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
   (atributo `download`).
 - **Menções em grupo**: `@<número>` no texto é resolvido para `@<nome>` (Contato
   salvo ou pushName de quem já enviou no grupo).
-- **Nome do remetente (grupo)**: **recebida** → mostra o nome (se não houver, o
-  **número clicável** → modal "Nomear contato"); **enviada** → mostra o **nome do
-  atendente que mandou** (como é um número só, o time sabe quem respondeu). O envio
+- **Só nome CADASTRADO aparece como nome** (em qualquer tela): o pushName do WhatsApp
+  não é usado nem na conversa direta (ver `Contact` na seção 3) nem no grupo
+  (`_build_name_map` resolve **apenas** por Contato cadastrado). Sem cadastro, aparece
+  o **número**, e clicar nele abre o modal que cadastra o contato. No **cabeçalho** da
+  conversa direta sem nome, o número ganha destaque pontilhado visível
+  (`.conv-chat-name-unnamed`) e a linha de baixo mostra "Sem nome cadastrado — clique
+  no número" (em vez de repetir o número); depois de salvar, o cabeçalho troca para o
+  nome na hora. `_serialize_contact_info` expõe `contact_name` (nome realmente
+  cadastrado, vazio = falta cadastrar) além de `name` (que cai para o número) — é o que
+  evita o modal abrir com o telefone escrito no campo de nome.
+- **Nome do remetente (grupo)**: **recebida** → mostra o nome (se não houver Contato
+  cadastrado, o **número clicável** → modal "Nomear contato"); **enviada** → mostra o
+  **nome do atendente que mandou** (como é um número só, o time sabe quem respondeu). O envio
   grava `Message.sender_name` = nome do atendente (`_current_attendant_name`); o front
   mostra acima do balão (`.conv-msg-sender-me`). **No corpo enviado ao WhatsApp** (grupo),
   o texto vai prefixado com `*<atendente>*\n...` — assim os **participantes do grupo**
@@ -486,11 +504,16 @@ inspect_wapi_groups [--full]            # DIAGNÓSTICO: resposta de get-all-grou
 cleanup_status_messages [--delete]      # remove mensagens de Status que viraram conversa
 cleanup_unknown_messages [--delete]     # remove mensagens de tipo 'unknown' (sistema)
 cleanup_nonpersonal_conversations [--delete]  # remove conversas de canal/transmissão/"status"
+cleanup_pushname_contacts [--apply]     # limpa nome herdado do pushName (contato volta a aparecer pelo NÚMERO)
 merge_contact_conversations [--apply]   # unifica conversas picotadas em 1 chat por pessoa/grupo (dry-run)
 seed_demo_data [--no-clear]             # popula DEMO: 5 setores/atendentes + conversas 7 dias (preserva admin/config)
 ```
 > Os `cleanup_*` e o `inspect_*` são **dry-run por padrão** (só listam); `--delete`
-> aplica. Úteis para limpar lixo antigo (status/canal/sistema) após um deploy do fix.
+> (ou `--apply`, no `cleanup_pushname_contacts`) aplica. Úteis para limpar lixo antigo
+> (status/canal/sistema) após um deploy do fix.
+> O `cleanup_pushname_contacts` só limpa o nome quando ele é **idêntico** (ignorando
+> caixa/espaços) ao pushName registrado em alguma mensagem recebida daquele número —
+> nome digitado por uma pessoa não bate com pushName nenhum e é **preservado**.
 
 ## 10. Pendências / próximas etapas
 

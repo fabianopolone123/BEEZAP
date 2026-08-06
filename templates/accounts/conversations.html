@@ -5,7 +5,7 @@
 
 {% block extra_head %}
 <link rel="stylesheet" href="{% static 'css/dashboard.css' %}?v=5">
-<link rel="stylesheet" href="{% static 'css/conversations.css' %}?v=26">
+<link rel="stylesheet" href="{% static 'css/conversations.css' %}?v=27">
 {% endblock %}
 
 {% block content %}
@@ -494,10 +494,20 @@
         }
         closeNameModal();
         showToast('Contato salvo como "' + name + '".', 'success');
-        // Conversa direta: atualiza o nome no cabecalho na hora.
+        // Conversa direta: atualiza o nome no cabecalho na hora (sai o numero, entra o
+        // nome; a linha de baixo volta a mostrar o telefone).
         if (!currentIsGroup && nameModalNumber && nameModalNumber === currentContactPhone) {
           var chatNameEl = document.querySelector('[data-chat-name]');
-          if (chatNameEl) chatNameEl.textContent = name;
+          if (chatNameEl) {
+            chatNameEl.textContent = name;
+            chatNameEl.classList.remove('conv-chat-name-unnamed');
+            chatNameEl.title = 'Clique para renomear este contato';
+            chatNameEl.classList.add('conv-chat-name-editable');
+          }
+          var chatPhoneEl = document.querySelector('[data-chat-phone]');
+          if (chatPhoneEl) chatPhoneEl.textContent = currentContactPhone;
+          var infoNameEl = document.querySelector('[data-info-name]');
+          if (infoNameEl) infoNameEl.textContent = name;
           currentContactName = name;
         }
         refreshOpenMessages();  // reexibe as mensagens com o nome no lugar do numero
@@ -900,7 +910,9 @@
     // Guarda o contexto da conversa aberta (usado para editar o nome no cabecalho).
     currentIsGroup = isGroup;
     currentContactPhone = isGroup ? '' : (contact.phone || '');
-    currentContactName = contact.name || '';
+    // Nome CADASTRADO (vazio = ainda aparece o numero); nunca o numero em si, para o
+    // modal nao abrir com o telefone escrito no campo de nome.
+    currentContactName = contact.contact_name || '';
     document.querySelector('[data-chat-initials]').textContent = contact.initials;
 
     var chatName = document.querySelector('[data-chat-name]');
@@ -912,10 +924,23 @@
       chatName.appendChild(headerBadge);
     }
     chatName.appendChild(document.createTextNode(contact.name));
-    // Em conversa direta, o nome vira clicavel para editar o contato.
-    chatName.classList.toggle('conv-chat-name-editable', !isGroup && !!contact.phone);
+    // Em conversa direta, o nome vira clicavel para editar o contato. Quando ainda
+    // NAO ha nome cadastrado (o cabecalho mostra o numero), o destaque fica visivel
+    // e o texto de ajuda convida a cadastrar.
+    var canName = !isGroup && !!contact.phone;
+    var unnamed = canName && !currentContactName;
+    chatName.classList.toggle('conv-chat-name-editable', canName);
+    chatName.classList.toggle('conv-chat-name-unnamed', unnamed);
+    chatName.title = canName
+      ? (unnamed ? 'Clique no número para cadastrar este contato'
+                 : 'Clique para renomear este contato')
+      : '';
 
-    document.querySelector('[data-chat-phone]').textContent = isGroup ? 'Conversa em grupo' : contact.phone;
+    // Sem nome cadastrado o cabecalho JA mostra o numero na linha de cima, entao aqui
+    // vai a dica em vez de repetir o mesmo numero duas vezes.
+    document.querySelector('[data-chat-phone]').textContent = isGroup
+      ? 'Conversa em grupo'
+      : (unnamed ? 'Sem nome cadastrado — clique no número' : contact.phone);
     document.querySelector('[data-chat-status]').textContent = '● ' + contact.status_label;
 
     document.querySelector('[data-info-name]').textContent = contact.name;

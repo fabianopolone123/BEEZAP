@@ -188,15 +188,15 @@ def _summary_text(message_type, text):
     return label
 
 
-def get_or_create_contact(phone, name=''):
+def get_or_create_contact(phone):
+    """Contato de uma conversa DIRETA. O contato nasce SEM nome de proposito: o nome
+    NAO vem do WhatsApp (pushName). Assim a conversa aparece com o NUMERO ate alguem
+    cadastrar o nome — clicando no numero em Conversas, que grava o Contato (tela
+    Contatos). Nome cadastrado a mao nunca e sobrescrito por nada automatico."""
     phone = normalize_phone(phone)
     if not phone:
         return None
-    name = (name or '').strip()
-    contact, _created = Contact.objects.get_or_create(phone=phone, defaults={'name': name})
-    if name and not contact.name:
-        contact.name = name
-        contact.save(update_fields=['name', 'updated_at'])
+    contact, _created = Contact.objects.get_or_create(phone=phone, defaults={'name': ''})
     return contact
 
 
@@ -241,7 +241,7 @@ def resolve_conversation_for_context(ctx):
     # Conversa direta com telefone real.
     phone = normalize_phone(chat_id)
     if phone:
-        contact = get_or_create_contact(phone, ctx.get('sender_name'))
+        contact = get_or_create_contact(phone)
         if contact is None:
             return None
         conversation = (
@@ -270,6 +270,10 @@ def resolve_conversation_for_context(ctx):
         if conversation.status == 'closed':
             _reopen_for_new_service(conversation)
         return conversation
+    # Aqui NAO ha telefone (identificador interno @lid), logo nao ha numero para
+    # clicar e cadastrar: o pushName segue como titulo, senao a conversa ficaria com
+    # um id interno impossivel de nomear. Conversa direta COM telefone nasce sem nome
+    # (ver get_or_create_contact).
     return Conversation.objects.create(
         external_id=chat_id,
         chat_type='private',
