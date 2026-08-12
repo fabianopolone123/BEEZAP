@@ -490,13 +490,16 @@ def _format_hms(seconds):
 _DASHBOARD_PALETTE = ['#21c25e', '#2d6cdf', '#f4b740', '#e5484d', '#7c3aed', '#0d8d43', '#14b8a6', '#ef7d1a']
 
 
-def build_dashboard_context():
-    """Métricas reais do dashboard a partir do banco (conversas/mensagens/setores)."""
+def build_dashboard_context(company):
+    """Métricas reais do dashboard a partir do banco (conversas/mensagens/setores).
+
+    MULTIEMPRESA: todos os numeros sao SOMENTE da empresa informada — nenhum
+    indicador mistura clientes."""
     from django.db.models import Count
 
     today = timezone.localdate()
     start_7 = today - timedelta(days=6)
-    convs = Conversation.objects.all()
+    convs = Conversation.objects.filter(company=company)
 
     ativas = convs.exclude(status='closed').count()
     novas = convs.filter(created_at__date__gte=start_7).count()
@@ -601,7 +604,7 @@ def dashboard_view(request):
     if not user_can_access(request.user, 'dashboard'):
         return redirect(first_landing_url_name(request.user))
 
-    context = build_dashboard_context()
+    context = build_dashboard_context(request_company(request))
     context.update({
         'role': request.user.role,
         'role_label': request.user.get_role_display(),
@@ -763,7 +766,7 @@ def atendimento_view(request):
         messages.success(request, 'Configuracao do chatbot salva com sucesso.')
         return redirect('atendimento')
 
-    sectors = list(Sector.objects.all().order_by('name'))
+    sectors = list(Sector.objects.filter(company=company).order_by('name'))
     return render(
         request,
         'accounts/chatbot_settings.html',
@@ -851,6 +854,11 @@ def permissions_view(request):
         role_allowed_keys, allowed_keys_for, history_full_for, effective_view_scope,
     )
     is_ajax = request.headers.get('x-requested-with') == 'XMLHttpRequest'
+    # MULTIEMPRESA: esta tela decide quem ve o que, então TODA consulta aqui e
+    # restrita a empresa de quem esta logado — pessoas, setores e grupos de outro
+    # cliente nunca aparecem nem podem ser alvo de um POST forjado.
+    company = request_company(request)
+    company_users = User.objects.filter(company=company)
 
     if request.method == 'POST':
         form_type = request.POST.get('form_type')
@@ -872,7 +880,7 @@ def permissions_view(request):
 
         if form_type == 'user':
             user_id = (request.POST.get('user_id') or '').strip()
-            target = User.objects.filter(pk=user_id).first() if user_id else None
+            target = company_users.filter(pk=user_id).first() if user_id else None
             if not target or target.role == 'adm':
                 if is_ajax:
                     return JsonResponse({'ok': False, 'error': 'Selecione um usuario valido.'}, status=400)
@@ -891,7 +899,9 @@ def permissions_view(request):
 
         if form_type == 'user-reset':
             user_id = (request.POST.get('user_id') or '').strip()
-            UserMenuPermission.objects.filter(user_id=user_id).delete()
+            UserMenuPermission.objects.filter(
+                user_id=user_id, user__company=company
+            ).delete()
             messages.success(request, 'Personalizacao removida (voltou ao padrao do perfil).')
             return redirect(f'{reverse("permissions")}?tab=botoes&user={user_id}')
 
@@ -899,12 +909,12 @@ def permissions_view(request):
         valid_scopes = {c.value for c in ConversationViewScope}
 
         if form_type == 'view-sectors':
-            for sector in Sector.objects.all():
+            for sector in Sector.objects.filter(company=company):
                 scope = (request.POST.get(f'sector__{sector.id}__scope') or '').strip()
                 if scope not in valid_scopes:
                     scope = ConversationViewScope.SECTOR_OPEN
                 full = request.POST.get(f'sector__{sector.id}__full_history') == 'on'
-                Sector.objects.filter(pk=sector.id).update(
+                Sector.objects.filter(company=company, pk=sector.id).update(
                     view_scope=scope, view_full_history=full
                 )
             if is_ajax:
@@ -914,7 +924,7 @@ def permissions_view(request):
 
         if form_type == 'view-user':
             user_id = (request.POST.get('user_id') or '').strip()
-            target = User.objects.filter(pk=user_id).exclude(role='adm').first() if user_id else None
+            target = company_users.filter(pk=user_id).exclude(role='adm').first() if user_id else None
             if not target:
                 if is_ajax:
                     return JsonResponse({'ok': False, 'error': 'Selecione um usuario valido.'}, status=400)
@@ -939,7 +949,9 @@ def permissions_view(request):
 
         if form_type == 'view-user-reset':
             user_id = (request.POST.get('user_id') or '').strip()
-            UserConversationView.objects.filter(user_id=user_id).delete()
+            UserConversationView.objects.filter(
+                user_id=user_id, user__company=company
+            ).delete()
             messages.success(request, 'Personalizacao de visualizacao removida (voltou ao padrao do setor).')
             return redirect(f'{reverse("permissions")}?tab=visualizacao&user={user_id}')
 
@@ -947,7 +959,7 @@ def permissions_view(request):
             user_id = (request.POST.get('user_id') or '').strip()
             new_role = (request.POST.get('role') or '').strip()
             valid_roles = {User.Role.ADM, User.Role.USUARIO, User.Role.LEITOR}
-            target = User.objects.filter(pk=user_id).first() if user_id else None
+            target = company_users.filter(pk=user_id).first() if user_id else None
             if not target or new_role not in valid_roles:
                 if is_ajax:
                     return JsonResponse({'ok': False, 'error': 'Selecione um perfil valido.'}, status=400)
@@ -963,7 +975,8 @@ def permissions_view(request):
                 return redirect('permissions')
             # Nao deixa o sistema ficar sem nenhum administrador.
             if target.role == User.Role.ADM and new_role != User.Role.ADM:
-                admin_count = User.objects.filter(role=User.Role.ADM, is_active=True).count()
+                # Cada empresa precisa manter ao menos um administrador proprio.
+                admin_count = company_users.filter(role=User.Role.ADM, is_active=True).count()
                 if admin_count <= 1:
                     if is_ajax:
                         return JsonResponse(
@@ -983,7 +996,10 @@ def permissions_view(request):
         if form_type == 'group-name':
             gid = (request.POST.get('group_id') or '').strip()
             name = (request.POST.get('name') or '').strip()
-            conv = Conversation.objects.filter(pk=gid, chat_type='group').first() if gid else None
+            conv = (
+                Conversation.objects.filter(company=company, pk=gid, chat_type='group').first()
+                if gid else None
+            )
             if conv is not None:
                 conv.name = name
                 conv.save(update_fields=['name', 'updated_at'])
@@ -995,17 +1011,25 @@ def permissions_view(request):
             gid = (request.POST.get('group_id') or '').strip()
             deleted = 0
             if gid:
-                deleted, _ = Conversation.objects.filter(pk=gid, chat_type='group').delete()
+                deleted, _ = Conversation.objects.filter(
+                    company=company, pk=gid, chat_type='group'
+                ).delete()
             if is_ajax:
                 return JsonResponse({'ok': bool(deleted)})
             messages.success(request, 'Grupo removido da lista.')
             return redirect(f'{reverse("permissions")}?tab=grupos')
 
         if form_type == 'groups':
-            group_ids = Conversation.objects.filter(chat_type='group').values_list('id', flat=True)
-            valid_sector_ids = set(Sector.objects.values_list('id', flat=True))
+            group_ids = (
+                Conversation.objects
+                .filter(company=company, chat_type='group')
+                .values_list('id', flat=True)
+            )
+            valid_sector_ids = set(
+                Sector.objects.filter(company=company).values_list('id', flat=True)
+            )
             attendant_user_ids = set(
-                User.objects.filter(attendant_profile__isnull=False).values_list('id', flat=True)
+                company_users.filter(attendant_profile__isnull=False).values_list('id', flat=True)
             )
             for gid in group_ids:
                 sec_ids = [int(s) for s in request.POST.getlist(f'group__{gid}__sector')
@@ -1023,7 +1047,7 @@ def permissions_view(request):
     # ----- GET -----
     roles_ctx = []
     for entry in EDITABLE_ROLES:
-        keys = role_allowed_keys(entry['role'])
+        keys = role_allowed_keys(entry['role'], company)
         roles_ctx.append({
             'role': entry['role'],
             'label': entry['label'],
@@ -1033,10 +1057,12 @@ def permissions_view(request):
         })
 
     users = list(
-        User.objects.exclude(role='adm').filter(is_active=True).order_by('email')
+        company_users.exclude(role='adm').filter(is_active=True).order_by('email')
     )
     override_ids = set(
-        UserMenuPermission.objects.values_list('user_id', flat=True)
+        UserMenuPermission.objects
+        .filter(user__company=company)
+        .values_list('user_id', flat=True)
     )
     users_ctx = [
         {'id': u.id, 'email': u.email, 'name': u.get_full_name() or u.email,
@@ -1045,7 +1071,7 @@ def permissions_view(request):
     ]
 
     selected_id = (request.GET.get('user') or '').strip()
-    selected = User.objects.filter(pk=selected_id).exclude(role='adm').first() if selected_id else None
+    selected = company_users.filter(pk=selected_id).exclude(role='adm').first() if selected_id else None
     selected_ctx = None
     if selected:
         keys = allowed_keys_for(selected)
@@ -1059,13 +1085,13 @@ def permissions_view(request):
         }
 
     # ----- Aba Grupos -----
-    sectors = list(Sector.objects.all().order_by('name'))
+    sectors = list(Sector.objects.filter(company=company).order_by('name'))
     attendant_users = list(
-        User.objects.filter(attendant_profile__isnull=False, is_active=True)
+        company_users.filter(attendant_profile__isnull=False, is_active=True)
         .select_related('attendant_profile').order_by('email')
     )
     groups = (
-        Conversation.objects.filter(chat_type='group')
+        Conversation.objects.filter(company=company, chat_type='group')
         .prefetch_related('access__sectors', 'access__users')
         .order_by('name', 'external_id')
     )
@@ -1095,7 +1121,7 @@ def permissions_view(request):
         return (email or '?')[:2].upper()
 
     people_qs = (
-        User.objects.filter(is_active=True)
+        company_users.filter(is_active=True)
         .select_related('attendant_profile')
         .order_by('first_name', 'email')
     )
@@ -1140,7 +1166,7 @@ def permissions_view(request):
         })
     view_selected_ctx = None
     if selected:
-        ov = UserConversationView.objects.filter(user=selected).first()
+        ov = UserConversationView.objects.filter(user=selected).first()  # selected ja e da empresa
         ov_scope = ov.view_scope if ov else None
         ov_full = ov.view_full_history if ov else None
         if ov_full is None:
@@ -1275,7 +1301,8 @@ def attendants_view(request):
     if forbidden:
         return forbidden
 
-    attendants = Attendant.objects.select_related('user').all()
+    company = request_company(request)
+    attendants = Attendant.objects.select_related('user').filter(company=company)
     form = AttendantForm()
     modal_mode = 'create'
     show_modal = False
@@ -1287,7 +1314,10 @@ def attendants_view(request):
             return blocked
         attendant_id = request.POST.get('attendant_id')
         if attendant_id:
-            editing_attendant = get_object_or_404(Attendant, pk=attendant_id)
+            # Escopo da empresa: id de atendente de outro cliente da 404.
+            editing_attendant = get_object_or_404(
+                Attendant, pk=attendant_id, company=company
+            )
             modal_mode = 'edit'
         form = AttendantForm(request.POST, attendant=editing_attendant)
         show_modal = True
@@ -1315,7 +1345,6 @@ def attendants_view(request):
                         messages.success(request, 'Atendente atualizado com sucesso.')
                     else:
                         # O atendente novo nasce na MESMA empresa de quem cadastrou.
-                        company = request_company(request)
                         user = User.objects.create_user(
                             email=email,
                             password='1234',
@@ -1458,7 +1487,10 @@ def _build_name_map(conversation):
             numbers.add(mentioned)
     names = {}
     if numbers:
-        for phone, cname in Contact.objects.filter(phone__in=numbers).values_list('phone', 'name'):
+        contacts = Contact.objects.filter(
+            company=conversation.company, phone__in=numbers
+        ).values_list('phone', 'name')
+        for phone, cname in contacts:
             if cname and cname.strip():
                 names[phone] = cname.strip()
     return names
@@ -1756,9 +1788,14 @@ def contacts_view(request):
         blocked = block_readonly(request)
         if blocked:
             return blocked
+        # Toda acao desta tela acontece DENTRO da empresa de quem esta logado: um id
+        # de contato de outro cliente simplesmente nao e encontrado.
+        company = request_company(request)
         action = (request.POST.get('action') or '').strip()
         if action == 'delete':
-            Contact.objects.filter(pk=(request.POST.get('contact_id') or '').strip()).delete()
+            Contact.objects.filter(
+                company=company, pk=(request.POST.get('contact_id') or '').strip()
+            ).delete()
             messages.success(request, 'Contato removido.')
             return redirect('contacts')
 
@@ -1770,16 +1807,14 @@ def contacts_view(request):
             return redirect('contacts')
         try:
             if contact_id:
-                contact = Contact.objects.filter(pk=contact_id).first()
+                contact = Contact.objects.filter(company=company, pk=contact_id).first()
                 if contact:
                     contact.name = name
                     contact.phone = phone
                     contact.save(update_fields=['name', 'phone', 'updated_at'])
                     messages.success(request, 'Contato atualizado.')
             else:
-                Contact.objects.create(
-                    company=request_company(request), name=name, phone=phone
-                )
+                Contact.objects.create(company=company, name=name, phone=phone)
                 messages.success(request, 'Contato adicionado.')
         except IntegrityError:
             messages.error(request, 'Ja existe um contato com esse telefone.')
@@ -1787,7 +1822,8 @@ def contacts_view(request):
 
     from .permissions import is_read_only
     term = (request.GET.get('q') or '').strip()
-    contacts = Contact.objects.all()
+    company = request_company(request)
+    contacts = Contact.objects.filter(company=company)
     if term:
         contacts = contacts.filter(Q(name__icontains=term) | Q(phone__icontains=term))
     return render(
@@ -1796,7 +1832,7 @@ def contacts_view(request):
         {
             'contacts': contacts,
             'search_term': term,
-            'total_contacts': Contact.objects.count(),
+            'total_contacts': Contact.objects.filter(company=company).count(),
             'nav_items': build_nav_items(request.user, 'Contatos'),
             'role_label': request.user.get_role_display(),
             'user_initial': (request.user.first_name[:1] or request.user.email[:1]).upper(),
@@ -1861,8 +1897,11 @@ def conversation_messages_view(request, conversation_id):
         )
         if last_start:
             messages_qs = messages_qs.filter(created_at__gte=last_start.created_at)
-    sectors = Sector.objects.all()
-    attendants = Attendant.objects.select_related('user').filter(user__is_active=True)
+    # Transferencia so pode oferecer setores/atendentes DA EMPRESA da conversa.
+    sectors = Sector.objects.filter(company=conversation.company)
+    attendants = Attendant.objects.select_related('user').filter(
+        company=conversation.company, user__is_active=True
+    )
     name_map = _build_name_map(conversation) if conversation.is_group else None
 
     # Abas "Conversa privada" (o que EU atendi) x "Conversa do setor" (tudo o que vejo):
@@ -2195,6 +2234,7 @@ def conversation_name_contact_view(request):
     contact, _created = Contact.objects.get_or_create(
         company=request_company(request), phone=number, defaults={'name': name}
     )
+
     if contact.name != name:
         contact.name = name
         contact.save(update_fields=['name', 'updated_at'])
@@ -2213,16 +2253,21 @@ def conversation_transfer_view(request, conversation_id):
         return denied
     update_fields = {'updated_at'}
 
+    # A transferencia so aceita atendente/setor DA MESMA EMPRESA da conversa: mesmo
+    # que alguem forje um id de outro cliente, o filtro nao encontra e nada muda.
+    company = conversation.company
     if 'attendant_id' in request.POST:
         attendant_id = (request.POST.get('attendant_id') or '').strip()
         conversation.assigned_attendant = (
-            Attendant.objects.filter(pk=attendant_id).first() if attendant_id else None
+            Attendant.objects.filter(company=company, pk=attendant_id).first()
+            if attendant_id else None
         )
         update_fields.add('assigned_attendant')
     if 'sector_id' in request.POST:
         sector_id = (request.POST.get('sector_id') or '').strip()
         conversation.sector = (
-            Sector.objects.filter(pk=sector_id).first() if sector_id else None
+            Sector.objects.filter(company=company, pk=sector_id).first()
+            if sector_id else None
         )
         update_fields.add('sector')
 
@@ -2297,10 +2342,13 @@ def sectors_view(request):
     if forbidden:
         return forbidden
 
-    sectors = Sector.objects.prefetch_related('attendants__user').all()
-    attendants = Attendant.objects.select_related('user').filter(user__is_active=True)
+    company = request_company(request)
+    sectors = Sector.objects.prefetch_related('attendants__user').filter(company=company)
+    attendants = Attendant.objects.select_related('user').filter(
+        company=company, user__is_active=True
+    )
 
-    form = SectorForm()
+    form = SectorForm(company=company)
     show_modal = False
     modal_mode = 'create'
     editing_sector = None
@@ -2314,7 +2362,7 @@ def sectors_view(request):
 
         if action == 'delete' and sector_id_str:
             try:
-                sector_obj = Sector.objects.get(pk=int(sector_id_str))
+                sector_obj = Sector.objects.get(company=company, pk=int(sector_id_str))
                 if sector_obj.is_general:
                     messages.error(request, 'O setor Geral é padrão e não pode ser excluído.')
                 else:
@@ -2326,13 +2374,13 @@ def sectors_view(request):
 
         if sector_id_str:
             try:
-                editing_sector = Sector.objects.get(pk=int(sector_id_str))
+                editing_sector = Sector.objects.get(company=company, pk=int(sector_id_str))
                 modal_mode = 'edit'
             except (Sector.DoesNotExist, ValueError):
                 messages.error(request, 'Setor não encontrado.')
                 return redirect('sectors')
 
-        form = SectorForm(request.POST, instance=editing_sector)
+        form = SectorForm(request.POST, instance=editing_sector, company=company)
         show_modal = True
 
         # Captura ANTES de o form mutar a instancia (form.save altera o .name).
@@ -2342,7 +2390,7 @@ def sectors_view(request):
             obj = form.save(commit=False)
             # Setor novo nasce na empresa de quem cadastrou (o campo e obrigatorio).
             if not obj.company_id:
-                obj.company = request_company(request)
+                obj.company = company
             # O nome do setor Geral padrao nao pode ser alterado (o sistema depende
             # dele; ver Sector.ensure_general). A descricao pode ser editada.
             renamed_general = (
@@ -2425,26 +2473,31 @@ def sectors_save_organization_view(request):
     if not isinstance(sectors_data, dict):
         return JsonResponse({'ok': False, 'error': 'Dados inválidos.'}, status=400)
 
+    # Tudo aqui e restrito a EMPRESA de quem esta logado: setor ou atendente de
+    # outro cliente nao e encontrado e e simplesmente ignorado.
+    company = request_company(request)
     try:
         for sector_id_str, attendant_ids in sectors_data.items():
             try:
                 sector_id = int(sector_id_str)
             except (ValueError, TypeError):
                 continue
-            sector_obj = Sector.objects.filter(pk=sector_id).first()
+            sector_obj = Sector.objects.filter(company=company, pk=sector_id).first()
             if not sector_obj:
                 continue
             if not isinstance(attendant_ids, list):
                 continue
             valid_ids = list(
-                Attendant.objects.filter(pk__in=attendant_ids).values_list('id', flat=True)
+                Attendant.objects
+                .filter(company=company, pk__in=attendant_ids)
+                .values_list('id', flat=True)
             )
             sector_obj.attendants.set(valid_ids)
-        # O admin faz parte de TODOS os setores: re-inclui apos o set() do
-        # arrastar-e-soltar (senao ele seria removido das filas que nao o listaram).
-        admins = list(Attendant.objects.filter(user__role='adm'))
+        # O admin faz parte de TODOS os setores DA EMPRESA dele: re-inclui apos o
+        # set() do arrastar-e-soltar (senao seria removido das filas nao listadas).
+        admins = list(Attendant.objects.filter(company=company, user__role='adm'))
         if admins:
-            for sector_obj in Sector.objects.all():
+            for sector_obj in Sector.objects.filter(company=company):
                 sector_obj.attendants.add(*admins)
     except Exception:
         return JsonResponse(
