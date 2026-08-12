@@ -8,13 +8,20 @@ disso, um usuario especifico pode ter uma personalizacao propria
 (UserMenuPermission) que sobrepoe o padrao do perfil.
 
 O GESTOR MASTER (dono da plataforma, ver `accounts/tenancy.py`) e um caso
-separado: ele NAO opera o atendimento de ninguem — ve apenas a tela "Clientes",
-onde cadastra e administra as empresas. Por isso nenhuma feature de atendimento
-fica liberada para ele e ele nao enxerga conversa nenhuma.
+separado: ele NAO opera o atendimento de ninguem. O menu dele tem as telas da
+PLATAFORMA — "Clientes" (cadastro das empresas) e "Inteligência (IA)" (a
+configuracao do GPT, que e uma so para todos os clientes) — e, quando ele entra no
+painel de um cliente (modo suporte), as telas de configuracao daquele cliente.
+Nenhuma feature de atendimento fica liberada para ele e ele nao enxerga conversa
+nenhuma.
+
+O que e TECNICO nao fica com o cliente: as credenciais da W-API (instancia e token
+de cada empresa) e a API Key do GPT sao do master. O cliente configura apenas o
+chatbot de menu e escolhe o modo de primeiro atendimento (desligado / chatbot / IA).
 
 As "features" abaixo sao os botoes reais do menu. `permissions` (a propria tela) e
-exclusiva do admin e `clients` e exclusiva do master; nenhuma das duas entra na
-matriz de toggles.
+exclusiva do admin; `clients` e a tela de IA sao exclusivas do master. Nenhuma
+delas entra na matriz de toggles.
 """
 
 # Botoes reais do menu, na ordem de exibicao. Cada um tem um icone (emoji) para a
@@ -25,20 +32,31 @@ MENU_FEATURES = [
     {'key': 'contacts',      'label': 'Contatos',       'url_name': 'contacts',      'icon': '👥'},
     {'key': 'attendants',    'label': 'Atendentes',     'url_name': 'attendants',    'icon': '🎧'},
     {'key': 'sectors',       'label': 'Setores',        'url_name': 'sectors',       'icon': '🗂️'},
-    {'key': 'settings',      'label': 'Configurações',  'url_name': 'wapi-settings', 'icon': '⚙️'},
+    # Para o CLIENTE, Configuracoes = a tela Atendimento (chatbot de menu + o
+    # seletor de modo). As telas TECNICAS (WhatsApp/W-API e Inteligencia (IA)) sao do
+    # gestor master — ver MASTER_ONLY_ITEMS e docs/CONTEXTO.md secao 16.
+    {'key': 'settings',      'label': 'Configurações',  'url_name': 'atendimento',   'icon': '⚙️'},
 ]
 ALL_FEATURE_KEYS = [f['key'] for f in MENU_FEATURES]
 
 # Item exclusivo do admin (fora da matriz de toggles).
 PERMISSIONS_ITEM = {'label': 'Permissões', 'url_name': 'permissions'}
 
-# Item exclusivo do GESTOR MASTER: a gestao das empresas clientes. Fica fora da
-# matriz de toggles (nenhum perfil de cliente pode receber este botao).
+# Itens exclusivos do GESTOR MASTER (fora da matriz de toggles — nenhum perfil de
+# cliente pode recebe-los).
+#
+# `Clientes` = cadastro/administracao das empresas.
+# `Inteligência (IA)` = configuracao do GPT, que e UMA para toda a plataforma (a API
+# Key e do master, que paga a conta da OpenAI). Cada empresa so decide SE usa IA,
+# chatbot ou nada, no seletor de modo da tela Atendimento dela.
 CLIENTS_ITEM = {'label': 'Clientes', 'url_name': 'clients'}
+AI_ITEM = {'label': 'Inteligência (IA)', 'url_name': 'openai-settings'}
+MASTER_ONLY_ITEMS = [CLIENTS_ITEM, AI_ITEM]
 
 # MODO SUPORTE: o que o master pode acessar quando "entra no painel" de um cliente.
-# Sao apenas as telas de CONFIGURACAO — o master ajusta a W-API/IA/chatbot, os
-# setores, os atendentes e as permissoes daquele cliente para dar suporte.
+# Sao apenas as telas de CONFIGURACAO — o master ajusta o WhatsApp (credenciais da
+# W-API daquele cliente), o chatbot, os setores, os atendentes e as permissoes dele.
+# (A tela de IA nao entra aqui: e da plataforma, nao do cliente.)
 #
 # `conversations` e `contacts` ficam DE FORA de proposito: sao os dados pessoais dos
 # clientes finais da empresa, e a regra do projeto e que o master administra sem ler
@@ -114,8 +132,9 @@ def user_can_access(user, key, in_company=False):
     if not getattr(user, 'is_authenticated', False):
         return False
     role = getattr(user, 'role', None)
-    # A gestao de clientes e so do master; e nenhum perfil de cliente a acessa.
-    if key == 'clients':
+    # Telas da PLATAFORMA (gestao de clientes e configuracao do GPT): so o master, e
+    # nenhum perfil de cliente as acessa.
+    if key in ('clients', 'platform_ai'):
         return role == 'master'
     if role == 'master':
         return in_company and key in MASTER_SUPPORT_KEYS
@@ -132,12 +151,15 @@ def nav_items_for(user, active_label, in_company=False):
     # O master tem um menu proprio: a gestao das empresas clientes e, quando esta no
     # painel de um cliente (modo suporte), as telas de configuracao dele.
     if role == 'master':
-        items = [{
-            'label': CLIENTS_ITEM['label'],
-            'url_name': CLIENTS_ITEM['url_name'],
-            'href': CLIENTS_ITEM['url_name'],
-            'active': CLIENTS_ITEM['label'] == active_label,
-        }]
+        items = [
+            {
+                'label': item['label'],
+                'url_name': item['url_name'],
+                'href': item['url_name'],
+                'active': item['label'] == active_label,
+            }
+            for item in MASTER_ONLY_ITEMS
+        ]
         if in_company:
             items += [
                 {

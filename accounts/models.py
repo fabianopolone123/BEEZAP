@@ -241,9 +241,16 @@ class WapiConfiguration(models.Model):
 
 
 class OpenAiConfiguration(models.Model):
-    """Configuracao da integracao com a API do OpenAI (GPT) de UMA empresa cliente
-    (uma configuracao por empresa — cada cliente usa a SUA propria API Key e paga
-    o SEU proprio consumo).
+    """Configuracao da integracao com a API do OpenAI (GPT) — UMA para toda a
+    PLATAFORMA (nao e por empresa).
+
+    Decisao de produto: a API Key do GPT e da plataforma (o gestor master paga a
+    conta), entao existe UMA configuracao e todos os clientes usam a mesma chave. O
+    que cada empresa decide por conta dela e apenas SE usa IA, chatbot de menu ou
+    nada — isso vive em `MenuBotConfiguration.mode`, que e por empresa. Quem tem
+    instancia/token proprios por empresa e a **W-API** (ver WapiConfiguration).
+
+    So o GESTOR MASTER edita esta tela; o cliente nem a enxerga.
 
     A API Key fica salva AQUI (no banco), editada na tela Inteligencia (IA) — nunca
     fica no codigo e nunca e exibida de novo depois de salva (mesmo padrao do token
@@ -251,9 +258,6 @@ class OpenAiConfiguration(models.Model):
     quando o campo esta vazio. `enabled` e um interruptor mestre: enquanto False,
     nada usa a IA.
     """
-    company = models.OneToOneField(
-        Company, on_delete=models.CASCADE, related_name='openai_config', verbose_name='Empresa',
-    )
     api_key = models.CharField(max_length=255, blank=True)
     model = models.CharField(max_length=80, blank=True, default='gpt-4.1-nano')
     enabled = models.BooleanField(default=False)
@@ -263,14 +267,16 @@ class OpenAiConfiguration(models.Model):
     # Numero maximo de respostas da IA no mesmo atendimento antes de encaminhar
     # para o setor de fallback (evita loop/gasto e nao prende o cliente).
     max_turns = models.PositiveSmallIntegerField(default=3)
-    # Setor para onde a IA encaminha quando nao identifica o setor certo (ou ao
-    # atingir max_turns). Se vazio, a conversa fica em aberto sem setor.
-    fallback_sector = models.ForeignKey(
-        'Sector', null=True, blank=True, on_delete=models.SET_NULL,
-        related_name='ai_fallback_configs',
-    )
-    # Contador de consumo (acumulado). O OpenAI devolve `usage` em cada resposta;
-    # o cliente soma aqui de forma atomica. Serve para controle de gasto.
+    #
+    # NAO existe `fallback_sector` aqui: como esta configuracao e da PLATAFORMA, um
+    # setor (que pertence a uma empresa) nao caberia. O destino do encaminhamento
+    # quando a IA nao entende e o MESMO da empresa usado pelo chatbot
+    # (`MenuBotConfiguration.fallback_sector`, por empresa) — um conceito so: "para
+    # onde mandar quando nao entender". Na falta dele, vale o setor Geral da empresa.
+    #
+    # Contador de consumo (acumulado) DA PLATAFORMA. O OpenAI devolve `usage` em cada
+    # resposta; o cliente soma aqui de forma atomica. Serve para controle de gasto.
+    # (Quebrar o consumo por empresa cliente e item da Parte 4 — ver docs/CONTEXTO.md.)
     total_requests = models.PositiveBigIntegerField(default=0)
     total_prompt_tokens = models.PositiveBigIntegerField(default=0)
     total_completion_tokens = models.PositiveBigIntegerField(default=0)
@@ -291,15 +297,16 @@ class OpenAiConfiguration(models.Model):
         verbose_name_plural = 'Configuracoes OpenAI (GPT)'
 
     @classmethod
-    def for_company(cls, company):
-        """Configuracao da empresa informada (cria vazia na primeira vez)."""
-        config, _ = cls.objects.get_or_create(company=company)
-        return config
-
-    @classmethod
     def get_solo(cls):
-        """Compatibilidade: configuracao da EMPRESA PADRAO (ver WapiConfiguration)."""
-        return cls.for_company(Company.get_default())
+        """A configuracao UNICA da plataforma (cria vazia na primeira vez).
+
+        Nao usa `pk=1` fixo de proposito: a migration 0032 (que juntou as
+        configuracoes por empresa numa so) pode ter mantido uma linha com outro id.
+        """
+        config = cls.objects.order_by('id').first()
+        if config is None:
+            config = cls.objects.create()
+        return config
 
     @property
     def has_api_key(self):

@@ -4,7 +4,7 @@
 {% block title %}Atendimento - Chatbot | BEEZap{% endblock %}
 {% block extra_head %}
 <link rel="stylesheet" href="{% static 'css/dashboard.css' %}">
-<link rel="stylesheet" href="{% static 'css/settings_tabs.css' %}?v=1">
+<link rel="stylesheet" href="{% static 'css/settings_tabs.css' %}?v=2">
 <link rel="stylesheet" href="{% static 'css/chatbot_settings.css' %}?v=2">
 {% endblock %}
 
@@ -36,6 +36,28 @@
     </header>
 
     {% include "accounts/_settings_tabs.html" %}
+
+    {% comment %}
+    Status do WhatsApp e da IA para o CLIENTE. Ele precisa saber se está tudo ligado,
+    mas nunca vê Instance ID, token nem API Key — isso é do administrador da
+    plataforma (ver accounts/views.build_service_status).
+    {% endcomment %}
+    <section class="service-status">
+      <article class="service-status-item {% if service_status.whatsapp_ok %}is-ok{% else %}is-off{% endif %}">
+        <span class="service-status-dot" aria-hidden="true"></span>
+        <div>
+          <strong>{{ service_status.whatsapp_label }}</strong>
+          <span>{{ service_status.whatsapp_help }}</span>
+        </div>
+      </article>
+      <article class="service-status-item {% if service_status.ai_ok %}is-ok{% else %}is-off{% endif %}">
+        <span class="service-status-dot" aria-hidden="true"></span>
+        <div>
+          <strong>{{ service_status.ai_label }}</strong>
+          <span>{{ service_status.ai_help }}</span>
+        </div>
+      </article>
+    </section>
 
     <section class="settings-stack">
       <form method="post" class="settings-card chatbot-config-card">

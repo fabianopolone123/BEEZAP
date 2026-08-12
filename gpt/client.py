@@ -95,7 +95,7 @@ def _extract_usage(body):
     return (prompt, completion, total)
 
 
-def chat_completion(messages, *, company, model=None, temperature=0.3, max_tokens=None,
+def chat_completion(messages, *, model=None, temperature=0.3, max_tokens=None,
                     response_format=None, timeout=None):
     """Envia uma conversa (lista de {role, content}) ao GPT e devolve GptResult.
 
@@ -103,10 +103,11 @@ def chat_completion(messages, *, company, model=None, temperature=0.3, max_token
     Nunca levanta excecao: sempre retorna GptResult(success=...). O texto do erro
     ja e amigavel (sem API Key, corpo bruto ou traceback).
 
-    MULTIEMPRESA: `company` e obrigatorio e somente-nomeado — a API Key, o modelo e
-    o contador de tokens sao os DA EMPRESA (cada cliente paga o proprio consumo).
+    A API Key, o modelo e o contador de tokens sao da PLATAFORMA (uma configuracao
+    para todos os clientes — ver OpenAiConfiguration). Diferente da W-API, que tem
+    instancia/token por empresa.
     """
-    config = OpenAiConfiguration.for_company(company)
+    config = OpenAiConfiguration.get_solo()
     api_key = config.resolved_api_key()
     if not api_key:
         gpt_logger.warning('GPT abortado: API Key ausente.')
@@ -148,7 +149,7 @@ def chat_completion(messages, *, company, model=None, temperature=0.3, max_token
                 prompt_tokens, completion_tokens, total_tokens = _extract_usage(parsed_body)
                 if total_tokens:
                     try:
-                        # O consumo e contabilizado na configuracao DESTA empresa.
+                        # Consumo acumulado da plataforma (o master paga a conta).
                         config.record_usage(prompt_tokens, completion_tokens, total_tokens)
                     except Exception:
                         # O contador nunca pode derrubar a resposta do GPT.
@@ -192,8 +193,8 @@ def chat_completion(messages, *, company, model=None, temperature=0.3, max_token
     return result
 
 
-def test_connection(*, company):
-    """Chamada minima para validar a API Key/modelo/creditos DA EMPRESA (gasta
+def test_connection():
+    """Chamada minima para validar a API Key/modelo/creditos da PLATAFORMA (gasta
     pouquissimo).
 
     Pede so a palavra 'ok' com poucos tokens. Retorna GptResult.
@@ -203,7 +204,6 @@ def test_connection(*, company):
             {'role': 'system', 'content': 'Responda apenas com a palavra: ok'},
             {'role': 'user', 'content': 'ok'},
         ],
-        company=company,
         temperature=0,
         max_tokens=5,
         timeout=30,

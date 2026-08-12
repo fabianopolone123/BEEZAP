@@ -1718,9 +1718,7 @@ class AiAttendantFlowTests(TestCase):
             'usage': {'prompt_tokens': 5, 'completion_tokens': 3, 'total_tokens': 8},
         })
         with patch.object(gpt_client.request, 'urlopen', return_value=_FakeResp(body)):
-            result = gpt_client.chat_completion(
-                [{'role': 'user', 'content': 'ola tudo bem'}], company=default_company()
-            )
+            result = gpt_client.chat_completion([{'role': 'user', 'content': 'ola tudo bem'}])
         self.assertTrue(result.success)
         cfg = OpenAiConfiguration.get_solo()
         # O request guardado contem a mensagem enviada; o response guardado, o corpo cru.
@@ -2628,8 +2626,9 @@ class MultiCompanyModelTests(TestCase):
         with self.assertRaises(IntegrityError):
             Contact.objects.create(company=self.a, phone='5516999990002')
 
-    def test_configurations_are_independent_per_company(self):
-        from accounts.models import MenuBotConfiguration, OpenAiConfiguration, WapiConfiguration
+    def test_wapi_and_chatbot_are_per_company(self):
+        """W-API (instancia/token) e chatbot de menu sao POR EMPRESA."""
+        from accounts.models import MenuBotConfiguration, WapiConfiguration
         wapi_a = WapiConfiguration.for_company(self.a)
         wapi_b = WapiConfiguration.for_company(self.b)
         wapi_a.instance_id = 'INSTANCIA-A'
@@ -2643,31 +2642,33 @@ class MultiCompanyModelTests(TestCase):
         # get_solo() continua apontando para a empresa padrao (compatibilidade).
         self.assertEqual(WapiConfiguration.get_solo().pk, wapi_a.pk)
 
-        # IA e chatbot tambem sao por empresa.
-        OpenAiConfiguration.for_company(self.b).save()
         MenuBotConfiguration.for_company(self.b).save()
-        self.assertNotEqual(
-            OpenAiConfiguration.for_company(self.a).pk,
-            OpenAiConfiguration.for_company(self.b).pk,
-        )
         self.assertNotEqual(
             MenuBotConfiguration.for_company(self.a).pk,
             MenuBotConfiguration.for_company(self.b).pk,
         )
 
-    def test_token_usage_is_counted_per_company(self):
-        """O consumo de tokens de um cliente nao soma no contador do outro."""
+    def test_gpt_is_a_single_platform_configuration(self):
+        """O GPT NAO e por empresa: existe UMA configuracao (a API Key e do gestor
+        master, que paga a conta da OpenAI). Cada empresa so decide SE usa IA."""
         from accounts.models import OpenAiConfiguration
-        cfg_a = OpenAiConfiguration.for_company(self.a)
-        cfg_b = OpenAiConfiguration.for_company(self.b)
-        cfg_a.record_usage(prompt_tokens=10, completion_tokens=5, total_tokens=15)
+        cfg1 = OpenAiConfiguration.get_solo()
+        cfg2 = OpenAiConfiguration.get_solo()
+        self.assertEqual(cfg1.pk, cfg2.pk)
+        self.assertEqual(OpenAiConfiguration.objects.count(), 1)
+        # O model nao tem mais vinculo com empresa nem setor de fallback.
+        field_names = {f.name for f in OpenAiConfiguration._meta.get_fields()}
+        self.assertNotIn('company', field_names)
+        self.assertNotIn('fallback_sector', field_names)
 
-        cfg_a.refresh_from_db()
-        cfg_b.refresh_from_db()
-        self.assertEqual(cfg_a.total_tokens, 15)
-        self.assertEqual(cfg_a.total_requests, 1)
-        self.assertEqual(cfg_b.total_tokens, 0)
-        self.assertEqual(cfg_b.total_requests, 0)
+    def test_token_usage_is_counted_for_the_platform(self):
+        """O consumo e acumulado da plataforma (quebrar por cliente e Parte 4)."""
+        from accounts.models import OpenAiConfiguration
+        cfg = OpenAiConfiguration.get_solo()
+        cfg.record_usage(prompt_tokens=10, completion_tokens=5, total_tokens=15)
+        cfg.refresh_from_db()
+        self.assertEqual(cfg.total_tokens, 15)
+        self.assertEqual(cfg.total_requests, 1)
 
     def test_general_sector_exists_per_company(self):
         from accounts.models import Sector
@@ -2716,10 +2717,11 @@ class MasterRoleTests(TestCase):
         self.assertIsNone(self.master.company)
         self.assertTrue(self.master.is_master)
 
-    def test_master_menu_has_only_clients(self):
+    def test_master_menu_has_only_platform_screens(self):
+        """Fora do painel de um cliente, o master ve so as telas da PLATAFORMA."""
         from accounts.permissions import nav_items_for
         labels = [item['label'] for item in nav_items_for(self.master, '')]
-        self.assertEqual(labels, ['Clientes'])
+        self.assertEqual(labels, ['Clientes', 'Inteligência (IA)'])
 
     def test_master_cannot_access_operational_screens(self):
         self.client.force_login(self.master)
@@ -3392,7 +3394,9 @@ class MasterSupportModeTests(TestCase):
         self._enter()
         self.assertEqual(self.client.get(reverse('wapi-settings')).status_code, 200)
         self.client.post(reverse('clients'), {'action': 'leave'})
-        self.assertEqual(self.client.get(reverse('wapi-settings')).status_code, 403)
+        # Sem empresa escolhida, a tela do WhatsApp manda de volta para Clientes.
+        self.assertRedirects(self.client.get(reverse('wapi-settings')), reverse('clients'))
+        self.assertEqual(self.client.get(reverse('atendimento')).status_code, 403)
 
     def test_support_banner_names_the_client(self):
         self._enter()
@@ -3420,3 +3424,240 @@ class MasterSupportModeTests(TestCase):
         self.assertFalse(
             visible_conversations(self.master, Conversation.objects.all()).exists()
         )
+
+
+class TechnicalSettingsAreMasterOnlyTests(TestCase):
+    """O que e TECNICO nao fica com o cliente.
+
+    - **WhatsApp (W-API)**: instancia e token de CADA empresa — so o master, e so
+      dentro do painel daquele cliente.
+    - **Inteligencia (IA)**: UMA configuracao da plataforma (a API Key e do master,
+      que paga a conta da OpenAI) — so o master, fora do painel de cliente.
+    - O **cliente** configura o chatbot de menu e escolhe o modo de primeiro
+      atendimento (desligado / chatbot / IA), e ve apenas um aviso de STATUS.
+    """
+
+    def setUp(self):
+        from accounts.models import Company
+        self.acme = Company.objects.create(name='Acme', slug='acme')
+        self.master = User.objects.create_user(
+            email='master@beezap.com', password='x', role=User.Role.MASTER
+        )
+        self.adm = User.objects.create_user(
+            email='adm@acme.com', password='x', role=User.Role.ADM, company=self.acme
+        )
+
+    # ---------- o cliente nao alcanca as telas tecnicas ----------
+
+    def test_client_cannot_open_whatsapp_settings(self):
+        self.client.force_login(self.adm)
+        r = self.client.get(reverse('wapi-settings'))
+        self.assertEqual(r.status_code, 403)
+
+    def test_client_cannot_open_ai_settings(self):
+        self.client.force_login(self.adm)
+        r = self.client.get(reverse('openai-settings'))
+        self.assertEqual(r.status_code, 403)
+
+    def test_client_cannot_save_whatsapp_credentials(self):
+        """Mesmo forjando o POST, o cliente nao grava credencial da W-API."""
+        from accounts.models import WapiConfiguration
+        self.client.force_login(self.adm)
+        r = self.client.post(reverse('wapi-settings'), {
+            'form_type': 'config', 'instance_id': 'HACK', 'token': 'HACK', 'webhook_token': '',
+        })
+        self.assertEqual(r.status_code, 403)
+        self.assertEqual(WapiConfiguration.for_company(self.acme).instance_id, '')
+
+    def test_client_cannot_save_api_key(self):
+        from accounts.models import OpenAiConfiguration
+        self.client.force_login(self.adm)
+        r = self.client.post(reverse('openai-settings'), {
+            'form_type': 'config', 'api_key': 'sk-hack', 'model': 'gpt-4o', 'max_turns': 3,
+        })
+        self.assertEqual(r.status_code, 403)
+        self.assertEqual(OpenAiConfiguration.get_solo().api_key, '')
+
+    def test_client_menu_has_no_technical_screens(self):
+        """O botao Configuracoes do cliente leva ao Atendimento, nao ao WhatsApp."""
+        from accounts.permissions import nav_items_for
+        items = {i['label']: i['url_name'] for i in nav_items_for(self.adm, '')}
+        self.assertEqual(items['Configurações'], 'atendimento')
+        self.assertNotIn('Inteligência (IA)', items)
+        self.assertNotIn('Clientes', items)
+
+    # ---------- o cliente configura o que e do negocio dele ----------
+
+    def test_client_can_open_and_save_chatbot(self):
+        from accounts.models import MenuBotConfiguration
+        self.client.force_login(self.adm)
+        self.assertEqual(self.client.get(reverse('atendimento')).status_code, 200)
+        r = self.client.post(reverse('atendimento'), {
+            'form_type': 'chatbot',
+            'greeting': '{saudacao}! Aqui e a Acme.',
+            'menu_intro': 'Escolha uma opcao:',
+            'confirmation_message': 'Encaminhando para {setor}.',
+            'invalid_message': 'Nao entendi.',
+            'handoff_message': 'Vou chamar um atendente.',
+            'max_attempts': 3,
+        })
+        self.assertRedirects(r, reverse('atendimento'))
+        self.assertEqual(
+            MenuBotConfiguration.for_company(self.acme).greeting,
+            '{saudacao}! Aqui e a Acme.',
+        )
+
+    def test_client_can_choose_any_mode_including_ai(self):
+        """O cliente decide se usa IA, chatbot ou nada (foi a regra escolhida)."""
+        from accounts.models import MenuBotConfiguration
+        self.client.force_login(self.adm)
+        for mode in (MenuBotConfiguration.MODE_MENU, MenuBotConfiguration.MODE_AI,
+                     MenuBotConfiguration.MODE_OFF):
+            self.client.post(reverse('atendimento-mode'), {'mode': mode, 'next': 'chatbot'})
+            self.assertEqual(MenuBotConfiguration.for_company(self.acme).mode, mode)
+
+    def test_mode_of_one_company_does_not_affect_the_other(self):
+        from accounts.models import Company, MenuBotConfiguration
+        outra = Company.objects.create(name='Outra', slug='outra')
+        adm_outra = User.objects.create_user(
+            email='adm@outra.com', password='x', role=User.Role.ADM, company=outra
+        )
+        self.client.force_login(self.adm)
+        self.client.post(reverse('atendimento-mode'), {'mode': 'ai', 'next': 'chatbot'})
+        self.client.force_login(adm_outra)
+        self.client.post(reverse('atendimento-mode'), {'mode': 'menu', 'next': 'chatbot'})
+
+        self.assertEqual(MenuBotConfiguration.for_company(self.acme).mode, 'ai')
+        self.assertEqual(MenuBotConfiguration.for_company(outra).mode, 'menu')
+
+    # ---------- status: informa sem expor credencial ----------
+
+    def test_status_card_shows_pending_without_credentials(self):
+        self.client.force_login(self.adm)
+        r = self.client.get(reverse('atendimento'))
+        self.assertContains(r, 'WhatsApp ainda não configurado')
+        self.assertContains(r, 'Inteligência (IA) indisponível')
+
+    def test_status_card_shows_ready_and_never_leaks_credentials(self):
+        from accounts.models import OpenAiConfiguration, WapiConfiguration
+        wapi = WapiConfiguration.for_company(self.acme)
+        wapi.instance_id = 'INSTANCIA-SECRETA'
+        wapi.token = 'TOKEN-SECRETO'
+        wapi.save(update_fields=['instance_id', 'token'])
+        ai = OpenAiConfiguration.get_solo()
+        ai.api_key = 'sk-super-secreta'
+        ai.save(update_fields=['api_key'])
+
+        self.client.force_login(self.adm)
+        r = self.client.get(reverse('atendimento'))
+        self.assertContains(r, 'WhatsApp conectado')
+        self.assertContains(r, 'Inteligência (IA) disponível')
+        # Nada de credencial na tela do cliente.
+        self.assertNotContains(r, 'INSTANCIA-SECRETA')
+        self.assertNotContains(r, 'TOKEN-SECRETO')
+        self.assertNotContains(r, 'sk-super-secreta')
+
+    # ---------- o master configura ----------
+
+    def test_master_opens_platform_ai_without_entering_a_client(self):
+        """A tela de IA e da plataforma: nao depende de estar no painel de ninguem."""
+        self.client.force_login(self.master)
+        r = self.client.get(reverse('openai-settings'))
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, 'Configuração da plataforma')
+
+    def test_master_saves_the_single_api_key(self):
+        from accounts.models import OpenAiConfiguration
+        self.client.force_login(self.master)
+        r = self.client.post(reverse('openai-settings'), {
+            'form_type': 'config', 'api_key': 'sk-da-plataforma',
+            'model': 'gpt-4.1-nano', 'instructions': '', 'max_turns': 3,
+        })
+        self.assertRedirects(r, reverse('openai-settings'))
+        self.assertEqual(OpenAiConfiguration.get_solo().api_key, 'sk-da-plataforma')
+        self.assertEqual(OpenAiConfiguration.objects.count(), 1)
+
+    def test_master_whatsapp_screen_requires_entering_the_client(self):
+        """Credencial da W-API e por empresa: sem escolher o cliente, volta a lista."""
+        self.client.force_login(self.master)
+        self.assertRedirects(self.client.get(reverse('wapi-settings')), reverse('clients'))
+
+        self.client.post(reverse('clients'), {'action': 'enter', 'company_id': self.acme.id})
+        self.assertEqual(self.client.get(reverse('wapi-settings')).status_code, 200)
+
+    def test_master_menu_shows_ai_and_clients(self):
+        from accounts.permissions import nav_items_for
+        labels = [i['label'] for i in nav_items_for(self.master, '')]
+        self.assertIn('Clientes', labels)
+        self.assertIn('Inteligência (IA)', labels)
+
+    def test_one_api_key_serves_every_company(self):
+        """A mesma chave atende todos os clientes: o `chat_completion` nao recebe
+        empresa nenhuma e sempre usa a configuracao da plataforma."""
+        from accounts.models import Company, OpenAiConfiguration
+        from gpt import client as gpt_client
+        ai = OpenAiConfiguration.get_solo()
+        ai.api_key = 'sk-unica'
+        ai.save(update_fields=['api_key'])
+        Company.objects.create(name='Outra', slug='outra')
+
+        captured = {}
+
+        class _Resp:
+            status = 200
+
+            def read(self):
+                return b'{"choices":[{"message":{"content":"ok"}}]}'
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+        def _fake_urlopen(req, timeout=None):
+            captured['auth'] = req.headers.get('Authorization')
+            return _Resp()
+
+        with patch.object(gpt_client.request, 'urlopen', _fake_urlopen):
+            result = gpt_client.chat_completion([{'role': 'user', 'content': 'oi'}])
+        self.assertTrue(result.success)
+        self.assertIn('sk-unica', captured['auth'])
+
+
+class AiFallbackUsesCompanyChatbotSectorTests(TestCase):
+    """Quando a IA nao entende, ela encaminha para o fallback DA EMPRESA.
+
+    A configuracao do GPT e da plataforma e por isso nao guarda setor; o destino e o
+    mesmo que a empresa ja definiu no chatbot de menu e, na falta dele, o setor Geral.
+    """
+
+    def setUp(self):
+        from accounts.models import Company, MenuBotConfiguration, Sector
+        self.company = Company.objects.create(name='Acme', slug='acme')
+        self.geral = Sector.ensure_general(self.company)
+        self.triagem = Sector.objects.create(company=self.company, name='Triagem')
+        self.menu_config = MenuBotConfiguration.for_company(self.company)
+
+    def test_uses_chatbot_fallback_when_defined(self):
+        from gpt.attendant import _resolve_fallback_sector
+        self.menu_config.fallback_sector = self.triagem
+        self.menu_config.save(update_fields=['fallback_sector'])
+        self.assertEqual(_resolve_fallback_sector(self.company).pk, self.triagem.pk)
+
+    def test_falls_back_to_general_sector_of_the_company(self):
+        from gpt.attendant import _resolve_fallback_sector
+        self.assertEqual(_resolve_fallback_sector(self.company).pk, self.geral.pk)
+
+    def test_never_returns_a_sector_from_another_company(self):
+        from accounts.models import Company, MenuBotConfiguration, Sector
+        from gpt.attendant import _resolve_fallback_sector
+        outra = Company.objects.create(name='Outra', slug='outra')
+        Sector.objects.create(company=outra, name='Triagem')
+        geral_outra = Sector.ensure_general(outra)
+        MenuBotConfiguration.for_company(outra).save()
+
+        resolved = _resolve_fallback_sector(outra)
+        self.assertEqual(resolved.pk, geral_outra.pk)
+        self.assertEqual(resolved.company, outra)   # o Geral da propria empresa
+        self.assertNotEqual(resolved.pk, self.triagem.pk)

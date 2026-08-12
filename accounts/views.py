@@ -119,6 +119,34 @@ ROLE_RANK = {
 # Abas da area de Configuracoes (barra horizontal no topo das telas de config).
 # WhatsApp (W-API) e Atendimento (chatbot de menu + IA). A aba Atendimento tem duas
 # sub-abas: Chatbot e Inteligencia (IA).
+def build_service_status(company):
+    """Status simples do WhatsApp e da IA para MOSTRAR AO CLIENTE.
+
+    Sem nenhuma credencial: apenas "esta configurado?" e "esta disponivel?". As
+    credenciais (instancia/token da W-API por empresa e a API Key do GPT da
+    plataforma) sao do gestor master.
+    """
+    wapi = WapiConfiguration.for_company(company)
+    whatsapp_ok = bool(
+        wapi.resolved_instance_id().strip() and wapi.resolved_token().strip()
+    )
+    ai_ok = OpenAiConfiguration.get_solo().has_api_key
+    return {
+        'whatsapp_ok': whatsapp_ok,
+        'whatsapp_label': 'WhatsApp conectado' if whatsapp_ok else 'WhatsApp ainda não configurado',
+        'whatsapp_help': (
+            'As mensagens do seu WhatsApp chegam normalmente aqui.' if whatsapp_ok else
+            'Fale com o administrador da plataforma para ligar o seu WhatsApp.'
+        ),
+        'ai_ok': ai_ok,
+        'ai_label': 'Inteligência (IA) disponível' if ai_ok else 'Inteligência (IA) indisponível',
+        'ai_help': (
+            'Você pode escolher a IA como primeiro atendimento.' if ai_ok else
+            'A IA ainda não foi liberada pelo administrador da plataforma.'
+        ),
+    }
+
+
 def build_settings_tabs(active_tab, active_subtab='', company=None):
     return {
         'active_tab': active_tab,
@@ -138,6 +166,27 @@ def current_company(request):
     """Empresa da requisicao (ver accounts/tenancy.py)."""
     from .tenancy import current_company as _current_company
     return _current_company(request)
+
+
+def require_master_in_company(request):
+    """Telas TECNICAS de um cliente (ex.: credenciais da W-API): so o gestor master,
+    e so quando ele esta DENTRO do painel daquele cliente (modo suporte).
+
+    Retorna um redirect amigavel quando o master ainda nao escolheu a empresa, e 403
+    para qualquer outro perfil — o cliente nao mexe em credencial.
+    """
+    from .tenancy import is_master
+    if not is_master(request.user):
+        return HttpResponseForbidden(
+            'As configurações do WhatsApp são feitas pelo administrador da plataforma.'
+        )
+    if current_company(request) is None:
+        messages.info(
+            request,
+            'Escolha um cliente e use "Entrar no painel" para configurar o WhatsApp dele.',
+        )
+        return redirect('clients')
+    return None
 
 
 def master_in_company(request):
@@ -642,34 +691,28 @@ def dashboard_view(request):
 
 @login_required
 def openai_settings_view(request):
-    """Sub-aba Inteligencia (IA) da area Atendimento: cadastra a API Key do GPT,
-    escolhe o modelo, edita o prompt e testa a conexao. A ATIVACAO (ligar a IA) e
-    feita pelo seletor de modo no topo da area Atendimento, nao mais aqui. Apenas ADM."""
-    forbidden = require_feature(request, 'settings')
+    """Tela INTELIGENCIA (IA) — configuracao da PLATAFORMA, exclusiva do gestor
+    master (as empresas clientes nem enxergam esta tela).
+
+    Aqui ficam a API Key do GPT, o modelo, o prompt/persona, o limite de respostas,
+    o teste de conexao e o consumo acumulado de tokens. E UMA configuracao para
+    todos os clientes: quem paga a conta da OpenAI e o master. Cada empresa apenas
+    decide SE usa IA, chatbot de menu ou nada, no seletor de modo da tela
+    Atendimento dela (`MenuBotConfiguration.mode`).
+    """
+    forbidden = require_master(request)
     if forbidden:
         return forbidden
 
-    from gpt.attendant import (
-        DEFAULT_INSTRUCTIONS,
-        attendants_context_text,
-        available_attendants,
-        available_sectors,
-        resolved_instructions,
-        sectors_context_text,
-    )
+    from gpt.attendant import DEFAULT_INSTRUCTIONS, resolved_instructions
 
-    # Cada empresa tem a SUA API Key, o SEU prompt e o SEU contador de consumo.
-    company = request_company(request)
-    config = OpenAiConfiguration.for_company(company)
-    menubot = MenuBotConfiguration.for_company(company)
+    config = OpenAiConfiguration.get_solo()
     config_form = OpenAiConfigurationForm(
         request.POST if request.POST.get('form_type') == 'config' else None,
-        company=company,
         initial={
             'model': config.resolved_model(),
             'instructions': config.instructions,
             'max_turns': config.max_turns,
-            'fallback_sector': config.fallback_sector_id,
         },
     )
 
@@ -685,7 +728,6 @@ def openai_settings_view(request):
             config.model = (config_form.cleaned_data['model'] or 'gpt-4.1-nano').strip()
             config.instructions = (config_form.cleaned_data['instructions'] or '').strip()
             config.max_turns = config_form.cleaned_data['max_turns'] or 3
-            config.fallback_sector = config_form.cleaned_data['fallback_sector']
             config.save()
             messages.success(request, 'Configuracao da inteligencia salva com sucesso.')
             return redirect('openai-settings')
@@ -694,7 +736,7 @@ def openai_settings_view(request):
             if not config.has_api_key:
                 messages.error(request, 'Cadastre a API Key do GPT antes de testar.')
             else:
-                result = gpt_test_connection(company=company)
+                result = gpt_test_connection()
                 if result.success:
                     messages.success(
                         request,
@@ -715,10 +757,7 @@ def openai_settings_view(request):
         {
             'config_form': config_form,
             'config': config,
-            'nav_items': build_nav_items(request.user, 'Configurações', request),
-            'settings_tabs': build_settings_tabs('atendimento', 'ia', company),
-            'mode_form': ReceptionModeForm(initial={'mode': menubot.mode}),
-            'ai_active': menubot.mode == MenuBotConfiguration.MODE_AI,
+            'nav_items': build_nav_items(request.user, 'Inteligência (IA)', request),
             'role_label': request.user.get_role_display(),
             'user_initial': (request.user.first_name[:1] or request.user.email[:1]).upper(),
             'api_key_configured': config.has_api_key,
@@ -726,10 +765,13 @@ def openai_settings_view(request):
             'usage_prompt_tokens': _fmt_int(config.total_prompt_tokens),
             'usage_completion_tokens': _fmt_int(config.total_completion_tokens),
             'usage_requests': _fmt_int(config.total_requests),
-            # Pre-visualizacao do que e enviado a IA (contexto auto-gerido).
+            # Quantas empresas estao com a IA ligada (o master ve o alcance da chave).
+            'companies_using_ai': MenuBotConfiguration.objects.filter(
+                mode=MenuBotConfiguration.MODE_AI, company__is_active=True
+            ).select_related('company').count(),
+            # Pre-visualizacao do prompt (os setores/atendentes sao anexados na hora
+            # da conversa, com os dados DA EMPRESA daquele atendimento).
             'preview_instructions': resolved_instructions(config),
-            'preview_sectors': sectors_context_text(available_sectors(company)),
-            'preview_attendants': attendants_context_text(available_attendants(company)),
             # Diagnostico: conteudo completo da ultima chamada real ao GPT.
             'last_request': config.last_request,
             'last_response': config.last_response,
@@ -806,6 +848,10 @@ def atendimento_view(request):
             'settings_tabs': build_settings_tabs('atendimento', 'chatbot', company),
             'mode_form': ReceptionModeForm(initial={'mode': config.mode}),
             'menu_active': config.mode == MenuBotConfiguration.MODE_MENU,
+            # Card de STATUS para o cliente: ele precisa saber se o WhatsApp esta
+            # ligado e se a IA esta disponivel, mas NUNCA ve Instance ID, token ou
+            # API Key (isso e do master). Ver docs/CONTEXTO.md secao 16.
+            'service_status': build_service_status(company),
             'role_label': request.user.get_role_display(),
             'user_initial': (request.user.first_name[:1] or request.user.email[:1]).upper(),
             'menu_preview': build_menu_text(config),
@@ -856,13 +902,19 @@ def atendimento_set_mode_view(request):
     if form.is_valid():
         config.mode = form.cleaned_data['mode']
         config.save(update_fields=['mode', 'updated_at'])
-        # Mantem o interruptor antigo da IA coerente com o modo (compatibilidade).
-        ai = OpenAiConfiguration.for_company(company)
-        ai.enabled = (config.mode == MenuBotConfiguration.MODE_AI)
+        # `OpenAiConfiguration.enabled` e vestigial (a ativacao real vem do `mode`
+        # de cada empresa), mas como a config do GPT e UMA da plataforma, ele nao
+        # pode ser desligado so porque UM cliente saiu da IA: reflete se ALGUMA
+        # empresa ativa esta usando a IA.
+        ai = OpenAiConfiguration.get_solo()
+        ai.enabled = MenuBotConfiguration.objects.filter(
+            mode=MenuBotConfiguration.MODE_AI, company__is_active=True
+        ).exists()
         ai.save(update_fields=['enabled', 'updated_at'])
         messages.success(request, 'Modo de atendimento atualizado.')
-    dest = request.POST.get('next')
-    return redirect('openai-settings' if dest == 'ia' else 'atendimento')
+    # A tela de IA saiu da area do cliente (virou da plataforma), então o retorno e
+    # sempre para o Atendimento.
+    return redirect('atendimento')
 
 
 @login_required
@@ -1240,7 +1292,14 @@ def permissions_view(request):
 
 @login_required
 def wapi_settings_view(request):
-    forbidden = require_feature(request, 'settings')
+    """Tela WhatsApp (W-API) de UMA empresa cliente — exclusiva do gestor master.
+
+    Cada cliente tem a SUA instancia e o SEU token da W-API (parte tecnica, com
+    credencial), então quem configura e o master, entrando no painel do cliente. O
+    cliente nao acessa esta tela; ele ve apenas um aviso de status na tela
+    Atendimento (ver `atendimento_view`).
+    """
+    forbidden = require_master_in_company(request)
     if forbidden:
         return forbidden
 

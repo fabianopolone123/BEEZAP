@@ -4,8 +4,8 @@
 {% block title %}Inteligencia (IA) | BEEZap{% endblock %}
 {% block extra_head %}
 <link rel="stylesheet" href="{% static 'css/dashboard.css' %}">
-<link rel="stylesheet" href="{% static 'css/settings_tabs.css' %}?v=1">
-<link rel="stylesheet" href="{% static 'css/openai_settings.css' %}?v=6">
+<link rel="stylesheet" href="{% static 'css/settings_tabs.css' %}?v=2">
+<link rel="stylesheet" href="{% static 'css/openai_settings.css' %}?v=7">
 {% endblock %}
 
 {% block content %}
@@ -18,7 +18,7 @@
       <div class="topbar-left">
         <button class="icon-button" type="button" aria-label="Abrir menu">☰</button>
         <div>
-          <p class="page-kicker">Configurações › Atendimento</p>
+          <p class="page-kicker">Gestão da plataforma</p>
           <h1>Inteligência (IA) / GPT</h1>
         </div>
       </div>
@@ -35,7 +35,24 @@
       </div>
     </header>
 
-    {% include "accounts/_settings_tabs.html" %}
+    {% comment %}
+    Sem a barra de abas de Configuracoes: esta tela e da PLATAFORMA, nao de um
+    cliente. Uma API Key serve todas as empresas; cada uma so decide SE usa IA no
+    seletor de modo da tela Atendimento dela.
+    {% endcomment %}
+    <section class="platform-scope-note">
+      <strong>Configuração da plataforma</strong>
+      <span>
+        Esta chave do GPT vale para <strong>todas as empresas clientes</strong>. Cada
+        cliente escolhe apenas se o primeiro atendimento dele usa a IA, o chatbot de
+        menu ou nada.
+        {% if companies_using_ai %}
+          Hoje <strong>{{ companies_using_ai }}</strong> empresa(s) ativa(s) estão usando a IA.
+        {% else %}
+          Nenhuma empresa está usando a IA no momento.
+        {% endif %}
+      </span>
+    </section>
 
     <section class="settings-stack">
       <!-- Conexao + Atendente virtual (um unico formulario) -->
@@ -73,12 +90,8 @@
           </div>
           <div class="settings-field settings-field-check">
             <span class="field-help">
-              {% if ai_active %}
-                A IA esta <strong>ativa</strong> como primeiro atendimento.
-              {% else %}
-                A IA esta <strong>desativada</strong>. Para ligar, selecione
-                "Inteligencia (IA)" no <strong>Modo de primeiro atendimento</strong> acima.
-              {% endif %}
+              Quem liga a IA e cada cliente, no <strong>Modo de primeiro atendimento</strong>
+              da tela Atendimento dele. Aqui voce apenas deixa a chave disponivel.
             </span>
           </div>
         </div>
@@ -113,9 +126,12 @@
             <small class="field-help">Quantas respostas a IA pode dar antes de encaminhar ao fallback (padrao 3).</small>
           </div>
           <div class="settings-field">
-            <label for="{{ config_form.fallback_sector.id_for_label }}">Setor de fallback</label>
-            {{ config_form.fallback_sector }}
-            <small class="field-help">Para onde encaminhar quando nao identificar o setor. Vazio = deixa em aberto.</small>
+            <span class="field-help">
+              <strong>Para onde encaminhar quando a IA nao entende:</strong> e o mesmo
+              setor de fallback que cada empresa define no chatbot de menu dela. Na
+              falta dele, a conversa vai para o setor <strong>Geral</strong> daquela
+              empresa — nunca fica sem fila.
+            </span>
           </div>
         </div>
 
@@ -147,12 +163,8 @@
             <strong>{{ config.resolved_model }}</strong>
           </div>
           <div class="ai-status-row">
-            <span class="ai-status-label">Atendente virtual</span>
-            {% if ai_active %}
-              <span class="ai-badge ai-badge-on">Ligado</span>
-            {% else %}
-              <span class="ai-badge ai-badge-off">Desligado</span>
-            {% endif %}
+            <span class="ai-status-label">Empresas usando IA</span>
+            <strong>{{ companies_using_ai }}</strong>
           </div>
         </div>
 
@@ -184,12 +196,12 @@
           <pre class="preview-text">{{ preview_instructions }}</pre>
         </div>
         <div class="preview-block">
-          <span class="preview-label">2. Setores disponiveis</span>
-          <pre class="preview-text">{{ preview_sectors }}</pre>
-        </div>
-        <div class="preview-block">
-          <span class="preview-label">3. Atendentes cadastrados</span>
-          <pre class="preview-text">{{ preview_attendants }}</pre>
+          <span class="preview-label">2. Setores e atendentes</span>
+          <p class="field-help">
+            Anexados na hora do atendimento, com os setores e atendentes
+            <strong>da empresa daquela conversa</strong> — cada cliente recebe a lista
+            dele, nunca a de outro.
+          </p>
         </div>
         <div class="preview-block">
           <span class="preview-label">4. Historico e tempo</span>

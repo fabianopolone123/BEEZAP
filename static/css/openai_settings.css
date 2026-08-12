@@ -379,3 +379,29 @@
     width: 100%;
   }
 }
+
+/* Aviso de que esta tela e da PLATAFORMA (uma chave do GPT para todos os clientes),
+   nao a configuracao de uma empresa. Ver accounts/permissions.MASTER_ONLY_ITEMS. */
+.platform-scope-note {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 16px;
+  margin-bottom: 16px;
+  border-radius: 14px;
+  background: rgba(45, 108, 223, 0.09);
+  border: 1px solid rgba(45, 108, 223, 0.32);
+}
+
+.platform-scope-note strong {
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--blue);
+}
+
+.platform-scope-note span {
+  font-size: 0.86rem;
+  line-height: 1.45;
+  color: var(--text);
+}

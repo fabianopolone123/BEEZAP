@@ -116,3 +116,69 @@
   background: var(--primary);
   border-color: var(--primary);
 }
+
+/* ===========================================================================
+   Status do WhatsApp e da IA mostrado ao CLIENTE (tela Atendimento).
+
+   O cliente nao configura credencial nenhuma (isso e do gestor master), mas
+   precisa saber se o WhatsApp esta ligado e se a IA esta liberada — senao ele fica
+   sem entender por que as mensagens nao chegam. Verde = pronto, ambar = pendente.
+   =========================================================================== */
+
+.service-status {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.service-status-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 13px 15px;
+  border-radius: 14px;
+  border: 1px solid var(--card-border);
+  background: var(--card-bg);
+  min-width: 0;
+}
+
+.service-status-item strong {
+  display: block;
+  font-size: 0.92rem;
+  color: var(--text);
+}
+
+.service-status-item span {
+  display: block;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  color: var(--muted);
+}
+
+.service-status-dot {
+  flex: 0 0 auto;
+  width: 10px;
+  height: 10px;
+  margin-top: 5px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.service-status-item.is-ok {
+  border-color: rgba(33, 194, 94, 0.42);
+  background: rgba(33, 194, 94, 0.08);
+}
+
+.service-status-item.is-ok .service-status-dot {
+  background: var(--primary);
+}
+
+.service-status-item.is-off {
+  border-color: rgba(247, 181, 0, 0.45);
+  background: rgba(247, 181, 0, 0.1);
+}
+
+.service-status-item.is-off .service-status-dot {
+  background: var(--yellow);
+}

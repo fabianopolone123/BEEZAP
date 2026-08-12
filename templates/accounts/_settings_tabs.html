@@ -1,15 +1,25 @@
 {% comment %}
-Barra de abas da area de Configuracoes, compartilhada pelas telas WhatsApp,
-Chatbot e Inteligencia (IA). Espera o contexto `settings_tabs`
-(active_tab: whatsapp|atendimento, active_subtab: chatbot|ia, reception_mode) e,
-na area Atendimento, o `mode_form` (seletor do modo mestre).
+Barra de abas da area de Configuracoes.
+
+MULTIEMPRESA: o que e TECNICO nao fica com o cliente.
+  - A aba **WhatsApp** (instancia e token da W-API daquele cliente) aparece SOMENTE
+    para o gestor master, quando ele esta no painel do cliente (modo suporte).
+  - A tela **Inteligência (IA)** saiu daqui: a configuracao do GPT e UMA para toda a
+    plataforma e vive no menu do master.
+  - O cliente fica com a area **Atendimento**: o chatbot de menu e o seletor de modo
+    de primeiro atendimento (desligado / chatbot / IA).
+
+Espera no contexto: `settings_tabs` (active_tab: whatsapp|atendimento,
+active_subtab, reception_mode) e, na area Atendimento, o `mode_form`.
 {% endcomment %}
-<nav class="settings-tabs" aria-label="Configuracoes">
-  <a href="{% url 'wapi-settings' %}"
-     class="settings-tab {% if settings_tabs.active_tab == 'whatsapp' %}active{% endif %}">WhatsApp</a>
-  <a href="{% url 'atendimento' %}"
-     class="settings-tab {% if settings_tabs.active_tab == 'atendimento' %}active{% endif %}">Atendimento</a>
-</nav>
+{% if brand.is_master %}
+  <nav class="settings-tabs" aria-label="Configurações">
+    <a href="{% url 'wapi-settings' %}"
+       class="settings-tab {% if settings_tabs.active_tab == 'whatsapp' %}active{% endif %}">WhatsApp</a>
+    <a href="{% url 'atendimento' %}"
+       class="settings-tab {% if settings_tabs.active_tab == 'atendimento' %}active{% endif %}">Atendimento</a>
+  </nav>
+{% endif %}
 
 {% if settings_tabs.active_tab == 'atendimento' %}
   <div class="atendimento-head">
@@ -31,12 +41,5 @@ na area Atendimento, o `mode_form` (seletor do modo mestre).
         Escolha quem faz o primeiro atendimento das conversas diretas. Só um roda por vez.
       </small>
     </form>
-
-    <nav class="settings-subtabs" aria-label="Atendimento">
-      <a href="{% url 'atendimento' %}"
-         class="settings-subtab {% if settings_tabs.active_subtab == 'chatbot' %}active{% endif %}">Chatbot de menu</a>
-      <a href="{% url 'openai-settings' %}"
-         class="settings-subtab {% if settings_tabs.active_subtab == 'ia' %}active{% endif %}">Inteligência (IA)</a>
-    </nav>
   </div>
 {% endif %}

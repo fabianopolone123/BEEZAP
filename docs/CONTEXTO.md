@@ -92,20 +92,22 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
   tela Configurações → WhatsApp/W-API. `resolved_*()` cai para env se vazio.
   `get_solo()` sobrevive só como compatibilidade (empresa padrão). Ver seção 16.
 - **WapiWebhookEvent**: todo evento recebido do webhook (com `raw_payload`).
-- **OpenAiConfiguration** (singleton `get_solo()`): `api_key`, `model`
-  (padrão `gpt-4.1-nano`), `enabled`. Guarda a **API Key do GPT no banco**
-  (editada na tela **Inteligência (IA)**; nunca no código e não reexibida após
-  salva). `resolved_api_key()`/`resolved_model()` caem para env
+- **OpenAiConfiguration** (**UMA para toda a PLATAFORMA**, `get_solo()` — **não é
+  por empresa**): `api_key`, `model` (padrão `gpt-4.1-nano`), `enabled`. Guarda a
+  **API Key do GPT no banco** (editada na tela **Inteligência (IA)**, exclusiva do
+  gestor master; nunca no código e não reexibida após salva).
+  `resolved_api_key()`/`resolved_model()` caem para env
   (`OPENAI_API_KEY`/`OPENAI_MODEL`) se vazios. **Atendente virtual**:
-  `instructions` (prompt/persona editável), `max_turns` (limite de respostas,
-  padrão 3), `fallback_sector` (FK Sector, para onde encaminhar quando não
-  identificar). **Contador de tokens**: `total_requests`, `total_prompt_tokens`,
+  `instructions` (prompt/persona editável) e `max_turns` (limite de respostas,
+  padrão 3). **Não tem `fallback_sector`**: setor pertence a uma empresa, então o
+  destino do encaminhamento é o `fallback_sector` **do chatbot daquela empresa** (e,
+  na falta dele, o setor Geral dela). **Contador de tokens**: `total_requests`, `total_prompt_tokens`,
   `total_completion_tokens`, `total_tokens`, `usage_since`, `last_used_at` —
   somados de forma atômica por `record_usage()` a cada chamada; `reset_usage()`
-  zera. Ver seção 13. **`enabled` ficou vestigial**: a ativação da IA agora vem do
-  **modo mestre** `MenuBotConfiguration.mode == 'ai'` (ver seção 14); `enabled` é
-  mantido em sincronia só por compatibilidade.
-- **MenuBotConfiguration** (singleton `get_solo()`): config do **chatbot de menu**
+  zera. Ver seções 13 e 16. **`enabled` ficou vestigial**: a ativação da IA vem do
+  **modo mestre** `MenuBotConfiguration.mode == 'ai'` de **cada empresa** (ver seção
+  14); `enabled` só reflete se **alguma** empresa ativa está usando a IA.
+- **MenuBotConfiguration** (**uma por empresa**, `for_company(company)`): config do **chatbot de menu**
   (atendimento automático **sem IA**) **e** o **MODO MESTRE** de primeiro atendimento
   `mode` (`off`/`menu`/`ai`) — fonte única da verdade de qual motor atua. Campos de
   texto editáveis (`greeting` com `{saudacao}`, `menu_intro`, `confirmation_message`
@@ -956,8 +958,13 @@ Propriedades: `display_name`, `initials`, `status_label`, `formatted_document`,
 ### O que ganhou vínculo de empresa
 
 FK/OneToOne `company` **obrigatório** em: `Attendant`, `Sector`, `Contact`,
-`Conversation`, `WapiWebhookEvent`, `RoleMenuPermission`, `WapiConfiguration`,
-`OpenAiConfiguration`, `MenuBotConfiguration`.
+`Conversation`, `WapiWebhookEvent`, `RoleMenuPermission`, `WapiConfiguration` e
+`MenuBotConfiguration`.
+
+> **`OpenAiConfiguration` NÃO tem empresa**: o GPT é **uma configuração da
+> plataforma** (a API Key é do master, que paga a conta da OpenAI). Ela nasceu por
+> empresa na Parte 1 e voltou a ser única na migração `0032` — ver "O que é técnico
+> não fica com o cliente", mais abaixo.
 
 `User.company` é **opcional de propósito**: **nulo = gestor master** (fica acima das
 empresas). Todo usuário operacional (`adm`/`usuario`/`leitor`) tem empresa.
@@ -978,18 +985,21 @@ que sincronizar em cada criação): `Message` (via `conversation`), `MenuOption`
 
 > `User.email` continua **único global** (é a chave de login).
 
-### Configurações deixaram de ser singleton
+### Configurações: o que é por empresa e o que é da plataforma
 
-`WapiConfiguration`, `OpenAiConfiguration` e `MenuBotConfiguration` eram singletons
-`pk=1`. Agora são **uma por empresa**, via **`Modelo.for_company(company)`**.
-`get_solo()` **continua existindo** como compatibilidade: devolve a configuração da
-**empresa padrão** — é o que mantém as telas e serviços funcionando sem alteração até
-a Parte 2. **Código novo deve usar `for_company`.**
+| Configuração | Escopo | Como buscar |
+|---|---|---|
+| **WapiConfiguration** (instância + token do WhatsApp) | **por empresa** | `WapiConfiguration.for_company(company)` |
+| **MenuBotConfiguration** (chatbot de menu + `mode`) | **por empresa** | `MenuBotConfiguration.for_company(company)` |
+| **OpenAiConfiguration** (API Key do GPT, modelo, prompt, consumo) | **UMA da plataforma** | `OpenAiConfiguration.get_solo()` |
+
+`WapiConfiguration.get_solo()` sobrevive só como compatibilidade (devolve a da
+empresa padrão); código novo usa `for_company`. Já `OpenAiConfiguration.get_solo()`
+**é a forma correta** — é a configuração única (busca a primeira linha por id, não
+`pk=1` fixo, porque a migração `0032` pode ter mantido outro id).
 
 `OpenAiConfiguration.record_usage()` / `record_last_exchange()` deixaram de ser
-`classmethod` (que gravavam fixo em `pk=1`) e passaram a ser **métodos de instância** —
-assim o **consumo de tokens é contado no cliente certo** (`gpt/client.py` já usa a
-config que buscou).
+`classmethod` (que gravavam fixo em `pk=1`) e passaram a ser **métodos de instância**.
 
 ### `accounts/tenancy.py` (novo)
 
@@ -1109,19 +1119,69 @@ qualquer chamada esquecida falha na hora em vez de errar em silêncio.
 O envio sempre usa `conversation.company`; o download de mídia usa
 `message.conversation.company`.
 
-#### IA e chatbot por empresa
+#### IA e chatbot
 
-- `gpt/client.chat_completion(..., company=)` e `test_connection(company=)`: API Key,
-  modelo e **contador de tokens** são os da empresa.
-- `gpt/attendant.py`: `available_sectors(company)`, `available_attendants(company)`,
+- `gpt/client.chat_completion(...)` e `test_connection()`: **sem empresa** — a API
+  Key, o modelo e o contador de tokens são da **plataforma** (`get_solo()`).
+- `gpt/attendant.py` é escopado por empresa no que é **dado do cliente**:
+  `available_sectors(company)`, `available_attendants(company)`,
   `build_system_prompt(config, company, ...)`, `_match_sector(name, company)`,
-  `_match_attendant(name, company)` e `_resolve_fallback_sector(config, company)`.
+  `_match_attendant(name, company)` e `_resolve_fallback_sector(company)`.
   **Isto era um vazamento real:** sem o escopo, a IA listaria no prompt (e ofereceria
   ao cliente final) os setores e atendentes de outra empresa.
+- `_resolve_fallback_sector(company)` usa o **`fallback_sector` do chatbot daquela
+  empresa** e, na falta dele, o setor **Geral** dela — a conversa nunca fica sem fila.
 - `chatbot/handler.py`: textos, opções, modo e fallback vêm de
   `MenuBotConfiguration.for_company(conversation.company)`.
 - `wapi.services._maybe_trigger_reception` lê o **modo** da empresa da conversa: um
   cliente pode usar IA enquanto outro usa o chatbot de menu ou nada.
+
+#### O que é TÉCNICO não fica com o cliente
+
+Regra de produto: **credencial e custo são do gestor master**; o cliente configura
+apenas o que é conteúdo do negócio dele.
+
+| Configuração | Escopo | Quem edita | Onde |
+|---|---|---|---|
+| **WhatsApp (W-API)** — instância + token | **por empresa** | **só o master**, dentro do painel do cliente | aba WhatsApp (`wapi-settings`) |
+| **Inteligência (IA)** — API Key, modelo, prompt, limite, consumo | **UMA da plataforma** | **só o master** | menu do master → Inteligência (IA) (`openai-settings`) |
+| **Chatbot de menu** — saudação, opções → setor, mensagens, tentativas, fallback | por empresa | **o cliente** (ADM) | Configurações (`atendimento`) |
+| **Modo de primeiro atendimento** — desligado / chatbot / IA | por empresa | **o cliente** (ADM) | seletor no topo de Configurações |
+
+Por que assim: o token da W-API e a API Key do GPT são credenciais (e a do GPT gera
+**custo na conta do master**), então não ficam ao alcance do cliente. Já a saudação e
+as opções do menu são texto do negócio — se dependessem do master, cada troca de
+palavra viraria pedido de suporte.
+
+**Uma API Key para todos os clientes.** A configuração do GPT é única: o master
+cadastra a chave uma vez e ela atende todas as empresas. Cada cliente só decide **se**
+o primeiro atendimento dele usa a IA. A tela do master mostra quantas empresas ativas
+estão com a IA ligada. O que continua sendo **por empresa** na IA são os dados do
+atendimento: os **setores e atendentes** que entram no prompt e o **setor de
+fallback** — sempre os da empresa daquela conversa.
+
+**Como isso aparece no menu:**
+
+- **Master, fora do painel de cliente**: `Clientes` + `Inteligência (IA)`
+  (`MASTER_ONLY_ITEMS` em `accounts/permissions.py`).
+- **Master, dentro do painel de um cliente** (modo suporte): o acima + `Configurações`
+  (com as abas **WhatsApp** e **Atendimento**), `Setores`, `Atendentes`, `Permissões`.
+- **Cliente (ADM)**: `Configurações` aponta para **`atendimento`** — não existe mais
+  aba WhatsApp nem sub-aba IA para ele. A barra de abas (`_settings_tabs.html`) só
+  renderiza a aba WhatsApp quando `brand.is_master`.
+
+**Enforçado no backend, não só escondido:** `wapi_settings_view` usa
+`require_master_in_company(request)` (403 para qualquer perfil de cliente; e um
+redirect amigável para *Clientes* quando o master ainda não escolheu a empresa) e
+`openai_settings_view` usa `require_master(request)`. Um POST forjado pelo cliente
+não grava credencial nenhuma — há teste para os dois casos.
+
+**Status para o cliente (sem credencial).** `build_service_status(company)` monta dois
+avisos na tela Atendimento: **"WhatsApp conectado"** / *"ainda não configurado"* e
+**"Inteligência (IA) disponível"** / *"indisponível"*, com a orientação de falar com o
+administrador da plataforma. Verde = pronto, âmbar = pendente
+(`.service-status` em `settings_tabs.css?v=2`). Nenhum Instance ID, token ou API Key
+aparece ali — há teste garantindo isso.
 
 #### Telas escopadas por empresa
 
@@ -1136,7 +1196,7 @@ Todas as consultas passam pela empresa de quem está logado (`request_company(re
 | Dashboard | todos os indicadores |
 | Conversas | já vinha de `visible_conversations`, que agora filtra por empresa antes do Alcance |
 | Transferência | selects **e** o POST só aceitam setor/atendente da mesma empresa |
-| Configurações | credenciais, textos, modo, URL de webhook e eventos exibidos |
+| Configurações | credenciais (só master), textos do chatbot, modo, URL de webhook e eventos exibidos |
 
 Detalhes que também mudaram: os **selects de setor de fallback** (IA e chatbot) só
 listam setores da empresa (`CompanyForm`-style `company=` no `__init__` dos forms); a
@@ -1190,9 +1250,12 @@ link_lid_contacts --apply              # resolve o contato dentro da empresa da 
 3. **Entrar no painel** → aba **WhatsApp**: colar o Instance ID e o Token da W-API
    **daquele** cliente e copiar a **URL de webhook exibida** (já vem com o
    identificador da empresa) para cadastrar no painel da W-API.
-4. Ainda no painel: **Atendimento** (chatbot de menu ou IA) e **Setores**.
+4. Ainda no painel: **Setores** e, se quiser adiantar, a aba **Atendimento**.
 5. **Sair do painel**. O Administrador do cliente entra com a senha inicial, troca a
-   senha e cadastra os atendentes dele.
+   senha, cadastra os atendentes e ajusta o chatbot/modo de atendimento dele.
+
+> A **API Key do GPT** não entra nesse passo-a-passo: é cadastrada **uma vez** no menu
+> do master (**Inteligência (IA)**) e vale para todos os clientes.
 
 > A **empresa padrão** continua sendo a dona de tudo o que existia antes do
 > multiempresa e o destino do webhook sem identificador. Não pode ser excluída nem

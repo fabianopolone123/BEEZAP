@@ -180,7 +180,7 @@ def build_system_prompt(config, company, now=None, context_note=''):
         'Setores disponiveis para transferencia:\n' + sectors_context_text(available_sectors(company)),
         'Atendentes cadastrados:\n' + attendants_context_text(available_attendants(company)),
     ]
-    general = _resolve_fallback_sector(config, company)
+    general = _resolve_fallback_sector(company)
     if general:
         parts.append(
             f'Setor geral/curinga (use quando o pedido nao se encaixar em nenhum '
@@ -326,10 +326,18 @@ def _route_to_attendant(conversation, attendant):
                    conversation.id, sector.name if sector else '-', attendant.name)
 
 
-def _resolve_fallback_sector(config, company):
-    if config.fallback_sector_id:
-        return config.fallback_sector
-    # Sem fallback configurado: tenta um setor chamado "Geral" DA EMPRESA.
+def _resolve_fallback_sector(company):
+    """Para onde encaminhar quando a IA nao entende o pedido.
+
+    A configuracao do GPT e da PLATAFORMA e por isso nao pode apontar para um setor
+    (setor pertence a uma empresa). O destino usado e o MESMO da empresa que o
+    chatbot de menu usa — `MenuBotConfiguration.fallback_sector` — e, na falta dele,
+    um setor chamado "Geral" daquela empresa.
+    """
+    from accounts.models import MenuBotConfiguration
+    menu_config = MenuBotConfiguration.for_company(company)
+    if menu_config.fallback_sector_id:
+        return menu_config.fallback_sector
     return Sector.objects.filter(company=company, name__iexact='Geral').first()
 
 
@@ -342,7 +350,7 @@ def _handoff_to_fallback(conversation, config):
     `pending` SEM setor: nao entrava em nenhuma fila e so o admin a via (parecia que
     'nao transferiu para ninguem'). Agora sempre cai numa fila real."""
     _send_ai_reply(conversation, HANDOFF_NOTICE)
-    fallback = (_resolve_fallback_sector(config, conversation.company)
+    fallback = (_resolve_fallback_sector(conversation.company)
                 or Sector.ensure_general(conversation.company))
     _route_to_sector(conversation, fallback)
 
@@ -354,10 +362,10 @@ def _should_handle(conversation):
     da verdade de qual atendimento automatico roda — nao mais do antigo
     `OpenAiConfiguration.enabled`."""
     from accounts.models import MenuBotConfiguration
-    # Cada empresa tem a SUA API Key e o SEU modo de primeiro atendimento.
-    company = conversation.company
-    config = OpenAiConfiguration.for_company(company)
-    if MenuBotConfiguration.for_company(company).mode != MenuBotConfiguration.MODE_AI:
+    # A API Key/modelo do GPT sao da PLATAFORMA (uma so); o MODO de primeiro
+    # atendimento (usar IA, chatbot ou nada) e da EMPRESA.
+    config = OpenAiConfiguration.get_solo()
+    if MenuBotConfiguration.for_company(conversation.company).mode != MenuBotConfiguration.MODE_AI:
         return None
     if not config.has_api_key:
         return None
@@ -409,7 +417,7 @@ def handle_incoming_for_ai(conversation_id):
 
     from gpt.client import chat_completion
     result = chat_completion(
-        messages, company=company, temperature=0.3, max_tokens=400,
+        messages, temperature=0.3, max_tokens=400,
         response_format={'type': 'json_object'},
     )
     if not result.success:

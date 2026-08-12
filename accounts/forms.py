@@ -98,21 +98,10 @@ class OpenAiConfigurationForm(forms.Form):
         max_value=10,
         widget=forms.NumberInput(attrs={'autocomplete': 'off'}),
     )
-    fallback_sector = forms.ModelChoiceField(
-        label='Setor de fallback (quando nao identificar)',
-        queryset=Sector.objects.none(),
-        required=False,
-        empty_label='(deixar em aberto, sem setor)',
-    )
-
-    def __init__(self, *args, company=None, **kwargs):
-        """O select de setor lista SOMENTE os setores da empresa (multiempresa).
-        Sem empresa a lista fica vazia — nunca mostra setor de outro cliente."""
-        super().__init__(*args, **kwargs)
-        self.fields['fallback_sector'].queryset = (
-            Sector.objects.filter(company=company).order_by('name')
-            if company is not None else Sector.objects.none()
-        )
+    # NAO tem "setor de fallback" aqui: esta configuracao e da PLATAFORMA (uma para
+    # todos os clientes) e um setor pertence a uma empresa. O destino do
+    # encaminhamento quando a IA nao entende e o mesmo do chatbot daquela empresa
+    # (`MenuBotConfiguration.fallback_sector`) — ver gpt/attendant._resolve_fallback_sector.
 
 
 class ReceptionModeForm(forms.Form):
