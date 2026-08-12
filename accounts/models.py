@@ -15,6 +15,118 @@ class ConversationViewScope(models.TextChoices):
     ALL = 'all', 'Conversas de todos os setores'
 
 
+class Company(models.Model):
+    """EMPRESA CLIENTE (uma "instancia" do sistema).
+
+    O BEEZAP e multiempresa: cada cliente tem os SEUS setores, atendentes,
+    contatos, conversas, mensagens e as SUAS proprias configuracoes de W-API e
+    GPT. Todo dado operacional aponta para a empresa dona (campo `company`), e o
+    sistema so mostra a cada pessoa os dados da empresa dela.
+
+    Quem cadastra/edita empresas e o GESTOR MASTER (`User.Role.MASTER`), na tela
+    "Clientes". Os dados cadastrais e o logo daqui aparecem na barra lateral do
+    cliente (ver accounts/context_processors.py).
+
+    Existe sempre UMA empresa padrao (`is_default`), criada na migration 0031 com
+    tudo o que ja existia antes do multiempresa. Ela nao pode ser excluida.
+    """
+
+    name = models.CharField('Nome fantasia', max_length=120)
+    legal_name = models.CharField('Razão social', max_length=180, blank=True, default='')
+    document = models.CharField('CNPJ', max_length=20, blank=True, default='')
+    # Identificador curto e estavel da empresa (so letras/numeros/hifen). Sera a
+    # base da URL propria de webhook de cada cliente na Parte 2.
+    slug = models.SlugField('Identificador', max_length=60, unique=True)
+    email = models.EmailField('E-mail', blank=True, default='')
+    phone = models.CharField('Telefone', max_length=20, blank=True, default='')
+    address = models.CharField('Endereço', max_length=200, blank=True, default='')
+    city = models.CharField('Cidade', max_length=100, blank=True, default='')
+    state = models.CharField('UF', max_length=2, blank=True, default='')
+    # Logo da empresa (FileField, nao ImageField: ImageField exigiria o pacote
+    # Pillow. A validacao da extensao/tamanho e feita no CompanyForm).
+    logo = models.FileField('Logo', upload_to='empresas/logos/', blank=True, null=True)
+    accent_color = models.CharField('Cor de destaque', max_length=7, blank=True, default='')
+    notes = models.TextField('Observações', blank=True, default='')
+    is_active = models.BooleanField('Ativa', default=True)
+    # A empresa padrao (dona de tudo o que existia antes do multiempresa). Nao
+    # pode ser excluida nem desativada.
+    is_default = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'Empresa cliente'
+        verbose_name_plural = 'Empresas clientes'
+        ordering = ('name',)
+
+    DEFAULT_NAME = 'Empresa padrão'
+    DEFAULT_SLUG = 'empresa-padrao'
+
+    @classmethod
+    def get_default(cls):
+        """Empresa padrao (a que recebeu os dados anteriores ao multiempresa).
+        Usada como destino de qualquer dado sem empresa definida."""
+        company = cls.objects.filter(is_default=True).order_by('id').first()
+        if company is not None:
+            return company
+        company = cls.objects.order_by('id').first()
+        if company is not None:
+            return company
+        return cls.objects.create(
+            name=cls.DEFAULT_NAME, slug=cls.DEFAULT_SLUG, is_default=True
+        )
+
+    @property
+    def display_name(self):
+        return self.name or self.legal_name or self.slug
+
+    @property
+    def initials(self):
+        base = (self.name or self.slug or '?').strip()
+        parts = [p for p in base.split() if p]
+        if len(parts) == 1:
+            return parts[0][:2].upper()
+        return (parts[0][:1] + parts[-1][:1]).upper()
+
+    @property
+    def status_label(self):
+        return 'Ativa' if self.is_active else 'Inativa'
+
+    @property
+    def formatted_document(self):
+        """CNPJ formatado (00.000.000/0000-00) quando tem 14 digitos."""
+        digits = re.sub(r'\D', '', self.document or '')
+        if len(digits) == 14:
+            return f'{digits[:2]}.{digits[2:5]}.{digits[5:8]}/{digits[8:12]}-{digits[12:]}'
+        return self.document or ''
+
+    @property
+    def formatted_phone(self):
+        digits = re.sub(r'\D', '', self.phone or '')
+        if len(digits) == 11:
+            return f'({digits[:2]}) {digits[2:7]}-{digits[7:]}'
+        if len(digits) == 10:
+            return f'({digits[:2]}) {digits[2:6]}-{digits[6:]}'
+        return self.phone or ''
+
+    @property
+    def location(self):
+        parts = [p for p in (self.city, self.state) if p]
+        return '/'.join(parts)
+
+    @property
+    def logo_url(self):
+        if self.logo:
+            try:
+                return self.logo.url
+            except ValueError:
+                return ''
+        return ''
+
+    def __str__(self):
+        return self.display_name
+
+
 class UserManager(BaseUserManager):
     use_in_migrations = True
 
@@ -45,6 +157,10 @@ class UserManager(BaseUserManager):
 
 class User(AbstractUser):
     class Role(models.TextChoices):
+        # GESTOR MASTER (dono da plataforma): cadastra/administra as EMPRESAS
+        # CLIENTES. Nao pertence a nenhuma empresa (`company` nulo) e, por decisao
+        # de privacidade, NAO le as conversas dos clientes — so administra.
+        MASTER = 'master', 'Gestor master'
         ADM = 'adm', 'Administrador'
         USUARIO = 'usuario', 'Usuário'
         LEITOR = 'leitor', 'Leitor'
@@ -52,17 +168,32 @@ class User(AbstractUser):
     username = None
     email = models.EmailField(unique=True)
     role = models.CharField(max_length=20, choices=Role.choices, default=Role.USUARIO)
+    # Empresa cliente a que a pessoa pertence. NULO = gestor master (fica acima
+    # das empresas). Todo usuario operacional (adm/usuario/leitor) tem empresa.
+    company = models.ForeignKey(
+        Company, null=True, blank=True, on_delete=models.CASCADE,
+        related_name='users', verbose_name='Empresa',
+    )
 
     objects = UserManager()
 
     USERNAME_FIELD = 'email'
     REQUIRED_FIELDS = []
 
+    @property
+    def is_master(self):
+        return self.role == self.Role.MASTER
+
     def __str__(self):
         return self.email
 
 
 class WapiConfiguration(models.Model):
+    """Credenciais da W-API de UMA empresa cliente (uma configuracao por empresa)."""
+
+    company = models.OneToOneField(
+        Company, on_delete=models.CASCADE, related_name='wapi_config', verbose_name='Empresa',
+    )
     instance_id = models.CharField(max_length=120, blank=True)
     token = models.CharField(max_length=255, blank=True)
     webhook_token = models.CharField(max_length=255, blank=True)
@@ -74,9 +205,19 @@ class WapiConfiguration(models.Model):
         verbose_name_plural = 'Configuracoes W-API'
 
     @classmethod
-    def get_solo(cls):
-        config, _ = cls.objects.get_or_create(pk=1)
+    def for_company(cls, company):
+        """Configuracao da empresa informada (cria vazia na primeira vez)."""
+        config, _ = cls.objects.get_or_create(company=company)
         return config
+
+    @classmethod
+    def get_solo(cls):
+        """Compatibilidade: configuracao da EMPRESA PADRAO.
+
+        Continua existindo enquanto as telas/servicos nao recebem a empresa do
+        contexto (Parte 2 do multiempresa). Codigo novo deve usar `for_company`.
+        """
+        return cls.for_company(Company.get_default())
 
     @property
     def has_token(self):
@@ -100,7 +241,9 @@ class WapiConfiguration(models.Model):
 
 
 class OpenAiConfiguration(models.Model):
-    """Configuracao da integracao com a API do OpenAI (GPT). Singleton (pk=1).
+    """Configuracao da integracao com a API do OpenAI (GPT) de UMA empresa cliente
+    (uma configuracao por empresa — cada cliente usa a SUA propria API Key e paga
+    o SEU proprio consumo).
 
     A API Key fica salva AQUI (no banco), editada na tela Inteligencia (IA) — nunca
     fica no codigo e nunca e exibida de novo depois de salva (mesmo padrao do token
@@ -108,6 +251,9 @@ class OpenAiConfiguration(models.Model):
     quando o campo esta vazio. `enabled` e um interruptor mestre: enquanto False,
     nada usa a IA.
     """
+    company = models.OneToOneField(
+        Company, on_delete=models.CASCADE, related_name='openai_config', verbose_name='Empresa',
+    )
     api_key = models.CharField(max_length=255, blank=True)
     model = models.CharField(max_length=80, blank=True, default='gpt-4.1-nano')
     enabled = models.BooleanField(default=False)
@@ -145,9 +291,15 @@ class OpenAiConfiguration(models.Model):
         verbose_name_plural = 'Configuracoes OpenAI (GPT)'
 
     @classmethod
-    def get_solo(cls):
-        config, _ = cls.objects.get_or_create(pk=1)
+    def for_company(cls, company):
+        """Configuracao da empresa informada (cria vazia na primeira vez)."""
+        config, _ = cls.objects.get_or_create(company=company)
         return config
+
+    @classmethod
+    def get_solo(cls):
+        """Compatibilidade: configuracao da EMPRESA PADRAO (ver WapiConfiguration)."""
+        return cls.for_company(Company.get_default())
 
     @property
     def has_api_key(self):
@@ -159,18 +311,19 @@ class OpenAiConfiguration(models.Model):
     def resolved_model(self):
         return (self.model or settings.OPENAI_MODEL or 'gpt-4.1-nano').strip()
 
-    @classmethod
-    def record_usage(cls, prompt_tokens=0, completion_tokens=0, total_tokens=0):
+    def record_usage(self, prompt_tokens=0, completion_tokens=0, total_tokens=0):
         """Soma o consumo de uma chamada ao GPT de forma atomica (F()), segura
-        para chamadas concorrentes (ex.: threads em background)."""
+        para chamadas concorrentes (ex.: threads em background). O consumo e
+        contabilizado na configuracao DESTA empresa."""
         from django.db.models import F
         now = timezone.now()
         prompt_tokens = int(prompt_tokens or 0)
         completion_tokens = int(completion_tokens or 0)
         total_tokens = int(total_tokens or prompt_tokens + completion_tokens)
+        rows = type(self).objects.filter(pk=self.pk)
         # Marca o inicio da contagem apenas na 1a chamada apos um reset (usage_since nulo).
-        cls.objects.filter(pk=1, usage_since__isnull=True).update(usage_since=now)
-        cls.objects.filter(pk=1).update(
+        rows.filter(usage_since__isnull=True).update(usage_since=now)
+        rows.update(
             total_requests=F('total_requests') + 1,
             total_prompt_tokens=F('total_prompt_tokens') + prompt_tokens,
             total_completion_tokens=F('total_completion_tokens') + completion_tokens,
@@ -178,10 +331,9 @@ class OpenAiConfiguration(models.Model):
             last_used_at=now,
         )
 
-    @classmethod
-    def record_last_exchange(cls, request_text, response_text):
+    def record_last_exchange(self, request_text, response_text):
         """Guarda o conteudo completo da ultima chamada ao GPT (diagnostico)."""
-        cls.objects.filter(pk=1).update(
+        type(self).objects.filter(pk=self.pk).update(
             last_request=(request_text or '')[:20000],
             last_response=(response_text or '')[:20000],
             last_exchange_at=timezone.now(),
@@ -205,7 +357,7 @@ class OpenAiConfiguration(models.Model):
 
 class MenuBotConfiguration(models.Model):
     """Chatbot de menu (atendimento automatico SEM IA) + o MODO mestre de primeiro
-    atendimento. Singleton (pk=1).
+    atendimento. Uma configuracao por EMPRESA cliente.
 
     O campo `mode` e a FONTE UNICA da verdade de qual atendimento automatico atua no
     primeiro contato de uma conversa direta: `off` (nenhum), `menu` (este chatbot de
@@ -225,6 +377,9 @@ class MenuBotConfiguration(models.Model):
         (MODE_AI, 'Inteligencia (IA)'),
     ]
 
+    company = models.OneToOneField(
+        Company, on_delete=models.CASCADE, related_name='menubot_config', verbose_name='Empresa',
+    )
     mode = models.CharField(max_length=10, choices=MODE_CHOICES, default=MODE_OFF)
     greeting = models.TextField(blank=True, default='')
     menu_intro = models.TextField(blank=True, default='')
@@ -247,9 +402,15 @@ class MenuBotConfiguration(models.Model):
         verbose_name_plural = 'Configuracoes do chatbot (menu)'
 
     @classmethod
-    def get_solo(cls):
-        config, _ = cls.objects.get_or_create(pk=1)
+    def for_company(cls, company):
+        """Configuracao da empresa informada (cria vazia na primeira vez)."""
+        config, _ = cls.objects.get_or_create(company=company)
         return config
+
+    @classmethod
+    def get_solo(cls):
+        """Compatibilidade: configuracao da EMPRESA PADRAO (ver WapiConfiguration)."""
+        return cls.for_company(Company.get_default())
 
     def ordered_options(self):
         return list(self.options.select_related('sector').order_by('order', 'id'))
@@ -286,10 +447,14 @@ class MenuOption(models.Model):
 
 
 class RoleMenuPermission(models.Model):
-    """Botoes do menu liberados para um PERFIL (role). Uma linha por perfil editavel
-    (`usuario`/`leitor`). O admin nao e armazenado aqui (tem sempre acesso total).
-    Sem linha, vale o padrao definido em `accounts/permissions.py`."""
-    role = models.CharField(max_length=20, unique=True)
+    """Botoes do menu liberados para um PERFIL (role) DENTRO DE UMA EMPRESA. Uma
+    linha por perfil editavel (`usuario`/`leitor`) de cada empresa — assim cada
+    cliente define os proprios botoes. O admin nao e armazenado aqui (tem sempre
+    acesso total). Sem linha, vale o padrao definido em `accounts/permissions.py`."""
+    company = models.ForeignKey(
+        Company, on_delete=models.CASCADE, related_name='role_permissions', verbose_name='Empresa',
+    )
+    role = models.CharField(max_length=20)
     allowed_keys = models.JSONField(default=list)
     # Ao abrir uma conversa, ve a conversa inteira (True) ou so o atendimento atual
     # (False, padrao) — o trecho apos a ultima divisoria.
@@ -299,6 +464,12 @@ class RoleMenuPermission(models.Model):
     class Meta:
         verbose_name = 'Permissao de menu (perfil)'
         verbose_name_plural = 'Permissoes de menu (perfis)'
+        # O perfil e unico POR EMPRESA (antes era unico global).
+        constraints = [
+            models.UniqueConstraint(
+                fields=('company', 'role'), name='unique_role_permission_per_company'
+            ),
+        ]
 
     def __str__(self):
         return f'Permissoes do perfil {self.role}'
@@ -340,6 +511,10 @@ class GroupAccess(models.Model):
 
 
 class WapiWebhookEvent(models.Model):
+    # Empresa dona do evento (resolvida pela URL/instancia do webhook).
+    company = models.ForeignKey(
+        Company, on_delete=models.CASCADE, related_name='webhook_events', verbose_name='Empresa',
+    )
     event_type = models.CharField(max_length=80, default='unknown')
     instance_id = models.CharField(max_length=120, blank=True, default='')
     phone = models.CharField(max_length=40, blank=True, default='')
@@ -372,6 +547,9 @@ class WapiWebhookEvent(models.Model):
 
 
 class Attendant(models.Model):
+    company = models.ForeignKey(
+        Company, on_delete=models.CASCADE, related_name='attendants', verbose_name='Empresa',
+    )
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='attendant_profile')
     name = models.CharField(max_length=150)
     phone = models.CharField(max_length=20, blank=True)
@@ -411,7 +589,12 @@ class Sector(models.Model):
     # da IA/chatbot (ver gpt/attendant.py e chatbot/handler.py).
     GENERAL_SECTOR_NAME = 'Geral'
 
-    name = models.CharField('Nome', max_length=100, unique=True)
+    company = models.ForeignKey(
+        Company, on_delete=models.CASCADE, related_name='sectors', verbose_name='Empresa',
+    )
+    # O nome e unico POR EMPRESA (antes era unico global) — duas empresas podem ter
+    # um setor "Financeiro" cada uma. Ver a constraint no Meta.
+    name = models.CharField('Nome', max_length=100)
     description = models.TextField('Descrição', blank=True, default='')
     attendants = models.ManyToManyField(
         Attendant,
@@ -436,6 +619,9 @@ class Sector(models.Model):
         ordering = ['name']
         verbose_name = 'Setor'
         verbose_name_plural = 'Setores'
+        constraints = [
+            models.UniqueConstraint(fields=('company', 'name'), name='unique_sector_name_per_company'),
+        ]
 
     @property
     def is_general(self):
@@ -443,16 +629,22 @@ class Sector(models.Model):
         return (self.name or '').strip().lower() == self.GENERAL_SECTOR_NAME.lower()
 
     @classmethod
-    def ensure_general(cls):
-        """Garante o setor 'Geral' padrao (cria se faltar). Ao CRIAR, ja inclui TODOS
-        os atendentes — depois disso a adesao de novos atendentes e mantida por sinal
-        (ver accounts/signals.py)."""
+    def ensure_general(cls, company=None):
+        """Garante o setor 'Geral' padrao DA EMPRESA (cria se faltar). Ao CRIAR, ja
+        inclui TODOS os atendentes dessa empresa — depois disso a adesao de novos
+        atendentes e mantida por sinal (ver accounts/signals.py).
+
+        Sem `company`, usa a empresa padrao (compatibilidade enquanto as chamadas
+        nao recebem a empresa do contexto — Parte 2 do multiempresa)."""
+        if company is None:
+            company = Company.get_default()
         sector, created = cls.objects.get_or_create(
+            company=company,
             name=cls.GENERAL_SECTOR_NAME,
             defaults={'description': 'Setor padrão de triagem. Todos os atendentes fazem parte dele.'},
         )
         if created:
-            attendants = list(Attendant.objects.all())
+            attendants = list(Attendant.objects.filter(company=company))
             if attendants:
                 sector.attendants.add(*attendants)
         return sector
@@ -516,8 +708,13 @@ class PasswordResetCode(models.Model):
 
 
 class Contact(models.Model):
+    company = models.ForeignKey(
+        Company, on_delete=models.CASCADE, related_name='contacts', verbose_name='Empresa',
+    )
     name = models.CharField(max_length=150, blank=True, default='')
-    phone = models.CharField(max_length=30, unique=True)
+    # O telefone e unico POR EMPRESA (antes era unico global): o mesmo cliente final
+    # pode falar com duas empresas diferentes, e cada uma tem o seu proprio cadastro.
+    phone = models.CharField(max_length=30)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -525,6 +722,9 @@ class Contact(models.Model):
         verbose_name = 'Contato'
         verbose_name_plural = 'Contatos'
         ordering = ('name', 'phone')
+        constraints = [
+            models.UniqueConstraint(fields=('company', 'phone'), name='unique_contact_phone_per_company'),
+        ]
 
     @property
     def display_name(self):
@@ -555,6 +755,9 @@ class Conversation(models.Model):
         ('group', 'Grupo'),
     ]
 
+    company = models.ForeignKey(
+        Company, on_delete=models.CASCADE, related_name='conversations', verbose_name='Empresa',
+    )
     # Conversa direta tem contato (telefone); conversa de grupo nao tem contato
     # individual, por isso o vinculo e opcional.
     contact = models.ForeignKey(

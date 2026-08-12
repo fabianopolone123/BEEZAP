@@ -64,9 +64,12 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         from accounts.models import (
-            Attendant, Contact, Conversation, GroupAccess, Message, Sector, User,
+            Attendant, Company, Contact, Conversation, GroupAccess, Message, Sector, User,
         )
         from wapi.services import save_system_message
+
+        # Os dados de demonstracao entram na empresa padrao (multiempresa).
+        company = Company.get_default()
 
         rnd = random.Random(42)
         now = timezone.localtime()
@@ -85,21 +88,24 @@ class Command(BaseCommand):
             self.stdout.write('Conteudo anterior removido (admin, Geral e configuracoes preservados).')
 
         # Garante o setor 'Geral' padrao (com todos os atendentes por sinal).
-        Sector.ensure_general()
+        Sector.ensure_general(company)
 
         # Setores + atendentes (um por setor).
         sectors, attendants = [], []
         for i, sector_name in enumerate(SECTORS):
-            sector = Sector.objects.create(name=sector_name, description=f'Setor de {sector_name}')
+            sector = Sector.objects.create(
+                company=company, name=sector_name, description=f'Setor de {sector_name}'
+            )
             sectors.append(sector)
             full_name, slug = ATTENDANTS[i]
             first, _, last = full_name.partition(' ')
             user = User.objects.create_user(
                 email=f'{slug}@demo.beezap', password='1234',
                 role=User.Role.USUARIO, first_name=first, last_name=last,
+                company=company,
             )
             attendant = Attendant.objects.create(
-                user=user, name=full_name, phone=f'5516{rnd.randint(900000000, 999999999)}',
+                company=company, user=user, name=full_name, phone=f'5516{rnd.randint(900000000, 999999999)}',
                 must_change_password=False,
             )
             attendant.sectors.add(sector)
@@ -111,7 +117,7 @@ class Command(BaseCommand):
         def new_contact(name):
             nonlocal phone_seq
             phone_seq += rnd.randint(1000, 9999)
-            return Contact.objects.create(name=name, phone=str(phone_seq))
+            return Contact.objects.create(company=company, name=name, phone=str(phone_seq))
 
         def make_conversation(status, days_ago, sector, attendant, unread):
             """Cria uma conversa com 1 msg do cliente + (se atendida) 1 resposta, no dia indicado."""
@@ -119,7 +125,7 @@ class Command(BaseCommand):
             base = now - timedelta(days=days_ago, hours=rnd.randint(0, 8), minutes=rnd.randint(0, 59))
             client_text = rnd.choice(CLIENT_MSGS)
             conv = Conversation.objects.create(
-                contact=contact, external_id=contact.phone, chat_type='private',
+                company=company, contact=contact, external_id=contact.phone, chat_type='private',
                 status=status, sector=sector, assigned_attendant=attendant,
                 unread_count=unread, last_message_text=client_text, last_message_at=base,
             )

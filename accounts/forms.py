@@ -1,8 +1,11 @@
+import re
+
 from django import forms
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
+from django.utils.text import slugify
 
-from .models import Attendant, Sector, User
+from .models import Attendant, Company, Sector, User
 
 # Import tardio evita ciclo; usado so no default do prompt da IA.
 
@@ -310,6 +313,134 @@ class SectorForm(forms.ModelForm):
         if qs.exists():
             raise forms.ValidationError('Já existe um setor com este nome.')
         return name
+
+
+class CompanyForm(forms.ModelForm):
+    """Cadastro da EMPRESA CLIENTE (tela Clientes, perfil master).
+
+    Guarda os dados da empresa e a identidade visual (logo e cor de destaque) que
+    aparecem na barra lateral do cliente. O `slug` (identificador curto) e gerado
+    automaticamente a partir do nome quando nao e informado.
+    """
+
+    # Extensoes e tamanho aceitos no logo. FileField (nao ImageField) para nao
+    # exigir o pacote Pillow — a validacao fica aqui.
+    LOGO_EXTENSIONS = ('.png', '.jpg', '.jpeg', '.webp', '.svg')
+    LOGO_MAX_MB = 2
+
+    class Meta:
+        model = Company
+        fields = [
+            'name', 'legal_name', 'document', 'slug', 'email', 'phone',
+            'address', 'city', 'state', 'logo', 'accent_color', 'notes', 'is_active',
+        ]
+        labels = {
+            'name': 'Nome da empresa',
+            'legal_name': 'Razão social',
+            'document': 'CNPJ',
+            'slug': 'Identificador',
+            'email': 'E-mail',
+            'phone': 'Telefone',
+            'address': 'Endereço',
+            'city': 'Cidade',
+            'state': 'UF',
+            'logo': 'Logo da empresa',
+            'accent_color': 'Cor de destaque',
+            'notes': 'Observações',
+            'is_active': 'Empresa ativa',
+        }
+        help_texts = {
+            'slug': 'Nome curto usado pelo sistema. Deixe em branco para gerar pelo nome.',
+            'logo': 'PNG, JPG, WEBP ou SVG, até 2 MB. Aparece na barra lateral do cliente.',
+            'accent_color': 'Usada quando a empresa não tem logo cadastrado.',
+        }
+        widgets = {
+            'name': forms.TextInput(attrs={'placeholder': 'Ex.: Padaria do Bairro', 'autocomplete': 'off'}),
+            'legal_name': forms.TextInput(attrs={'placeholder': 'Razão social (opcional)', 'autocomplete': 'off'}),
+            'document': forms.TextInput(attrs={'placeholder': '00.000.000/0000-00', 'autocomplete': 'off', 'inputmode': 'numeric'}),
+            'slug': forms.TextInput(attrs={'placeholder': 'padaria-do-bairro', 'autocomplete': 'off'}),
+            'email': forms.EmailInput(attrs={'placeholder': 'contato@empresa.com', 'autocomplete': 'off'}),
+            'phone': forms.TextInput(attrs={'placeholder': '(00) 00000-0000', 'autocomplete': 'off', 'inputmode': 'numeric'}),
+            'address': forms.TextInput(attrs={'placeholder': 'Rua, número, bairro (opcional)', 'autocomplete': 'off'}),
+            'city': forms.TextInput(attrs={'placeholder': 'Cidade (opcional)', 'autocomplete': 'off'}),
+            'state': forms.TextInput(attrs={'placeholder': 'UF', 'maxlength': 2, 'autocomplete': 'off'}),
+            'accent_color': forms.TextInput(attrs={'type': 'color'}),
+            'notes': forms.Textarea(attrs={'placeholder': 'Anotações internas (opcional)', 'rows': 3, 'autocomplete': 'off'}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['slug'].required = False
+        # A empresa padrao nao pode ser desativada (e a dona dos dados que ja
+        # existiam e o destino de qualquer registro sem empresa).
+        if self.instance and self.instance.pk and self.instance.is_default:
+            self.fields['is_active'].disabled = True
+            self.fields['is_active'].help_text = 'A empresa padrão não pode ser desativada.'
+
+    def clean_name(self):
+        name = (self.cleaned_data.get('name') or '').strip()
+        if not name:
+            raise forms.ValidationError('Informe o nome da empresa.')
+        return name
+
+    def clean_document(self):
+        """CNPJ e guardado so em digitos (a exibicao formata). Vazio e permitido."""
+        digits = re.sub(r'\D', '', self.cleaned_data.get('document') or '')
+        if digits and len(digits) != 14:
+            raise forms.ValidationError('O CNPJ deve ter 14 números.')
+        return digits
+
+    def clean_phone(self):
+        digits = re.sub(r'\D', '', self.cleaned_data.get('phone') or '')
+        if digits and len(digits) not in (10, 11):
+            raise forms.ValidationError('Informe o telefone com DDD.')
+        return digits
+
+    def clean_state(self):
+        return (self.cleaned_data.get('state') or '').strip().upper()
+
+    def clean_accent_color(self):
+        color = (self.cleaned_data.get('accent_color') or '').strip()
+        if not color:
+            return ''
+        if not re.fullmatch(r'#[0-9a-fA-F]{6}', color):
+            raise forms.ValidationError('Escolha uma cor válida.')
+        return color.lower()
+
+    def clean_logo(self):
+        logo = self.cleaned_data.get('logo')
+        # Sem arquivo novo (ou mantendo o atual) nao ha o que validar.
+        if not logo or not hasattr(logo, 'name') or not hasattr(logo, 'size'):
+            return logo
+        name = (logo.name or '').lower()
+        if not name.endswith(self.LOGO_EXTENSIONS):
+            raise forms.ValidationError('O logo deve ser PNG, JPG, WEBP ou SVG.')
+        if logo.size > self.LOGO_MAX_MB * 1024 * 1024:
+            raise forms.ValidationError(f'O logo deve ter no máximo {self.LOGO_MAX_MB} MB.')
+        return logo
+
+    def clean_slug(self):
+        """Identificador curto: gerado pelo nome quando vazio e unico no sistema."""
+        slug = slugify(self.cleaned_data.get('slug') or '')
+        if not slug:
+            # `clean_name` roda antes (ordem dos campos), então o nome já validado
+            # está disponível; o `self.data` cobre o caso de o nome ter dado erro.
+            slug = slugify(self.cleaned_data.get('name') or self.data.get('name') or '')
+        if not slug:
+            raise forms.ValidationError('Não foi possível gerar o identificador. Informe um nome válido.')
+        qs = Company.objects.filter(slug=slug)
+        if self.instance and self.instance.pk:
+            qs = qs.exclude(pk=self.instance.pk)
+        if qs.exists():
+            raise forms.ValidationError('Já existe uma empresa com este identificador.')
+        return slug
+
+    def clean_is_active(self):
+        # Rede de seguranca: campo desabilitado nao vem no POST, mas a empresa
+        # padrao precisa continuar ativa de qualquer forma.
+        if self.instance and self.instance.pk and self.instance.is_default:
+            return True
+        return self.cleaned_data.get('is_active', True)
 
 
 class PasswordRecoveryRequestForm(forms.Form):

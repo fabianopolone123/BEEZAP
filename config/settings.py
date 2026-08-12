@@ -125,6 +125,9 @@ TEMPLATES = [
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
+                # Marca (logo/nome) da empresa cliente de quem esta logado, usada
+                # na barra lateral de todas as telas. Ver accounts/context_processors.py.
+                'accounts.context_processors.branding',
             ],
         },
     },

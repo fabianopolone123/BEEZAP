@@ -16,7 +16,7 @@ from django.contrib.auth.hashers import make_password
 from django.contrib.auth import authenticate, login, logout, update_session_auth_hash
 from django.contrib.auth.decorators import login_required
 from django.db import IntegrityError, transaction
-from django.db.models import Q
+from django.db.models import Count, Q
 from django.http import HttpResponseForbidden, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -26,6 +26,7 @@ from django.views.decorators.http import require_POST
 
 from .forms import (
     AttendantForm,
+    CompanyForm,
     InitialPasswordChangeForm,
     LoginForm,
     MenuBotConfigurationForm,
@@ -40,6 +41,7 @@ from .forms import (
 )
 from .models import (
     Attendant,
+    Company,
     Contact,
     Conversation,
     ConversationViewScope,
@@ -127,6 +129,23 @@ def build_nav_items(user, active_label):
     """Itens do menu conforme as PERMISSOES do usuario (ver accounts/permissions.py)."""
     from .permissions import nav_items_for
     return nav_items_for(user, active_label)
+
+
+def require_master(request):
+    """Retorna 403 se quem chamou nao e o gestor master; senao None."""
+    from .tenancy import require_master as _require_master
+    return _require_master(request)
+
+
+def request_company(request):
+    """EMPRESA CLIENTE da requisicao — a dona de tudo o que for criado/consultado.
+
+    Normalmente e a empresa do usuario logado (ver accounts/tenancy.py). A
+    retaguarda para a empresa padrao existe para nunca gravar um registro sem
+    empresa (o campo e obrigatorio) caso um usuario antigo esteja sem vinculo.
+    """
+    from .tenancy import current_company
+    return current_company(request) or Company.get_default()
 
 
 def require_feature(request, key):
@@ -262,8 +281,12 @@ def request_password_recovery_code(request, email):
 
 
 def create_wapi_webhook_event(payload):
+    # MULTIEMPRESA (Parte 2): hoje o webhook e uma URL unica e por isso o evento
+    # entra na empresa padrao. Na Parte 2 cada cliente ganha a SUA URL de webhook
+    # (e a resolucao por instanceId), e a empresa passa a vir de la.
     parsed_payload = parse_wapi_webhook_payload(payload)
     event = WapiWebhookEvent.objects.create(
+        company=Company.get_default(),
         raw_payload=payload if isinstance(payload, dict) else {},
         **parsed_payload,
     )
@@ -810,6 +833,7 @@ def permissions_view(request):
                 chosen = [k for k in ALL_FEATURE_KEYS
                           if request.POST.get(f'role__{role}__{k}') == 'on']
                 RoleMenuPermission.objects.update_or_create(
+                    company=request_company(request),
                     role=role,
                     defaults={'allowed_keys': chosen},
                 )
@@ -1259,14 +1283,18 @@ def attendants_view(request):
                         editing_attendant.save()
                         messages.success(request, 'Atendente atualizado com sucesso.')
                     else:
+                        # O atendente novo nasce na MESMA empresa de quem cadastrou.
+                        company = request_company(request)
                         user = User.objects.create_user(
                             email=email,
                             password='1234',
                             role=User.Role.USUARIO,
                             first_name=first_name,
                             last_name=last_name,
+                            company=company,
                         )
                         Attendant.objects.create(
+                            company=company,
                             user=user,
                             name=name,
                             phone=phone,
@@ -1583,6 +1611,110 @@ def conversations_view(request):
 
 
 @login_required
+def clients_view(request):
+    """Tela CLIENTES (exclusiva do gestor master): cadastra e administra as EMPRESAS
+    que usam o sistema.
+
+    Cada empresa cadastrada aqui e uma "instancia" do BEEZAP: tem os seus setores,
+    atendentes, contatos, conversas e as suas proprias credenciais de W-API/GPT. Os
+    dados cadastrais e o logo definidos aqui aparecem na barra lateral do cliente
+    (ver accounts/context_processors.py).
+
+    A EMPRESA PADRAO (dona de tudo o que existia antes do multiempresa) nao pode ser
+    excluida nem desativada.
+    """
+    forbidden = require_master(request)
+    if forbidden:
+        return forbidden
+
+    editing = None
+    form = None
+    show_modal = False
+
+    if request.method == 'POST':
+        action = (request.POST.get('action') or '').strip()
+        company_id = (request.POST.get('company_id') or '').strip()
+        target = Company.objects.filter(pk=company_id).first() if company_id else None
+
+        if action == 'delete':
+            if target is None:
+                messages.error(request, 'Empresa não encontrada.')
+            elif target.is_default:
+                messages.error(request, 'A empresa padrão não pode ser excluída.')
+            else:
+                name = target.display_name
+                target.delete()
+                messages.success(request, f'A empresa "{name}" foi excluída.')
+            return redirect('clients')
+
+        if action == 'toggle-active':
+            if target is None:
+                messages.error(request, 'Empresa não encontrada.')
+            elif target.is_default:
+                messages.error(request, 'A empresa padrão não pode ser desativada.')
+            else:
+                target.is_active = not target.is_active
+                target.save(update_fields=['is_active', 'updated_at'])
+                estado = 'reativada' if target.is_active else 'desativada'
+                messages.success(request, f'A empresa "{target.display_name}" foi {estado}.')
+            return redirect('clients')
+
+        # Cadastro (sem company_id) ou edicao (com company_id).
+        editing = target
+        form = CompanyForm(request.POST, request.FILES, instance=editing)
+        if form.is_valid():
+            company = form.save()
+            if editing is None:
+                messages.success(request, f'A empresa "{company.display_name}" foi cadastrada.')
+            else:
+                messages.success(request, f'Os dados de "{company.display_name}" foram salvos.')
+            return redirect('clients')
+        show_modal = True
+        messages.error(request, 'Não foi possível salvar. Verifique os campos destacados.')
+
+    term = (request.GET.get('q') or '').strip()
+    companies = Company.objects.all()
+    if term:
+        companies = companies.filter(
+            Q(name__icontains=term)
+            | Q(legal_name__icontains=term)
+            | Q(document__icontains=term)
+            | Q(city__icontains=term)
+        )
+    # Contadores reais por empresa (o master ve o tamanho de cada cliente, sem
+    # entrar no conteudo das conversas).
+    companies = companies.annotate(
+        users_count=Count('users', distinct=True),
+        conversations_count=Count('conversations', distinct=True),
+    )
+
+    # Abrir o modal de edicao direto pelo link da lista (?editar=<id>).
+    edit_id = (request.GET.get('editar') or '').strip()
+    if form is None and edit_id:
+        editing = Company.objects.filter(pk=edit_id).first()
+        if editing is not None:
+            form = CompanyForm(instance=editing)
+            show_modal = True
+
+    return render(
+        request,
+        'accounts/clients.html',
+        {
+            'companies': companies,
+            'form': form or CompanyForm(),
+            'editing': editing,
+            'show_modal': show_modal,
+            'search_term': term,
+            'total_companies': Company.objects.count(),
+            'active_companies': Company.objects.filter(is_active=True).count(),
+            'nav_items': build_nav_items(request.user, 'Clientes'),
+            'role_label': request.user.get_role_display(),
+            'user_initial': (request.user.first_name[:1] or request.user.email[:1]).upper(),
+        },
+    )
+
+
+@login_required
 def contacts_view(request):
     """Lista/gerencia os contatos (nome + telefone). Os nomes salvos aqui aparecem
     no lugar do numero nas mensagens de grupo (remetente e mencoes)."""
@@ -1614,7 +1746,9 @@ def contacts_view(request):
                     contact.save(update_fields=['name', 'phone', 'updated_at'])
                     messages.success(request, 'Contato atualizado.')
             else:
-                Contact.objects.create(name=name, phone=phone)
+                Contact.objects.create(
+                    company=request_company(request), name=name, phone=phone
+                )
                 messages.success(request, 'Contato adicionado.')
         except IntegrityError:
             messages.error(request, 'Ja existe um contato com esse telefone.')
@@ -2022,7 +2156,9 @@ def conversation_name_contact_view(request):
     name = (request.POST.get('name') or '').strip()
     if not number or not name:
         return JsonResponse({'ok': False, 'error': 'Informe o numero e o nome.'}, status=400)
-    contact, _created = Contact.objects.get_or_create(phone=number, defaults={'name': name})
+    contact, _created = Contact.objects.get_or_create(
+        company=request_company(request), phone=number, defaults={'name': name}
+    )
     if contact.name != name:
         contact.name = name
         contact.save(update_fields=['name', 'updated_at'])
@@ -2168,6 +2304,9 @@ def sectors_view(request):
 
         if form.is_valid():
             obj = form.save(commit=False)
+            # Setor novo nasce na empresa de quem cadastrou (o campo e obrigatorio).
+            if not obj.company_id:
+                obj.company = request_company(request)
             # O nome do setor Geral padrao nao pode ser alterado (o sistema depende
             # dele; ver Sector.ensure_general). A descricao pode ser editada.
             renamed_general = (

@@ -5,6 +5,7 @@ from .views import (
     atendimento_set_mode_view,
     attendants_view,
     change_initial_password_view,
+    clients_view,
     conversation_list_view,
     conversation_close_view,
     conversation_messages_view,
@@ -39,6 +40,8 @@ urlpatterns = [
     path('recuperar-senha/verificar/', password_recovery_verify_code_view, name='password-recovery-verify'),
     path('recuperar-senha/nova-senha/', password_recovery_set_password_view, name='password-recovery-set-password'),
     path('dashboard/', dashboard_view, name='dashboard'),
+    # Gestao das empresas clientes (exclusiva do gestor master).
+    path('clientes/', clients_view, name='clients'),
     path('conversas/', conversations_view, name='conversations'),
     path('contatos/', contacts_view, name='contacts'),
     path('conversas/lista/', conversation_list_view, name='conversation-list'),

@@ -145,7 +145,8 @@ def chat_completion(messages, *, model=None, temperature=0.3, max_tokens=None,
                 prompt_tokens, completion_tokens, total_tokens = _extract_usage(parsed_body)
                 if total_tokens:
                     try:
-                        OpenAiConfiguration.record_usage(prompt_tokens, completion_tokens, total_tokens)
+                        # O consumo e contabilizado na configuracao DESTA empresa.
+                        config.record_usage(prompt_tokens, completion_tokens, total_tokens)
                     except Exception:
                         # O contador nunca pode derrubar a resposta do GPT.
                         gpt_logger.warning('Falha ao registrar consumo de tokens.', exc_info=False)
@@ -181,7 +182,7 @@ def chat_completion(messages, *, model=None, temperature=0.3, max_tokens=None,
         result = GptResult(success=False, model=used_model, error=GPT_GENERIC_ERROR)
     finally:
         try:
-            OpenAiConfiguration.record_last_exchange(request_text, response_text)
+            config.record_last_exchange(request_text, response_text)
         except Exception:
             gpt_logger.warning('Falha ao registrar ultima chamada da IA (diagnostico).')
 

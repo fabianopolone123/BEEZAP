@@ -10,24 +10,7 @@
 
 {% block content %}
 <main class="dashboard-shell">
-  <aside class="sidebar">
-    <div class="sidebar-brand">
-      <img src="{% static 'images/logo-transparent.png' %}" alt="BEEZap" class="sidebar-logo">
-      <div>
-        <strong>BEEZap</strong>
-        <span>Central de atendimento</span>
-      </div>
-    </div>
-
-    <nav class="sidebar-nav">
-      {% for item in nav_items %}
-        <a href="{% if item.href %}{% url item.href %}{% else %}#{% endif %}" class="nav-item {% if item.active %}active{% endif %}">
-          <span class="nav-dot"></span>
-          <span>{{ item.label }}</span>
-        </a>
-      {% endfor %}
-    </nav>
-  </aside>
+  {% include "accounts/_sidebar.html" %}
 
   <section class="dashboard-main dashboard-main-ai">
     <div class="openai-settings-page">

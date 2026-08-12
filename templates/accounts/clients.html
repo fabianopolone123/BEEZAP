@@ -1,0 +1,283 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% comment %}
+Tela CLIENTES — exclusiva do GESTOR MASTER. Cadastra e administra as EMPRESAS que
+usam o sistema; cada empresa tem os seus proprios setores, atendentes, contatos,
+conversas e configuracoes de W-API/GPT. O logo e os dados cadastrados aqui aparecem
+na barra lateral do cliente (ver accounts/context_processors.py).
+
+O formulario e renderizado pelo servidor (CompanyForm) porque tem upload de logo e
+mensagens de erro por campo; o JS so abre e fecha o modal. "Editar" recarrega a tela
+com ?editar=<id>, o que mantem o modal preenchido mesmo com erro de validacao.
+{% endcomment %}
+
+{% block title %}Clientes | BEEZap{% endblock %}
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/dashboard.css' %}?v=5">
+{# attendants.css traz os botoes compartilhados (primary/secondary/modal-close). #}
+<link rel="stylesheet" href="{% static 'css/attendants.css' %}">
+<link rel="stylesheet" href="{% static 'css/clients.css' %}?v=1">
+{% endblock %}
+
+{% block content %}
+<main class="dashboard-shell">
+  {% include "accounts/_sidebar.html" %}
+
+  <section class="dashboard-main">
+    <div class="clients-page">
+      <header class="topbar">
+        <div class="topbar-left">
+          <button class="icon-button" type="button" aria-label="Abrir menu">☰</button>
+          <div>
+            <p class="page-kicker">Gestão da plataforma</p>
+            <h1>Clientes</h1>
+          </div>
+        </div>
+
+        <div class="topbar-right">
+          <div class="profile-chip">
+            <div class="profile-avatar">{{ user_initial }}</div>
+            <div>
+              <strong>{{ request.user.get_full_name|default:request.user.email }}</strong>
+              <span>{{ role_label }}</span>
+            </div>
+          </div>
+          <a href="{% url 'logout' %}" class="logout-link">Sair</a>
+        </div>
+      </header>
+
+      <section class="clients-summary">
+        <article class="clients-stat">
+          <span>Empresas cadastradas</span>
+          <strong>{{ total_companies }}</strong>
+        </article>
+        <article class="clients-stat">
+          <span>Empresas ativas</span>
+          <strong>{{ active_companies }}</strong>
+        </article>
+      </section>
+
+      <section class="clients-toolbar">
+        <form method="get" class="clients-search" role="search">
+          <input type="search" name="q" value="{{ search_term }}" placeholder="Buscar por nome, CNPJ ou cidade...">
+          <button type="submit" class="secondary-button">Buscar</button>
+        </form>
+        <button type="button" class="primary-button" data-client-new>Nova empresa</button>
+      </section>
+
+      <section class="clients-list">
+        {% if companies %}
+          {% for c in companies %}
+            <article class="client-card {% if not c.is_active %}is-inactive{% endif %}">
+              <div class="client-identity">
+                {% if c.logo_url %}
+                  <img src="{{ c.logo_url }}" alt="Logo de {{ c.display_name }}" class="client-logo">
+                {% else %}
+                  <span class="client-initials" {% if c.accent_color %}style="background: {{ c.accent_color }}"{% endif %} aria-hidden="true">{{ c.initials }}</span>
+                {% endif %}
+                <div class="client-headline">
+                  <strong class="client-name">{{ c.display_name }}</strong>
+                  {% if c.legal_name %}<span class="client-legal">{{ c.legal_name }}</span>{% endif %}
+                  <div class="client-badges">
+                    <span class="client-badge {% if c.is_active %}badge-on{% else %}badge-off{% endif %}">{{ c.status_label }}</span>
+                    {% if c.is_default %}<span class="client-badge badge-default">Padrão</span>{% endif %}
+                  </div>
+                </div>
+              </div>
+
+              <dl class="client-data">
+                {% if c.formatted_document %}<div><dt>CNPJ</dt><dd>{{ c.formatted_document }}</dd></div>{% endif %}
+                {% if c.email %}<div><dt>E-mail</dt><dd>{{ c.email }}</dd></div>{% endif %}
+                {% if c.formatted_phone %}<div><dt>Telefone</dt><dd>{{ c.formatted_phone }}</dd></div>{% endif %}
+                {% if c.location %}<div><dt>Cidade</dt><dd>{{ c.location }}</dd></div>{% endif %}
+                <div><dt>Usuários</dt><dd>{{ c.users_count }}</dd></div>
+                <div><dt>Conversas</dt><dd>{{ c.conversations_count }}</dd></div>
+              </dl>
+
+              <div class="client-actions">
+                <a href="?editar={{ c.id }}{% if search_term %}&amp;q={{ search_term }}{% endif %}" class="secondary-button">Editar</a>
+                {% if not c.is_default %}
+                  <form method="post" class="client-inline-form">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="toggle-active">
+                    <input type="hidden" name="company_id" value="{{ c.id }}">
+                    <button type="submit" class="secondary-button">{% if c.is_active %}Desativar{% else %}Reativar{% endif %}</button>
+                  </form>
+                  <form method="post" class="client-inline-form"
+                        onsubmit="return confirm('Excluir a empresa {{ c.display_name|escapejs }}? Todos os dados dela (contatos, conversas, mensagens e usuários) serão apagados. Exporte antes se precisar guardar.');">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="delete">
+                    <input type="hidden" name="company_id" value="{{ c.id }}">
+                    <button type="submit" class="danger-link">Excluir</button>
+                  </form>
+                {% endif %}
+              </div>
+            </article>
+          {% endfor %}
+        {% else %}
+          <article class="clients-empty">
+            {% if search_term %}
+              <strong>Nenhuma empresa encontrada para "{{ search_term }}".</strong>
+              <span>Tente outro termo de busca.</span>
+            {% else %}
+              <strong>Nenhuma empresa cadastrada ainda.</strong>
+              <span>Use "Nova empresa" para cadastrar o primeiro cliente.</span>
+            {% endif %}
+          </article>
+        {% endif %}
+      </section>
+    </div>
+  </section>
+</main>
+
+<div class="clients-modal {% if show_modal %}is-open{% endif %}" data-modal-root>
+  <div class="clients-modal-backdrop" data-modal-close></div>
+  <div class="clients-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="client-modal-title">
+    <div class="clients-modal-head">
+      <h2 id="client-modal-title">{% if editing %}Editar empresa{% else %}Nova empresa{% endif %}</h2>
+      <button type="button" class="modal-close" aria-label="Fechar" data-modal-close>×</button>
+    </div>
+
+    <form method="post" class="clients-form" enctype="multipart/form-data" novalidate>
+      {% csrf_token %}
+      <input type="hidden" name="company_id" value="{{ editing.id|default:'' }}">
+
+      {% if form.non_field_errors %}
+        <p class="clients-field-error">{{ form.non_field_errors.0 }}</p>
+      {% endif %}
+
+      <fieldset class="clients-fieldset">
+        <legend>Identificação</legend>
+        <div class="clients-grid">
+          <div class="clients-field clients-field-wide">
+            {{ form.name.label_tag }}
+            {{ form.name }}
+            {% if form.name.errors %}<p class="clients-field-error">{{ form.name.errors.0 }}</p>{% endif %}
+          </div>
+          <div class="clients-field clients-field-wide">
+            {{ form.legal_name.label_tag }}
+            {{ form.legal_name }}
+            {% if form.legal_name.errors %}<p class="clients-field-error">{{ form.legal_name.errors.0 }}</p>{% endif %}
+          </div>
+          <div class="clients-field">
+            {{ form.document.label_tag }}
+            {{ form.document }}
+            {% if form.document.errors %}<p class="clients-field-error">{{ form.document.errors.0 }}</p>{% endif %}
+          </div>
+          <div class="clients-field">
+            {{ form.slug.label_tag }}
+            {{ form.slug }}
+            <span class="clients-field-hint">{{ form.slug.help_text }}</span>
+            {% if form.slug.errors %}<p class="clients-field-error">{{ form.slug.errors.0 }}</p>{% endif %}
+          </div>
+        </div>
+      </fieldset>
+
+      <fieldset class="clients-fieldset">
+        <legend>Contato</legend>
+        <div class="clients-grid">
+          <div class="clients-field">
+            {{ form.email.label_tag }}
+            {{ form.email }}
+            {% if form.email.errors %}<p class="clients-field-error">{{ form.email.errors.0 }}</p>{% endif %}
+          </div>
+          <div class="clients-field">
+            {{ form.phone.label_tag }}
+            {{ form.phone }}
+            {% if form.phone.errors %}<p class="clients-field-error">{{ form.phone.errors.0 }}</p>{% endif %}
+          </div>
+          <div class="clients-field clients-field-wide">
+            {{ form.address.label_tag }}
+            {{ form.address }}
+            {% if form.address.errors %}<p class="clients-field-error">{{ form.address.errors.0 }}</p>{% endif %}
+          </div>
+          <div class="clients-field">
+            {{ form.city.label_tag }}
+            {{ form.city }}
+            {% if form.city.errors %}<p class="clients-field-error">{{ form.city.errors.0 }}</p>{% endif %}
+          </div>
+          <div class="clients-field clients-field-small">
+            {{ form.state.label_tag }}
+            {{ form.state }}
+            {% if form.state.errors %}<p class="clients-field-error">{{ form.state.errors.0 }}</p>{% endif %}
+          </div>
+        </div>
+      </fieldset>
+
+      <fieldset class="clients-fieldset">
+        <legend>Identidade visual</legend>
+        <div class="clients-grid">
+          <div class="clients-field clients-field-wide">
+            {{ form.logo.label_tag }}
+            {{ form.logo }}
+            <span class="clients-field-hint">{{ form.logo.help_text }}</span>
+            {% if form.logo.errors %}<p class="clients-field-error">{{ form.logo.errors.0 }}</p>{% endif %}
+          </div>
+          <div class="clients-field clients-field-small">
+            {{ form.accent_color.label_tag }}
+            {{ form.accent_color }}
+            <span class="clients-field-hint">{{ form.accent_color.help_text }}</span>
+            {% if form.accent_color.errors %}<p class="clients-field-error">{{ form.accent_color.errors.0 }}</p>{% endif %}
+          </div>
+        </div>
+      </fieldset>
+
+      <fieldset class="clients-fieldset">
+        <legend>Outros</legend>
+        <div class="clients-grid">
+          <div class="clients-field clients-field-wide">
+            {{ form.notes.label_tag }}
+            {{ form.notes }}
+            {% if form.notes.errors %}<p class="clients-field-error">{{ form.notes.errors.0 }}</p>{% endif %}
+          </div>
+          <div class="clients-field clients-field-wide clients-field-check">
+            {{ form.is_active }}
+            {{ form.is_active.label_tag }}
+            {% if form.is_active.help_text %}<span class="clients-field-hint">{{ form.is_active.help_text }}</span>{% endif %}
+          </div>
+        </div>
+      </fieldset>
+
+      <div class="clients-form-actions">
+        <button type="submit" class="primary-button">Salvar</button>
+        <a href="{% url 'clients' %}" class="secondary-button">Cancelar</a>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+  (function () {
+    var modal = document.querySelector('[data-modal-root]');
+    if (!modal) return;
+
+    function close() {
+      modal.classList.remove('is-open');
+      // Limpa o ?editar= da URL para o modal nao reabrir ao atualizar a pagina.
+      if (window.location.search.indexOf('editar=') !== -1) {
+        window.location.href = window.location.pathname;
+      }
+    }
+
+    var newBtn = document.querySelector('[data-client-new]');
+    if (newBtn) {
+      newBtn.addEventListener('click', function () {
+        // Empresa nova: se o modal esta preenchido por uma edicao, recarrega limpo.
+        if (window.location.search.indexOf('editar=') !== -1) {
+          window.location.href = window.location.pathname;
+          return;
+        }
+        modal.classList.add('is-open');
+        var first = modal.querySelector('input, textarea');
+        if (first) window.setTimeout(function () { first.focus(); }, 30);
+      });
+    }
+
+    modal.querySelectorAll('[data-modal-close]').forEach(function (btn) {
+      btn.addEventListener('click', close);
+    });
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape') close(); });
+  }());
+</script>
+{% endblock %}

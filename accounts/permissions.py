@@ -2,13 +2,19 @@
 lateral cada perfil ve E acessa.
 
 O ADMINISTRADOR tem sempre acesso total (nao e editavel, para nunca se trancar
-fora do sistema). Os demais perfis (`usuario`, `leitor`) tem um conjunto padrao
-(abaixo) que o admin pode ajustar na tela Permissoes; alem disso, um usuario
-especifico pode ter uma personalizacao propria (UserMenuPermission) que sobrepoe o
-padrao do perfil.
+fora do sistema) DENTRO DA EMPRESA dele. Os demais perfis (`usuario`, `leitor`)
+tem um conjunto padrao (abaixo) que o admin pode ajustar na tela Permissoes; alem
+disso, um usuario especifico pode ter uma personalizacao propria
+(UserMenuPermission) que sobrepoe o padrao do perfil.
+
+O GESTOR MASTER (dono da plataforma, ver `accounts/tenancy.py`) e um caso
+separado: ele NAO opera o atendimento de ninguem — ve apenas a tela "Clientes",
+onde cadastra e administra as empresas. Por isso nenhuma feature de atendimento
+fica liberada para ele e ele nao enxerga conversa nenhuma.
 
 As "features" abaixo sao os botoes reais do menu. `permissions` (a propria tela) e
-exclusiva do admin e nao entra na matriz de toggles.
+exclusiva do admin e `clients` e exclusiva do master; nenhuma das duas entra na
+matriz de toggles.
 """
 
 # Botoes reais do menu, na ordem de exibicao. Cada um tem um icone (emoji) para a
@@ -25,6 +31,10 @@ ALL_FEATURE_KEYS = [f['key'] for f in MENU_FEATURES]
 
 # Item exclusivo do admin (fora da matriz de toggles).
 PERMISSIONS_ITEM = {'label': 'Permissões', 'url_name': 'permissions'}
+
+# Item exclusivo do GESTOR MASTER: a gestao das empresas clientes. Fica fora da
+# matriz de toggles (nenhum perfil de cliente pode receber este botao).
+CLIENTS_ITEM = {'label': 'Clientes', 'url_name': 'clients'}
 
 # Perfis que aparecem na tela para edicao (o admin e sempre acesso total).
 EDITABLE_ROLES = [
@@ -52,12 +62,16 @@ def is_read_only(user):
     return getattr(user, 'role', None) == 'leitor'
 
 
-def role_allowed_keys(role):
-    """Conjunto de botoes de um PERFIL (config salva ou padrao). adm = tudo."""
+def role_allowed_keys(role, company=None):
+    """Conjunto de botoes de um PERFIL DENTRO DE UMA EMPRESA (config salva ou
+    padrao). adm = tudo. Cada empresa tem a sua propria linha por perfil, por isso
+    a consulta e sempre filtrada pela empresa."""
     if role == 'adm':
         return set(ALL_FEATURE_KEYS)
+    if company is None:
+        return set(role_default_keys(role))
     from .models import RoleMenuPermission
-    row = RoleMenuPermission.objects.filter(role=role).first()
+    row = RoleMenuPermission.objects.filter(company=company, role=role).first()
     if row is not None:
         return set(row.allowed_keys or [])
     return set(role_default_keys(role))
@@ -65,8 +79,11 @@ def role_allowed_keys(role):
 
 def allowed_keys_for(user):
     """Conjunto EFETIVO de botoes de um usuario: adm = tudo; senao a personalizacao
-    do usuario (se houver) ou o padrao do perfil."""
+    do usuario (se houver) ou o padrao do perfil. O MASTER nao tem feature de
+    atendimento (o botao dele, Clientes, fica fora desta matriz)."""
     if not getattr(user, 'is_authenticated', False):
+        return set()
+    if user.role == 'master':
         return set()
     if user.role == 'adm':
         return set(ALL_FEATURE_KEYS)
@@ -74,24 +91,39 @@ def allowed_keys_for(user):
     override = UserMenuPermission.objects.filter(user=user).first()
     if override is not None:
         return set(override.allowed_keys or [])
-    return role_allowed_keys(user.role)
+    return role_allowed_keys(user.role, getattr(user, 'company', None))
 
 
 def user_can_access(user, key):
     """O usuario pode acessar a feature/botao `key`?"""
     if not getattr(user, 'is_authenticated', False):
         return False
+    role = getattr(user, 'role', None)
+    # A gestao de clientes e so do master; e o master SO acessa ela.
+    if key == 'clients':
+        return role == 'master'
+    if role == 'master':
+        return False
     if key == 'permissions':
-        return getattr(user, 'role', None) == 'adm'
-    if getattr(user, 'role', None) == 'adm':
+        return role == 'adm'
+    if role == 'adm':
         return True
     return key in allowed_keys_for(user)
 
 
 def nav_items_for(user, active_label):
     """Itens do menu que o usuario pode ver, no formato esperado pelo template."""
+    role = getattr(user, 'role', None)
+    # O master tem um menu proprio: so a gestao das empresas clientes.
+    if role == 'master':
+        return [{
+            'label': CLIENTS_ITEM['label'],
+            'url_name': CLIENTS_ITEM['url_name'],
+            'href': CLIENTS_ITEM['url_name'],
+            'active': CLIENTS_ITEM['label'] == active_label,
+        }]
     allowed = allowed_keys_for(user)
-    is_adm = getattr(user, 'role', None) == 'adm'
+    is_adm = role == 'adm'
     items = []
     for f in MENU_FEATURES:
         if is_adm or f['key'] in allowed:
@@ -114,6 +146,8 @@ def nav_items_for(user, active_label):
 def first_landing_url_name(user):
     """Primeiro botao acessivel — para onde mandar o usuario apos o login quando
     ele nao tem acesso ao Dashboard."""
+    if getattr(user, 'role', None) == 'master':
+        return CLIENTS_ITEM['url_name']
     for f in MENU_FEATURES:
         if user_can_access(user, f['key']):
             return f['url_name']
@@ -192,9 +226,17 @@ def visible_conversations_q(user):
 
 
 def visible_conversations(user, queryset):
-    """Filtra um queryset de Conversation pelo que o usuario pode ver. Admin = tudo."""
+    """Filtra um queryset de Conversation pelo que o usuario pode ver. Admin ve tudo
+    DA EMPRESA dele; o gestor master nao ve conversa nenhuma (ele administra os
+    clientes, nao le o atendimento deles — ver accounts/tenancy.py)."""
     if not getattr(user, 'is_authenticated', False):
         return queryset.none()
+    if user.role == 'master':
+        return queryset.none()
+    company = getattr(user, 'company', None)
+    if company is None:
+        return queryset.none()
+    queryset = queryset.filter(company=company)
     if user.role == 'adm':
         return queryset
     return queryset.filter(visible_conversations_q(user)).distinct()
@@ -203,8 +245,8 @@ def visible_conversations(user, queryset):
 def can_see_conversation(user, conversation):
     if not getattr(user, 'is_authenticated', False):
         return False
-    if user.role == 'adm':
-        return True
+    if user.role == 'master':
+        return False
     from .models import Conversation
     return visible_conversations(
         user, Conversation.objects.filter(pk=conversation.pk)

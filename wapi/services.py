@@ -17,7 +17,7 @@ from urllib import request
 from django.core.files.base import ContentFile
 from django.utils import timezone
 
-from accounts.models import Contact, Conversation, Message
+from accounts.models import Company, Contact, Conversation, Message
 from wapi.parser import (
     is_ignorable_jid,
     is_status_or_broadcast,
@@ -188,15 +188,31 @@ def _summary_text(message_type, text):
     return label
 
 
-def get_or_create_contact(phone):
-    """Contato de uma conversa DIRETA. O contato nasce SEM nome de proposito: o nome
-    NAO vem do WhatsApp (pushName). Assim a conversa aparece com o NUMERO ate alguem
-    cadastrar o nome — clicando no numero em Conversas, que grava o Contato (tela
-    Contatos). Nome cadastrado a mao nunca e sobrescrito por nada automatico."""
+def ingest_company():
+    """EMPRESA CLIENTE dona das mensagens que chegam pelo webhook.
+
+    MULTIEMPRESA (Parte 2): hoje o webhook e uma URL unica para todo mundo, por
+    isso o recebimento entra na empresa padrao. Na Parte 2 cada cliente ganha a SUA
+    URL de webhook (e a resolucao pelo `instanceId` do payload), e a empresa passa a
+    ser identificada ali — este e o unico ponto que precisa mudar.
+    """
+    return Company.get_default()
+
+
+def get_or_create_contact(phone, company=None):
+    """Contato de uma conversa DIRETA (da EMPRESA informada). O contato nasce SEM
+    nome de proposito: o nome NAO vem do WhatsApp (pushName). Assim a conversa
+    aparece com o NUMERO ate alguem cadastrar o nome — clicando no numero em
+    Conversas, que grava o Contato (tela Contatos). Nome cadastrado a mao nunca e
+    sobrescrito por nada automatico."""
     phone = normalize_phone(phone)
     if not phone:
         return None
-    contact, _created = Contact.objects.get_or_create(phone=phone, defaults={'name': ''})
+    if company is None:
+        company = ingest_company()
+    contact, _created = Contact.objects.get_or_create(
+        company=company, phone=phone, defaults={'name': ''}
+    )
     return contact
 
 
@@ -225,7 +241,8 @@ def attach_contact_from_sender(conversation, ctx):
     connected = normalize_phone(ctx.get('connected_phone') or '')
     if connected and phone == connected:
         return conversation
-    contact = get_or_create_contact(phone)
+    # O contato e resolvido dentro da MESMA empresa da conversa.
+    contact = get_or_create_contact(phone, conversation.company)
     if contact is None:
         return conversation
     conversation.contact = contact
@@ -241,15 +258,21 @@ def resolve_conversation_for_context(ctx):
     - DIRETA com telefone: usa o contato (telefone), preservando o comportamento
       antigo de reaproveitar a conversa aberta.
     - DIRETA sem telefone (ex.: @lid): keyed pelo proprio chat_id, sem contato.
+
+    Tudo acontece DENTRO de uma empresa cliente (ver `ingest_company`): a busca e a
+    criacao sao sempre filtradas por ela, entao duas empresas podem conversar com o
+    mesmo numero sem se misturar.
     """
     chat_id = (ctx.get('chat_id') or '').strip()
     if not chat_id:
         return None
 
+    company = ingest_company()
+
     if ctx.get('is_group'):
         conversation = (
             Conversation.objects
-            .filter(external_id=chat_id, chat_type='group')
+            .filter(company=company, external_id=chat_id, chat_type='group')
             .order_by('-last_message_at', '-created_at')
             .first()
         )
@@ -265,6 +288,7 @@ def resolve_conversation_for_context(ctx):
         # mostrando "Grupo <jid>". Se falhar, o fallback cuida da exibicao.
         name = ctx.get('display_name') or resolve_group_name(chat_id)
         return Conversation.objects.create(
+            company=company,
             external_id=chat_id,
             chat_type='group',
             name=name or '',
@@ -274,7 +298,7 @@ def resolve_conversation_for_context(ctx):
     # Conversa direta com telefone real.
     phone = normalize_phone(chat_id)
     if phone:
-        contact = get_or_create_contact(phone)
+        contact = get_or_create_contact(phone, company)
         if contact is None:
             return None
         conversation = (
@@ -290,7 +314,9 @@ def resolve_conversation_for_context(ctx):
             if conversation.status == 'closed':
                 _reopen_for_new_service(conversation)
             return conversation
-        return Conversation.objects.create(contact=contact, external_id=phone, chat_type='private')
+        return Conversation.objects.create(
+            company=company, contact=contact, external_id=phone, chat_type='private'
+        )
 
     # Conversa direta cujo chat_id NAO e telefone (identificador interno @lid, o caso
     # normal da W-API Lite). A conversa fica chaveada pelo proprio chat_id, mas o
@@ -299,7 +325,7 @@ def resolve_conversation_for_context(ctx):
     # o `name`/pushName).
     conversation = (
         Conversation.objects
-        .filter(external_id=chat_id, chat_type='private')
+        .filter(company=company, external_id=chat_id, chat_type='private')
         .order_by('-last_message_at', '-created_at')
         .first()
     )
@@ -312,6 +338,7 @@ def resolve_conversation_for_context(ctx):
     # recebeu mensagem, onde nao ha telefone para resolver); com contato anexado ele
     # deixa de ser usado na exibicao.
     conversation = Conversation.objects.create(
+        company=company,
         external_id=chat_id,
         chat_type='private',
         name=ctx.get('sender_name') or '',

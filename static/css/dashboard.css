@@ -76,9 +76,30 @@ a {
   filter: drop-shadow(0 8px 18px rgba(33, 194, 94, 0.16));
 }
 
+/* Retaguarda do logo da empresa cliente: iniciais num circulo, na cor de destaque
+   cadastrada pelo gestor master (ver accounts/context_processors.py). */
+.sidebar-initials {
+  flex: 0 0 auto;
+  width: 46px;
+  height: 46px;
+  border-radius: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #21c25e;
+  color: #04121f;
+  font-size: 1.05rem;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  box-shadow: 0 8px 18px rgba(4, 10, 22, 0.24);
+}
+
 .sidebar-brand strong {
   display: block;
   font-size: 1.15rem;
+  /* Nome de empresa pode ser longo: quebra em vez de estourar a barra lateral. */
+  overflow-wrap: anywhere;
+  line-height: 1.25;
 }
 
 .sidebar-brand span {

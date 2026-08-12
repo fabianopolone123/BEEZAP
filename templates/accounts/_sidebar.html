@@ -1,0 +1,35 @@
+{% comment %}
+Barra lateral compartilhada por TODAS as telas do painel (antes o bloco estava
+copiado em cada template). A marca vem do contexto `brand`
+(accounts/context_processors.py): logo e nome DA EMPRESA CLIENTE de quem esta
+logado; sem logo cadastrado, aparecem as iniciais da empresa na cor de destaque
+dela. O gestor master ve a marca do BEEZap com o rotulo "Gestão de clientes".
+
+Espera no contexto: `nav_items` (montado por build_nav_items) e `brand`.
+{% endcomment %}
+{% load static %}
+<aside class="sidebar">
+  <div class="sidebar-brand">
+    {% if brand.logo_url %}
+      <img src="{{ brand.logo_url }}" alt="{{ brand.name }}" class="sidebar-logo">
+    {% elif brand.initials %}
+      <span class="sidebar-initials" {% if brand.accent %}style="background: {{ brand.accent }}"{% endif %} aria-hidden="true">{{ brand.initials }}</span>
+    {% else %}
+      <img src="{% static 'images/logo-transparent.png' %}" alt="BEEZap" class="sidebar-logo">
+    {% endif %}
+    <div>
+      <strong>{{ brand.name|default:"BEEZap" }}</strong>
+      <span>{{ brand.subtitle|default:"Central de atendimento" }}</span>
+    </div>
+  </div>
+
+  <nav class="sidebar-nav">
+    {% for item in nav_items %}
+      <a href="{% if item.href %}{% url item.href %}{% else %}#{% endif %}"
+         class="nav-item {% if item.active %}active{% endif %}">
+        <span class="nav-dot"></span>
+        <span>{{ item.label }}</span>
+      </a>
+    {% endfor %}
+  </nav>
+</aside>

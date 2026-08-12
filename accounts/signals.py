@@ -17,28 +17,38 @@ from django.dispatch import receiver
 
 
 def ensure_admin_attendant(user):
-    """Garante o Attendant do admin e o inclui em todos os setores. Retorna o
-    Attendant (ou None se o usuario nao for adm)."""
+    """Garante o Attendant do admin e o inclui em todos os setores DA EMPRESA dele.
+    Retorna o Attendant (ou None se o usuario nao for adm / estiver sem empresa).
+
+    O gestor master nao entra aqui: ele nao pertence a empresa nenhuma e nao opera
+    atendimento (ver accounts/tenancy.py)."""
     from .models import Attendant, Sector
 
     if getattr(user, 'role', None) != 'adm':
         return None
+    company = getattr(user, 'company', None)
+    if company is None:
+        return None
     name = (user.get_full_name() or (user.email or '').split('@')[0] or 'Administrador').strip()
     attendant, _ = Attendant.objects.get_or_create(
         user=user,
-        defaults={'name': name or 'Administrador', 'must_change_password': False},
+        defaults={
+            'company': company,
+            'name': name or 'Administrador',
+            'must_change_password': False,
+        },
     )
-    sectors = list(Sector.objects.all())
+    sectors = list(Sector.objects.filter(company=company))
     if sectors:
         attendant.sectors.add(*sectors)
     return attendant
 
 
 def add_admins_to_sector(sector):
-    """Inclui todos os atendentes-admin no setor informado."""
+    """Inclui no setor todos os atendentes-admin DA MESMA EMPRESA do setor."""
     from .models import Attendant
 
-    admins = list(Attendant.objects.filter(user__role='adm'))
+    admins = list(Attendant.objects.filter(company_id=sector.company_id, user__role='adm'))
     if admins:
         sector.attendants.add(*admins)
 
@@ -59,8 +69,9 @@ def _add_admins_on_sector_save(sender, instance, raw=False, **kwargs):
 
 @receiver(post_save, sender='accounts.Attendant')
 def _add_attendant_to_general(sender, instance, created=False, raw=False, **kwargs):
-    """Todo atendente novo entra no setor 'Geral' padrao (por padrao faz parte dele)."""
+    """Todo atendente novo entra no setor 'Geral' padrao DA EMPRESA dele (por padrao
+    faz parte dele)."""
     if raw or not created:
         return
     from .models import Sector
-    Sector.ensure_general().attendants.add(instance)
+    Sector.ensure_general(instance.company).attendants.add(instance)

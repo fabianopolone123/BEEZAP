@@ -17,6 +17,17 @@ from wapi.parser import (
 from .models import Attendant, PasswordResetCode, User
 
 
+def default_company():
+    """Empresa cliente usada pelos testes.
+
+    Com o multiempresa, setor/atendente/contato/conversa pertencem OBRIGATORIAMENTE
+    a uma empresa, e os usuarios operacionais tambem. Os testes usam a empresa
+    padrao (a mesma que a migration 0031 cria).
+    """
+    from .models import Company
+    return Company.get_default()
+
+
 class WapiJidClassificationTests(SimpleTestCase):
     """Grupo/canal/transmissao nunca podem virar 'telefone' nem conversa direta.
 
@@ -318,11 +329,11 @@ class MentionResolutionTests(SimpleTestCase):
 
 class ContactNamingTests(TestCase):
     def setUp(self):
-        self.user = User.objects.create_user(email='adm@beezap.com', password='1234', role=User.Role.ADM)
+        self.user = User.objects.create_user(company=default_company(), email='adm@beezap.com', password='1234', role=User.Role.ADM)
 
     def _group_with_message(self, sender_id, sender_name='', text='oi'):
         from accounts.models import Conversation, Message
-        conv = Conversation.objects.create(external_id='120363@g.us', chat_type='group', name='Grupo')
+        conv = Conversation.objects.create(company=default_company(), external_id='120363@g.us', chat_type='group', name='Grupo')
         Message.objects.create(conversation=conv, direction='in', message_type='text',
                                text=text, is_group=True, sender_id=sender_id, sender_name=sender_name)
         return conv
@@ -348,7 +359,7 @@ class ContactNamingTests(TestCase):
         from accounts.views import _build_name_map
         from accounts.models import Contact
         conv = self._group_with_message('5516993364676', 'Ze')
-        Contact.objects.create(phone='5516993364676', name='Jose Silva')
+        Contact.objects.create(company=default_company(), phone='5516993364676', name='Jose Silva')
         self.assertEqual(_build_name_map(conv)['5516993364676'], 'Jose Silva')
 
     def test_name_endpoint_rejects_empty(self):
@@ -365,7 +376,7 @@ class ContactDefaultsToNumberTests(TestCase):
     PHONE = '5516999997777'
 
     def setUp(self):
-        self.user = User.objects.create_user(email='adm@beezap.com', password='1234', role=User.Role.ADM)
+        self.user = User.objects.create_user(company=default_company(), email='adm@beezap.com', password='1234', role=User.Role.ADM)
 
     def _incoming_direct(self, push_name='Marcia Nunes', message_id='DIR1'):
         from wapi.services import ingest_wapi_payload
@@ -390,7 +401,7 @@ class ContactDefaultsToNumberTests(TestCase):
 
     def test_pushname_never_overwrites_registered_name(self):
         from accounts.models import Contact
-        Contact.objects.create(phone=self.PHONE, name='Cliente Antigo')
+        Contact.objects.create(company=default_company(), phone=self.PHONE, name='Cliente Antigo')
 
         self._incoming_direct(push_name='Apelido do WhatsApp')
 
@@ -425,7 +436,7 @@ class ContactDefaultsToNumberTests(TestCase):
     def test_group_sender_shows_number_until_registered(self):
         from accounts.views import _build_name_map
         from accounts.models import Contact, Conversation, Message
-        conv = Conversation.objects.create(external_id='120363@g.us', chat_type='group', name='Grupo')
+        conv = Conversation.objects.create(company=default_company(), external_id='120363@g.us', chat_type='group', name='Grupo')
         Message.objects.create(conversation=conv, direction='in', message_type='text',
                                text='oi', is_group=True, sender_id='5516993364676',
                                sender_name='Ze do WhatsApp')
@@ -433,7 +444,7 @@ class ContactDefaultsToNumberTests(TestCase):
         # Sem contato cadastrado: nenhum nome resolvido (o front mostra o numero).
         self.assertEqual(_build_name_map(conv), {})
 
-        Contact.objects.create(phone='5516993364676', name='Jose Silva')
+        Contact.objects.create(company=default_company(), phone='5516993364676', name='Jose Silva')
         self.assertEqual(_build_name_map(conv)['5516993364676'], 'Jose Silva')
 
 
@@ -532,8 +543,8 @@ class DiscardedPayloadLeavesNoConversationTests(TestCase):
         from wapi.services import ingest_wapi_payload
         from accounts.models import Contact, Conversation
 
-        contact = Contact.objects.create(phone='5519971548270', name='')
-        conv = Conversation.objects.create(contact=contact, external_id='103445042315337@lid',
+        contact = Contact.objects.create(company=default_company(), phone='5519971548270', name='')
+        conv = Conversation.objects.create(company=default_company(), contact=contact, external_id='103445042315337@lid',
                                            chat_type='private', status='closed')
 
         payload = self._direct({'protocolMessage': {'type': 'REVOKE'}}, message_id='DISCSYS')
@@ -600,7 +611,7 @@ class LidRealPhoneTests(TestCase):
 
     def test_naming_the_number_names_the_lid_conversation(self):
         from wapi.services import ingest_wapi_payload
-        user = User.objects.create_user(email='adm@beezap.com', password='1234', role=User.Role.ADM)
+        user = User.objects.create_user(company=default_company(), email='adm@beezap.com', password='1234', role=User.Role.ADM)
         msg = ingest_wapi_payload(self._payload(), trigger_ai=False)
         self.client.force_login(user)
 
@@ -618,7 +629,7 @@ class LidRealPhoneTests(TestCase):
         from accounts.models import Contact, Conversation, Message
 
         ingest_wapi_payload(self._payload(), trigger_ai=False)
-        group = Conversation.objects.create(external_id='120363@g.us', chat_type='group', name='Grupo')
+        group = Conversation.objects.create(company=default_company(), external_id='120363@g.us', chat_type='group', name='Grupo')
         Message.objects.create(conversation=group, direction='in', message_type='text',
                                text='oi', is_group=True, sender_id=self.PHONE,
                                sender_name='elvisgoncalves123')
@@ -673,7 +684,7 @@ class LidRealPhoneTests(TestCase):
         from wapi.services import ingest_wapi_payload
         from accounts.models import Conversation
 
-        old = Conversation.objects.create(external_id=self.LID, chat_type='private',
+        old = Conversation.objects.create(company=default_company(), external_id=self.LID, chat_type='private',
                                           name='elvisgoncalves123', contact=None)
 
         ingest_wapi_payload(self._payload(message_id='LID2'), trigger_ai=False)
@@ -694,7 +705,7 @@ class LinkLidContactsCommandTests(TestCase):
 
     def _old_conversation(self, with_messages=True):
         from accounts.models import Conversation, Message
-        conv = Conversation.objects.create(external_id=self.LID, chat_type='private',
+        conv = Conversation.objects.create(company=default_company(), external_id=self.LID, chat_type='private',
                                            name='elvisgoncalves123', contact=None)
         if with_messages:
             Message.objects.create(conversation=conv, direction='in', message_type='text',
@@ -731,7 +742,7 @@ class LinkLidContactsCommandTests(TestCase):
 
     def test_apply_reuses_contact_already_named_elsewhere(self):
         from accounts.models import Contact
-        Contact.objects.create(phone=self.PHONE, name='Elvis')  # nomeado num grupo
+        Contact.objects.create(company=default_company(), phone=self.PHONE, name='Elvis')  # nomeado num grupo
         conv = self._old_conversation()
 
         out = self._run('--apply')
@@ -761,10 +772,14 @@ class CleanupPushnameContactsCommandTests(TestCase):
 
     def _incoming(self, phone, push_name, message_id):
         from accounts.models import Contact, Conversation, Message
-        contact, _ = Contact.objects.get_or_create(phone=phone, defaults={'name': ''})
-        conv, _ = Conversation.objects.get_or_create(contact=contact, defaults={
-            'external_id': phone, 'chat_type': 'private',
-        })
+        company = default_company()
+        contact, _ = Contact.objects.get_or_create(
+            company=company, phone=phone, defaults={'name': ''}
+        )
+        conv, _ = Conversation.objects.get_or_create(
+            company=company, contact=contact,
+            defaults={'external_id': phone, 'chat_type': 'private'},
+        )
         Message.objects.create(conversation=conv, direction='in', message_type='text',
                                text='oi', sender_id=phone, sender_name=push_name,
                                external_message_id=message_id)
@@ -817,7 +832,7 @@ class CleanupPushnameContactsCommandTests(TestCase):
 
     def test_nothing_to_do(self):
         from accounts.models import Contact
-        Contact.objects.create(phone='5516999990004', name='So Cadastro')
+        Contact.objects.create(company=default_company(), phone='5516999990004', name='So Cadastro')
 
         out = self._run('--apply')
 
@@ -827,7 +842,7 @@ class CleanupPushnameContactsCommandTests(TestCase):
 
 class ContactsPageTests(TestCase):
     def setUp(self):
-        self.user = User.objects.create_user(email='adm@beezap.com', password='1234', role=User.Role.ADM)
+        self.user = User.objects.create_user(company=default_company(), email='adm@beezap.com', password='1234', role=User.Role.ADM)
         self.client.force_login(self.user)
 
     def test_page_loads(self):
@@ -843,7 +858,7 @@ class ContactsPageTests(TestCase):
 
     def test_edit_contact(self):
         from accounts.models import Contact
-        c = Contact.objects.create(name='Ana', phone='5516000000000')
+        c = Contact.objects.create(company=default_company(), name='Ana', phone='5516000000000')
         self.client.post(reverse('contacts'), {'contact_id': c.id, 'name': 'Ana Paula', 'phone': '5516111111111'})
         c.refresh_from_db()
         self.assertEqual(c.name, 'Ana Paula')
@@ -851,7 +866,7 @@ class ContactsPageTests(TestCase):
 
     def test_delete_contact(self):
         from accounts.models import Contact
-        c = Contact.objects.create(name='X', phone='5516222222222')
+        c = Contact.objects.create(company=default_company(), name='X', phone='5516222222222')
         self.client.post(reverse('contacts'), {'action': 'delete', 'contact_id': c.id})
         self.assertFalse(Contact.objects.filter(pk=c.id).exists())
 
@@ -862,8 +877,8 @@ class ContactsPageTests(TestCase):
 
     def test_search_filters(self):
         from accounts.models import Contact
-        Contact.objects.create(name='Joao', phone='5516333333333')
-        Contact.objects.create(name='Pedro', phone='5516444444444')
+        Contact.objects.create(company=default_company(), name='Joao', phone='5516333333333')
+        Contact.objects.create(company=default_company(), name='Pedro', phone='5516444444444')
         r = self.client.get(reverse('contacts'), {'q': 'Joao'})
         self.assertContains(r, 'Joao')
         self.assertNotContains(r, 'Pedro')
@@ -932,12 +947,12 @@ class WapiStatusDetectionTests(SimpleTestCase):
 
 class AttendantsViewTests(TestCase):
     def setUp(self):
-        self.admin_user = User.objects.create_user(
+        self.admin_user = User.objects.create_user(company=default_company(),
             email='admin@beezap.com',
             password='1234',
             role=User.Role.ADM,
         )
-        self.common_user = User.objects.create_user(
+        self.common_user = User.objects.create_user(company=default_company(),
             email='usuario@beezap.com',
             password='1234',
             role=User.Role.USUARIO,
@@ -983,12 +998,12 @@ class AttendantsViewTests(TestCase):
         self.assertIn('Atendente cadastrado com sucesso.', messages)
 
     def test_edit_attendant_updates_user_and_profile(self):
-        attendant_user = User.objects.create_user(
+        attendant_user = User.objects.create_user(company=default_company(),
             email='joao@beezap.com',
             password='1234',
             role=User.Role.USUARIO,
         )
-        attendant = Attendant.objects.create(
+        attendant = Attendant.objects.create(company=default_company(),
             user=attendant_user,
             name='Joao Silva',
             phone='11988887777',
@@ -1015,12 +1030,12 @@ class AttendantsViewTests(TestCase):
         self.assertIn('Atendente atualizado com sucesso.', messages)
 
     def test_duplicate_email_is_rejected(self):
-        existing_user = User.objects.create_user(
+        existing_user = User.objects.create_user(company=default_company(),
             email='ana@beezap.com',
             password='1234',
             role=User.Role.USUARIO,
         )
-        Attendant.objects.create(
+        Attendant.objects.create(company=default_company(),
             user=existing_user,
             name='Ana',
             phone='11999999999',
@@ -1045,12 +1060,12 @@ class AttendantsViewTests(TestCase):
         self.assertContains(response, 'Ja existe um atendente com este e-mail.')
 
     def test_attendant_with_initial_password_is_redirected_to_change_password(self):
-        attendant_user = User.objects.create_user(
+        attendant_user = User.objects.create_user(company=default_company(),
             email='primeiroacesso@beezap.com',
             password='1234',
             role=User.Role.USUARIO,
         )
-        Attendant.objects.create(
+        Attendant.objects.create(company=default_company(),
             user=attendant_user,
             name='Primeiro Acesso',
             phone='11999999999',
@@ -1064,12 +1079,12 @@ class AttendantsViewTests(TestCase):
         self.assertRedirects(response, reverse('change-initial-password'))
 
     def test_initial_password_change_rejects_mismatched_passwords(self):
-        attendant_user = User.objects.create_user(
+        attendant_user = User.objects.create_user(company=default_company(),
             email='senhasdiferentes@beezap.com',
             password='1234',
             role=User.Role.USUARIO,
         )
-        Attendant.objects.create(
+        Attendant.objects.create(company=default_company(),
             user=attendant_user,
             name='Senhas Diferentes',
             phone='11999999999',
@@ -1089,12 +1104,12 @@ class AttendantsViewTests(TestCase):
         self.assertContains(response, 'As senhas digitadas nao conferem.')
 
     def test_initial_password_change_rejects_1234(self):
-        attendant_user = User.objects.create_user(
+        attendant_user = User.objects.create_user(company=default_company(),
             email='senha1234@beezap.com',
             password='1234',
             role=User.Role.USUARIO,
         )
-        Attendant.objects.create(
+        Attendant.objects.create(company=default_company(),
             user=attendant_user,
             name='Senha Inicial',
             phone='11999999999',
@@ -1114,12 +1129,12 @@ class AttendantsViewTests(TestCase):
         self.assertContains(response, 'Escolha uma senha diferente da senha inicial.')
 
     def test_valid_initial_password_change_unlocks_user(self):
-        attendant_user = User.objects.create_user(
+        attendant_user = User.objects.create_user(company=default_company(),
             email='trocasenha@beezap.com',
             password='1234',
             role=User.Role.USUARIO,
         )
-        attendant = Attendant.objects.create(
+        attendant = Attendant.objects.create(company=default_company(),
             user=attendant_user,
             name='Troca Senha',
             phone='11999999999',
@@ -1158,12 +1173,12 @@ class AttendantsViewTests(TestCase):
 
 class PasswordRecoveryTests(TestCase):
     def setUp(self):
-        self.user = User.objects.create_user(
+        self.user = User.objects.create_user(company=default_company(),
             email='atendente@beezap.com',
             password='SenhaAntiga123',
             role=User.Role.USUARIO,
         )
-        self.attendant = Attendant.objects.create(
+        self.attendant = Attendant.objects.create(company=default_company(),
             user=self.user,
             name='Atendente',
             phone='(11) 99999-9999',
@@ -1288,16 +1303,16 @@ class ConversationTransferViewTests(TestCase):
 
     def setUp(self):
         from .models import Contact, Conversation, Sector
-        self.admin = User.objects.create_user(email='adm-transfer@beezap.com', password='1234', role=User.Role.ADM)
-        self.attendant_user = User.objects.create_user(
+        self.admin = User.objects.create_user(company=default_company(), email='adm-transfer@beezap.com', password='1234', role=User.Role.ADM)
+        self.attendant_user = User.objects.create_user(company=default_company(),
             email='atendente-transfer@beezap.com', password='1234', role=User.Role.USUARIO,
         )
-        self.attendant = Attendant.objects.create(
+        self.attendant = Attendant.objects.create(company=default_company(),
             user=self.attendant_user, name='Atendente Vendas', must_change_password=False,
         )
-        self.sector = Sector.objects.create(name='Vendas')
-        self.contact = Contact.objects.create(name='Cliente', phone='5516999990000')
-        self.conversation = Conversation.objects.create(
+        self.sector = Sector.objects.create(company=default_company(), name='Vendas')
+        self.contact = Contact.objects.create(company=default_company(), name='Cliente', phone='5516999990000')
+        self.conversation = Conversation.objects.create(company=default_company(),
             contact=self.contact,
             external_id='5516999990000',
             chat_type='private',
@@ -1433,15 +1448,15 @@ class MergeContactConversationsTests(TestCase):
         from django.utils import timezone
         from .models import Contact, Conversation, Message
         now = timezone.now()
-        self.contact = Contact.objects.create(name='Cliente', phone='5516999990000')
+        self.contact = Contact.objects.create(company=default_company(), name='Cliente', phone='5516999990000')
         # Conversa 1 (atendimento antigo, encerrado) com uma mensagem de "ontem".
-        self.conv1 = Conversation.objects.create(
+        self.conv1 = Conversation.objects.create(company=default_company(),
             contact=self.contact, external_id='5516999990000', chat_type='private', status='closed',
         )
         m1 = Message.objects.create(conversation=self.conv1, direction='in', message_type='text',
                                     text='primeira mensagem', status='received')
         # Conversa 2 (atendimento novo) com outra mensagem de "hoje".
-        self.conv2 = Conversation.objects.create(
+        self.conv2 = Conversation.objects.create(company=default_company(),
             contact=self.contact, external_id='5516999990000', chat_type='private', status='open',
         )
         m2 = Message.objects.create(conversation=self.conv2, direction='in', message_type='text',
@@ -1505,17 +1520,17 @@ class AiAttendantFlowTests(TestCase):
         self.config.max_turns = 3
         self.config.save()
 
-        self.financeiro = Sector.objects.create(name='Financeiro')
-        self.suporte = Sector.objects.create(name='Suporte')
+        self.financeiro = Sector.objects.create(company=default_company(), name='Financeiro')
+        self.suporte = Sector.objects.create(company=default_company(), name='Suporte')
         # O setor 'Geral' ja existe (criado pela migracao 0028); reaproveita.
-        self.geral, _ = Sector.objects.get_or_create(name='Geral')
+        self.geral, _ = Sector.objects.get_or_create(company=default_company(), name='Geral')
 
-        fab_user = User.objects.create_user(email='fab@beezap.local', password='x', role='usuario')
-        self.fabiano = Attendant.objects.create(user=fab_user, name='Fabiano')
+        fab_user = User.objects.create_user(company=default_company(), email='fab@beezap.local', password='x', role='usuario')
+        self.fabiano = Attendant.objects.create(company=default_company(), user=fab_user, name='Fabiano')
         self.fabiano.sectors.add(self.suporte)
 
-        self.contact = Contact.objects.create(name='Cliente', phone='5516999990000')
-        self.conv = Conversation.objects.create(
+        self.contact = Contact.objects.create(company=default_company(), name='Cliente', phone='5516999990000')
+        self.conv = Conversation.objects.create(company=default_company(),
             contact=self.contact, external_id='5516999990000', chat_type='private', status='open',
         )
         Message.objects.create(conversation=self.conv, direction='in', message_type='text',
@@ -1771,10 +1786,10 @@ class MenuBotFlowTests(TestCase):
         self.Message = Message
         self.MenuBotConfiguration = MenuBotConfiguration
 
-        self.financeiro = Sector.objects.create(name='Financeiro')
-        self.vendas = Sector.objects.create(name='Vendas')
+        self.financeiro = Sector.objects.create(company=default_company(), name='Financeiro')
+        self.vendas = Sector.objects.create(company=default_company(), name='Vendas')
         # O setor 'Geral' ja existe (criado pela migracao 0028); reaproveita.
-        self.geral, _ = Sector.objects.get_or_create(name='Geral')
+        self.geral, _ = Sector.objects.get_or_create(company=default_company(), name='Geral')
 
         self.config = MenuBotConfiguration.get_solo()
         self.config.mode = MenuBotConfiguration.MODE_MENU
@@ -1784,8 +1799,8 @@ class MenuBotFlowTests(TestCase):
         MenuOption.objects.create(config=self.config, order=1, label='Financeiro', sector=self.financeiro)
         MenuOption.objects.create(config=self.config, order=2, label='Vendas', sector=self.vendas)
 
-        self.contact = Contact.objects.create(name='Cliente', phone='5516999990000')
-        self.conv = Conversation.objects.create(
+        self.contact = Contact.objects.create(company=default_company(), name='Cliente', phone='5516999990000')
+        self.conv = Conversation.objects.create(company=default_company(),
             contact=self.contact, external_id='5516999990000', chat_type='private', status='open',
         )
 
@@ -1901,8 +1916,8 @@ class AdminAttendantTests(TestCase):
     def setUp(self):
         from accounts.models import Sector
         self.Sector = Sector
-        self.compras = Sector.objects.create(name='Compras')  # setor antes do admin
-        self.admin = User.objects.create_user(
+        self.compras = Sector.objects.create(company=default_company(), name='Compras')  # setor antes do admin
+        self.admin = User.objects.create_user(company=default_company(),
             email='adm@beezap.local', password='x', role=User.Role.ADM,
             first_name='Ze', last_name='Admin',
         )
@@ -1914,13 +1929,13 @@ class AdminAttendantTests(TestCase):
         self.assertIn(self.compras, att.sectors.all())
 
     def test_new_sector_includes_admin(self):
-        novo = self.Sector.objects.create(name='Vendas')  # criado DEPOIS do admin
+        novo = self.Sector.objects.create(company=default_company(), name='Vendas')  # criado DEPOIS do admin
         self.assertIn(self.admin.attendant_profile, novo.attendants.all())
 
     def test_admin_can_take_conversation(self):
         from accounts.models import Contact, Conversation
-        contact = Contact.objects.create(name='Cliente', phone='5516999990000')
-        conv = Conversation.objects.create(
+        contact = Contact.objects.create(company=default_company(), name='Cliente', phone='5516999990000')
+        conv = Conversation.objects.create(company=default_company(),
             contact=contact, external_id='5516999990000', chat_type='private',
             status='pending', sector=self.compras,
         )
@@ -1939,13 +1954,13 @@ class GeneralSectorTests(TestCase):
     def setUp(self):
         from accounts.models import Sector
         self.Sector = Sector
-        self.admin = User.objects.create_user(email='adm@x.com', password='x', role=User.Role.ADM)
+        self.admin = User.objects.create_user(company=default_company(), email='adm@x.com', password='x', role=User.Role.ADM)
         self.client.force_login(self.admin)
 
     def test_ensure_general_creates_and_adds_all_attendants(self):
         self.Sector.objects.filter(name__iexact='Geral').delete()
-        user = User.objects.create_user(email='joao@x.com', password='x', role=User.Role.USUARIO)
-        att = Attendant.objects.create(user=user, name='Joao', must_change_password=False)
+        user = User.objects.create_user(company=default_company(), email='joao@x.com', password='x', role=User.Role.USUARIO)
+        att = Attendant.objects.create(company=default_company(), user=user, name='Joao', must_change_password=False)
         geral = self.Sector.ensure_general()
         self.assertTrue(geral.is_general)
         self.assertIn(att, geral.attendants.all())            # atendente ja existente entrou
@@ -1953,8 +1968,8 @@ class GeneralSectorTests(TestCase):
 
     def test_new_attendant_auto_joins_general(self):
         geral = self.Sector.ensure_general()
-        user = User.objects.create_user(email='ana@x.com', password='x', role=User.Role.USUARIO)
-        att = Attendant.objects.create(user=user, name='Ana', must_change_password=False)
+        user = User.objects.create_user(company=default_company(), email='ana@x.com', password='x', role=User.Role.USUARIO)
+        att = Attendant.objects.create(company=default_company(), user=user, name='Ana', must_change_password=False)
         self.assertIn(att, geral.attendants.all())
 
     def test_general_cannot_be_deleted(self):
@@ -1975,7 +1990,7 @@ class GeneralSectorTests(TestCase):
         self.assertEqual(geral.description, 'nova desc')      # descricao pode mudar
 
     def test_regular_sector_can_be_deleted(self):
-        outro = self.Sector.objects.create(name='Financeiro')
+        outro = self.Sector.objects.create(company=default_company(), name='Financeiro')
         self.client.post(reverse('sectors'), {'action': 'delete', 'sector_id': str(outro.id)}, follow=True)
         self.assertFalse(self.Sector.objects.filter(pk=outro.id).exists())
 
@@ -1985,8 +2000,8 @@ class MenuPermissionsTests(TestCase):
     e personalizacao por usuario."""
 
     def setUp(self):
-        self.admin = User.objects.create_user(email='adm@x.com', password='x', role=User.Role.ADM)
-        self.user = User.objects.create_user(email='joao@x.com', password='x', role=User.Role.USUARIO)
+        self.admin = User.objects.create_user(company=default_company(), email='adm@x.com', password='x', role=User.Role.ADM)
+        self.user = User.objects.create_user(company=default_company(), email='joao@x.com', password='x', role=User.Role.USUARIO)
 
     def test_usuario_default_menu(self):
         self.client.force_login(self.user)
@@ -2054,7 +2069,7 @@ class MenuPermissionsTests(TestCase):
 
     def test_save_sector_view(self):
         from accounts.models import Sector
-        sec = Sector.objects.create(name='Suporte')
+        sec = Sector.objects.create(company=default_company(), name='Suporte')
         self.client.force_login(self.admin)
         self.client.post(reverse('permissions'), {
             'form_type': 'view-sectors',
@@ -2087,8 +2102,8 @@ class ProfileRoleTests(TestCase):
     """Aba Perfis: o admin define o papel (adm/usuario/leitor) de cada pessoa."""
 
     def setUp(self):
-        self.admin = User.objects.create_user(email='adm@x.com', password='x', role=User.Role.ADM)
-        self.user = User.objects.create_user(email='joao@x.com', password='x', role=User.Role.USUARIO)
+        self.admin = User.objects.create_user(company=default_company(), email='adm@x.com', password='x', role=User.Role.ADM)
+        self.user = User.objects.create_user(company=default_company(), email='joao@x.com', password='x', role=User.Role.USUARIO)
 
     def test_admin_can_change_role(self):
         self.client.force_login(self.admin)
@@ -2121,7 +2136,7 @@ class ProfileRoleTests(TestCase):
 
     def test_can_demote_other_admin(self):
         # Havendo outro admin, o logado pode rebaixar o segundo admin normalmente.
-        other_admin = User.objects.create_user(email='adm2@x.com', password='x', role=User.Role.ADM)
+        other_admin = User.objects.create_user(company=default_company(), email='adm2@x.com', password='x', role=User.Role.ADM)
         self.client.force_login(self.admin)
         resp = self.client.post(reverse('permissions'), {
             'form_type': 'profile-role', 'user_id': str(other_admin.id), 'role': 'usuario',
@@ -2155,12 +2170,12 @@ class ReadOnlyLeitorTests(TestCase):
         from accounts.models import Contact, Conversation, Sector
         self.Contact = Contact
         self.Conversation = Conversation
-        self.leitor = User.objects.create_user(email='leo@x.com', password='x', role=User.Role.LEITOR)
-        self.att = Attendant.objects.create(user=self.leitor, name='Leo', must_change_password=False)
-        self.vendas = Sector.objects.create(name='Vendas')
+        self.leitor = User.objects.create_user(company=default_company(), email='leo@x.com', password='x', role=User.Role.LEITOR)
+        self.att = Attendant.objects.create(company=default_company(), user=self.leitor, name='Leo', must_change_password=False)
+        self.vendas = Sector.objects.create(company=default_company(), name='Vendas')
         self.att.sectors.add(self.vendas)
-        ct = Contact.objects.create(name='Cliente', phone='5516988887777')
-        self.conv = Conversation.objects.create(
+        ct = Contact.objects.create(company=default_company(), name='Cliente', phone='5516988887777')
+        self.conv = Conversation.objects.create(company=default_company(),
             contact=ct, external_id='5516988887777', chat_type='private',
             status='pending', sector=self.vendas)
         self.client.force_login(self.leitor)
@@ -2213,22 +2228,22 @@ class ConversationVisibilityTests(TestCase):
     def setUp(self):
         from accounts.models import Contact, Conversation, Sector
         self.Conversation = Conversation
-        self.admin = User.objects.create_user(email='adm@x.com', password='x', role=User.Role.ADM)
-        self.uuser = User.objects.create_user(email='joao@x.com', password='x', role=User.Role.USUARIO)
-        self.att = Attendant.objects.create(user=self.uuser, name='Joao', must_change_password=False)
-        self.vendas = Sector.objects.create(name='Vendas')
-        self.compras = Sector.objects.create(name='Compras')
+        self.admin = User.objects.create_user(company=default_company(), email='adm@x.com', password='x', role=User.Role.ADM)
+        self.uuser = User.objects.create_user(company=default_company(), email='joao@x.com', password='x', role=User.Role.USUARIO)
+        self.att = Attendant.objects.create(company=default_company(), user=self.uuser, name='Joao', must_change_password=False)
+        self.vendas = Sector.objects.create(company=default_company(), name='Vendas')
+        self.compras = Sector.objects.create(company=default_company(), name='Compras')
         self.att.sectors.add(self.vendas)
 
-        c1 = Contact.objects.create(name='A', phone='5511111111111')
-        self.direct_vendas = Conversation.objects.create(
+        c1 = Contact.objects.create(company=default_company(), name='A', phone='5511111111111')
+        self.direct_vendas = Conversation.objects.create(company=default_company(),
             contact=c1, external_id='5511111111111', chat_type='private',
             status='pending', sector=self.vendas)
-        c2 = Contact.objects.create(name='B', phone='5522222222222')
-        self.direct_compras = Conversation.objects.create(
+        c2 = Contact.objects.create(company=default_company(), name='B', phone='5522222222222')
+        self.direct_compras = Conversation.objects.create(company=default_company(),
             contact=c2, external_id='5522222222222', chat_type='private',
             status='pending', sector=self.compras)
-        self.group = Conversation.objects.create(
+        self.group = Conversation.objects.create(company=default_company(),
             external_id='123@g.us', chat_type='group', name='Grupo X', status='open')
 
     def _visible_ids(self, user):
@@ -2322,8 +2337,8 @@ class ConversationVisibilityTests(TestCase):
 
     def test_scope_sector_all_sees_closed_of_sector(self):
         from accounts.models import Contact, Conversation, UserConversationView
-        ct = Contact.objects.create(name='C', phone='5533333333333')
-        closed_vendas = Conversation.objects.create(
+        ct = Contact.objects.create(company=default_company(), name='C', phone='5533333333333')
+        closed_vendas = Conversation.objects.create(company=default_company(),
             contact=ct, external_id='5533333333333', chat_type='private',
             status='closed', sector=self.vendas)
         # sector_open (padrao): fechada do setor que nao eh dele -> nao ve.
@@ -2440,7 +2455,7 @@ class DashboardTests(TestCase):
     def test_seed_and_dashboard(self):
         from django.core.management import call_command
         from accounts.models import Conversation, Sector
-        admin = User.objects.create_user(email='adm@x.com', password='x', role=User.Role.ADM)
+        admin = User.objects.create_user(company=default_company(), email='adm@x.com', password='x', role=User.Role.ADM)
         call_command('seed_demo_data', verbosity=0)
 
         # 5 setores de demo + o 'Geral' padrao (sempre presente).
@@ -2460,7 +2475,7 @@ class DashboardTests(TestCase):
 
     def test_dashboard_empty_ok(self):
         # Sem dados, o dashboard ainda renderiza (tempo medio placeholder, listas vazias).
-        admin = User.objects.create_user(email='adm@x.com', password='x', role=User.Role.ADM)
+        admin = User.objects.create_user(company=default_company(), email='adm@x.com', password='x', role=User.Role.ADM)
         self.client.force_login(admin)
         resp = self.client.get(reverse('dashboard'))
         self.assertEqual(resp.status_code, 200)
@@ -2474,12 +2489,12 @@ class ClosedConversationTests(TestCase):
     def setUp(self):
         from accounts.models import Contact, Conversation, Message, Sector
         self.Conversation = Conversation
-        self.u = User.objects.create_user(email='ana@x.com', password='x', role=User.Role.USUARIO)
-        self.att = Attendant.objects.create(user=self.u, name='Ana', must_change_password=False)
-        self.vendas = Sector.objects.create(name='Vendas')
+        self.u = User.objects.create_user(company=default_company(), email='ana@x.com', password='x', role=User.Role.USUARIO)
+        self.att = Attendant.objects.create(company=default_company(), user=self.u, name='Ana', must_change_password=False)
+        self.vendas = Sector.objects.create(company=default_company(), name='Vendas')
         self.att.sectors.add(self.vendas)
-        ct = Contact.objects.create(name='Cliente', phone='5516999990000')
-        self.conv = Conversation.objects.create(
+        ct = Contact.objects.create(company=default_company(), name='Cliente', phone='5516999990000')
+        self.conv = Conversation.objects.create(company=default_company(),
             contact=ct, external_id='5516999990000', chat_type='private',
             status='open', sector=self.vendas, assigned_attendant=self.att)
         Message.objects.create(conversation=self.conv, direction='in', message_type='text',
@@ -2518,16 +2533,16 @@ class GroupConversationTests(TestCase):
     def setUp(self):
         from accounts.models import Contact, Conversation, GroupAccess, Sector
         self.Conversation = Conversation
-        self.v = Sector.objects.create(name='Vendas')
-        self.u = User.objects.create_user(email='ana@x.com', password='x', role=User.Role.USUARIO)
-        self.ana = Attendant.objects.create(user=self.u, name='Ana Souza', must_change_password=False)
+        self.v = Sector.objects.create(company=default_company(), name='Vendas')
+        self.u = User.objects.create_user(company=default_company(), email='ana@x.com', password='x', role=User.Role.USUARIO)
+        self.ana = Attendant.objects.create(company=default_company(), user=self.u, name='Ana Souza', must_change_password=False)
         self.ana.sectors.add(self.v)
-        self.group = Conversation.objects.create(
+        self.group = Conversation.objects.create(company=default_company(),
             external_id='55@g.us', chat_type='group', name='Contas', status='open')
         acc = GroupAccess.objects.create(conversation=self.group)
         acc.sectors.add(self.v)
-        ct = Contact.objects.create(name='C', phone='5511111111111')
-        self.direct = Conversation.objects.create(
+        ct = Contact.objects.create(company=default_company(), name='C', phone='5511111111111')
+        self.direct = Conversation.objects.create(company=default_company(),
             contact=ct, external_id='5511111111111', chat_type='private',
             status='pending', sector=self.v)
 
@@ -2567,3 +2582,323 @@ class GroupConversationTests(TestCase):
         self.assertEqual(msg.text, 'ola pessoal')
         self.assertEqual(msg.sender_name, 'Ana Souza')          # atendente que enviou
         self.assertEqual(r.json()['message']['sender_name'], 'Ana Souza')
+
+
+class MultiCompanyModelTests(TestCase):
+    """MULTIEMPRESA: cada empresa cliente tem os SEUS dados e as SUAS configuracoes.
+
+    O que estes testes garantem: duas empresas podem ter setor com o mesmo nome e
+    contato com o mesmo telefone (as unicidades passaram a ser POR EMPRESA), e as
+    configuracoes de W-API/GPT/chatbot sao independentes entre elas.
+    """
+
+    def setUp(self):
+        from accounts.models import Company
+        self.a = Company.get_default()
+        self.b = Company.objects.create(name='Padaria do Bairro', slug='padaria-do-bairro')
+
+    def test_same_sector_name_in_two_companies(self):
+        from accounts.models import Sector
+        Sector.objects.create(company=self.a, name='Financeiro')
+        Sector.objects.create(company=self.b, name='Financeiro')
+        self.assertEqual(Sector.objects.filter(name='Financeiro').count(), 2)
+
+    def test_duplicated_sector_name_in_same_company_is_blocked(self):
+        from django.db import IntegrityError
+        from accounts.models import Sector
+        Sector.objects.create(company=self.a, name='Suporte')
+        with self.assertRaises(IntegrityError):
+            Sector.objects.create(company=self.a, name='Suporte')
+
+    def test_same_phone_in_two_companies(self):
+        """O mesmo cliente final pode falar com duas empresas; cada uma tem o seu
+        proprio cadastro (e o nome de uma nao aparece na outra)."""
+        from accounts.models import Contact
+        Contact.objects.create(company=self.a, phone='5516999990001', name='Marcia (A)')
+        Contact.objects.create(company=self.b, phone='5516999990001', name='Marcia (B)')
+        self.assertEqual(Contact.objects.filter(phone='5516999990001').count(), 2)
+
+    def test_duplicated_phone_in_same_company_is_blocked(self):
+        from django.db import IntegrityError
+        from accounts.models import Contact
+        Contact.objects.create(company=self.a, phone='5516999990002')
+        with self.assertRaises(IntegrityError):
+            Contact.objects.create(company=self.a, phone='5516999990002')
+
+    def test_configurations_are_independent_per_company(self):
+        from accounts.models import MenuBotConfiguration, OpenAiConfiguration, WapiConfiguration
+        wapi_a = WapiConfiguration.for_company(self.a)
+        wapi_b = WapiConfiguration.for_company(self.b)
+        wapi_a.instance_id = 'INSTANCIA-A'
+        wapi_a.save(update_fields=['instance_id'])
+        wapi_b.instance_id = 'INSTANCIA-B'
+        wapi_b.save(update_fields=['instance_id'])
+
+        self.assertNotEqual(wapi_a.pk, wapi_b.pk)
+        self.assertEqual(WapiConfiguration.for_company(self.a).instance_id, 'INSTANCIA-A')
+        self.assertEqual(WapiConfiguration.for_company(self.b).instance_id, 'INSTANCIA-B')
+        # get_solo() continua apontando para a empresa padrao (compatibilidade).
+        self.assertEqual(WapiConfiguration.get_solo().pk, wapi_a.pk)
+
+        # IA e chatbot tambem sao por empresa.
+        OpenAiConfiguration.for_company(self.b).save()
+        MenuBotConfiguration.for_company(self.b).save()
+        self.assertNotEqual(
+            OpenAiConfiguration.for_company(self.a).pk,
+            OpenAiConfiguration.for_company(self.b).pk,
+        )
+        self.assertNotEqual(
+            MenuBotConfiguration.for_company(self.a).pk,
+            MenuBotConfiguration.for_company(self.b).pk,
+        )
+
+    def test_token_usage_is_counted_per_company(self):
+        """O consumo de tokens de um cliente nao soma no contador do outro."""
+        from accounts.models import OpenAiConfiguration
+        cfg_a = OpenAiConfiguration.for_company(self.a)
+        cfg_b = OpenAiConfiguration.for_company(self.b)
+        cfg_a.record_usage(prompt_tokens=10, completion_tokens=5, total_tokens=15)
+
+        cfg_a.refresh_from_db()
+        cfg_b.refresh_from_db()
+        self.assertEqual(cfg_a.total_tokens, 15)
+        self.assertEqual(cfg_a.total_requests, 1)
+        self.assertEqual(cfg_b.total_tokens, 0)
+        self.assertEqual(cfg_b.total_requests, 0)
+
+    def test_general_sector_exists_per_company(self):
+        from accounts.models import Sector
+        geral_a = Sector.ensure_general(self.a)
+        geral_b = Sector.ensure_general(self.b)
+        self.assertNotEqual(geral_a.pk, geral_b.pk)
+        self.assertEqual(geral_a.company, self.a)
+        self.assertEqual(geral_b.company, self.b)
+        # Chamar de novo nao duplica.
+        self.assertEqual(Sector.ensure_general(self.b).pk, geral_b.pk)
+
+    def test_new_attendant_joins_general_of_own_company(self):
+        """O sinal coloca o atendente novo no Geral DA EMPRESA dele, nao no do outro."""
+        from accounts.models import Attendant, Sector
+        Sector.ensure_general(self.a)
+        geral_b = Sector.ensure_general(self.b)
+        user = User.objects.create_user(
+            email='ana@padaria.com', password='x', role=User.Role.USUARIO, company=self.b
+        )
+        attendant = Attendant.objects.create(company=self.b, user=user, name='Ana')
+        self.assertIn(geral_b, list(attendant.sectors.all()))
+        self.assertEqual(attendant.sectors.count(), 1)
+
+    def test_default_company_helpers(self):
+        from accounts.models import Company
+        self.assertTrue(self.a.is_default)
+        self.assertEqual(Company.get_default().pk, self.a.pk)
+        self.assertFalse(self.b.is_default)
+
+
+class MasterRoleTests(TestCase):
+    """GESTOR MASTER: administra as empresas clientes e NAO acessa o atendimento
+    delas (decisao de privacidade — ver accounts/tenancy.py)."""
+
+    def setUp(self):
+        from accounts.models import Company
+        self.company = Company.get_default()
+        self.master = User.objects.create_user(
+            email='master@beezap.com', password='x', role=User.Role.MASTER
+        )
+        self.admin = User.objects.create_user(
+            email='adm@cliente.com', password='x', role=User.Role.ADM, company=self.company
+        )
+
+    def test_master_has_no_company(self):
+        self.assertIsNone(self.master.company)
+        self.assertTrue(self.master.is_master)
+
+    def test_master_menu_has_only_clients(self):
+        from accounts.permissions import nav_items_for
+        labels = [item['label'] for item in nav_items_for(self.master, '')]
+        self.assertEqual(labels, ['Clientes'])
+
+    def test_master_cannot_access_operational_screens(self):
+        self.client.force_login(self.master)
+        for route in ('conversations', 'contacts', 'sectors', 'attendants', 'permissions'):
+            self.assertEqual(self.client.get(reverse(route)).status_code, 403, route)
+
+    def test_master_lands_on_clients_after_login(self):
+        self.client.force_login(self.master)
+        r = self.client.get(reverse('dashboard'))
+        self.assertRedirects(r, reverse('clients'))
+
+    def test_master_sees_no_conversation(self):
+        """Mesmo com conversas cadastradas, o master nao enxerga nenhuma."""
+        from accounts.models import Contact, Conversation
+        from accounts.permissions import can_see_conversation, visible_conversations
+        contact = Contact.objects.create(company=self.company, phone='5516999990001')
+        conv = Conversation.objects.create(
+            company=self.company, contact=contact, external_id='5516999990001'
+        )
+        self.assertFalse(visible_conversations(self.master, Conversation.objects.all()).exists())
+        self.assertFalse(can_see_conversation(self.master, conv))
+        # O administrador do cliente continua vendo normalmente.
+        self.assertTrue(can_see_conversation(self.admin, conv))
+
+    def test_master_is_not_provisioned_as_attendant(self):
+        from accounts.models import Attendant
+        self.assertFalse(Attendant.objects.filter(user=self.master).exists())
+
+    def test_client_admin_cannot_open_clients_screen(self):
+        self.client.force_login(self.admin)
+        self.assertEqual(self.client.get(reverse('clients')).status_code, 403)
+
+
+class ClientsScreenTests(TestCase):
+    """Tela CLIENTES (cadastro das empresas pelo gestor master)."""
+
+    def setUp(self):
+        from accounts.models import Company
+        self.default_company = Company.get_default()
+        self.master = User.objects.create_user(
+            email='master@beezap.com', password='x', role=User.Role.MASTER
+        )
+        self.client.force_login(self.master)
+
+    def test_page_loads(self):
+        r = self.client.get(reverse('clients'))
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, 'Clientes')
+
+    def test_create_company_generates_slug_and_keeps_only_digits(self):
+        from accounts.models import Company
+        r = self.client.post(reverse('clients'), {
+            'name': 'Padaria do Bairro',
+            'document': '12.345.678/0001-95',
+            'phone': '(16) 99999-0001',
+            'state': 'sp',
+            'slug': '',
+            'is_active': 'on',
+        })
+        self.assertRedirects(r, reverse('clients'))
+        company = Company.objects.get(name='Padaria do Bairro')
+        self.assertEqual(company.slug, 'padaria-do-bairro')
+        self.assertEqual(company.document, '12345678000195')     # so digitos
+        self.assertEqual(company.formatted_document, '12.345.678/0001-95')
+        self.assertEqual(company.phone, '16999990001')
+        self.assertEqual(company.state, 'SP')                    # UF em maiuscula
+
+    def test_invalid_document_is_rejected(self):
+        from accounts.models import Company
+        r = self.client.post(reverse('clients'), {
+            'name': 'Empresa Teste', 'document': '123', 'is_active': 'on',
+        })
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, 'O CNPJ deve ter 14 números.')
+        self.assertFalse(Company.objects.filter(name='Empresa Teste').exists())
+
+    def test_duplicated_slug_is_rejected(self):
+        from accounts.models import Company
+        Company.objects.create(name='Ja Existe', slug='padaria')
+        r = self.client.post(reverse('clients'), {
+            'name': 'Outra', 'slug': 'padaria', 'is_active': 'on',
+        })
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, 'Já existe uma empresa com este identificador.')
+
+    def test_edit_company(self):
+        from accounts.models import Company
+        company = Company.objects.create(name='Antigo Nome', slug='antigo-nome')
+        r = self.client.post(reverse('clients'), {
+            'company_id': company.pk,
+            'name': 'Nome Novo',
+            'slug': 'antigo-nome',
+            'is_active': 'on',
+        })
+        self.assertRedirects(r, reverse('clients'))
+        company.refresh_from_db()
+        self.assertEqual(company.name, 'Nome Novo')
+
+    def test_default_company_cannot_be_deleted(self):
+        from accounts.models import Company
+        r = self.client.post(reverse('clients'), {
+            'action': 'delete', 'company_id': self.default_company.pk,
+        })
+        self.assertRedirects(r, reverse('clients'))
+        self.assertTrue(Company.objects.filter(pk=self.default_company.pk).exists())
+        self.assertIn(
+            'A empresa padrão não pode ser excluída.',
+            [str(m) for m in get_messages(r.wsgi_request)],
+        )
+
+    def test_default_company_cannot_be_deactivated(self):
+        r = self.client.post(reverse('clients'), {
+            'action': 'toggle-active', 'company_id': self.default_company.pk,
+        })
+        self.assertRedirects(r, reverse('clients'))
+        self.default_company.refresh_from_db()
+        self.assertTrue(self.default_company.is_active)
+
+    def test_other_company_can_be_deactivated_and_reactivated(self):
+        from accounts.models import Company
+        company = Company.objects.create(name='Cliente X', slug='cliente-x')
+        self.client.post(reverse('clients'), {
+            'action': 'toggle-active', 'company_id': company.pk,
+        })
+        company.refresh_from_db()
+        self.assertFalse(company.is_active)
+        self.client.post(reverse('clients'), {
+            'action': 'toggle-active', 'company_id': company.pk,
+        })
+        company.refresh_from_db()
+        self.assertTrue(company.is_active)
+
+    def test_other_company_can_be_deleted(self):
+        from accounts.models import Company
+        company = Company.objects.create(name='Cliente Y', slug='cliente-y')
+        self.client.post(reverse('clients'), {
+            'action': 'delete', 'company_id': company.pk,
+        })
+        self.assertFalse(Company.objects.filter(pk=company.pk).exists())
+
+    def test_search_filters_by_name(self):
+        from accounts.models import Company
+        Company.objects.create(name='Padaria Central', slug='padaria-central')
+        Company.objects.create(name='Oficina Rapida', slug='oficina-rapida')
+        r = self.client.get(reverse('clients'), {'q': 'Padaria'})
+        self.assertContains(r, 'Padaria Central')
+        self.assertNotContains(r, 'Oficina Rapida')
+
+
+class CompanyBrandingTests(TestCase):
+    """A barra lateral mostra a marca DA EMPRESA de quem esta logado."""
+
+    def setUp(self):
+        from accounts.models import Company
+        self.company = Company.objects.create(
+            name='Padaria do Bairro', slug='padaria-do-bairro', accent_color='#ff8800'
+        )
+        self.user = User.objects.create_user(
+            email='adm@padaria.com', password='x', role=User.Role.ADM, company=self.company
+        )
+
+    def test_sidebar_shows_company_name_and_initials(self):
+        self.client.force_login(self.user)
+        r = self.client.get(reverse('contacts'))
+        self.assertContains(r, 'Padaria do Bairro')
+        self.assertContains(r, 'PB')            # iniciais (sem logo cadastrado)
+        self.assertContains(r, '#ff8800')       # cor de destaque da empresa
+
+    def test_master_sidebar_shows_platform_brand(self):
+        master = User.objects.create_user(
+            email='master@beezap.com', password='x', role=User.Role.MASTER
+        )
+        self.client.force_login(master)
+        r = self.client.get(reverse('clients'))
+        self.assertContains(r, 'BEEZap')
+        self.assertContains(r, 'Gestão de clientes')
+
+    def test_company_initials_and_location(self):
+        from accounts.models import Company
+        self.company.city = 'Ribeirão Preto'
+        self.company.state = 'SP'
+        self.company.save()
+        self.assertEqual(self.company.initials, 'PB')
+        self.assertEqual(self.company.location, 'Ribeirão Preto/SP')
+        self.assertEqual(Company(name='Sidertec', slug='s').initials, 'SI')

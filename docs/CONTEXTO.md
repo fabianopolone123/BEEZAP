@@ -9,6 +9,10 @@ Leia também: `CODEX_PADROES.md`, `GIT.md`, `HISTORICO.md`, `DEPLOY.md`,
 ## 1. Visão geral
 
 - **BEEZAP**: sistema Django de atendimento/automação de WhatsApp via **W-API**.
+- **MULTIEMPRESA (SaaS)**: a mesma instalação atende **várias empresas clientes**;
+  cada uma tem os seus setores, atendentes, contatos, conversas e as suas próprias
+  credenciais de W-API/GPT. Existe um **gestor master** que cadastra e administra os
+  clientes na tela **Clientes**. **Ver a seção 16** — ela é a referência do assunto.
 - **Stack**: Django 5.2, Python 3.12, gunicorn, Nginx, SQLite (padrão) ou
   PostgreSQL (via `DATABASE_URL`).
 - **Hospedagem**: VPS Linux, servido sob o prefixo de caminho **`/beezap/`**
@@ -22,12 +26,15 @@ Leia também: `CODEX_PADROES.md`, `GIT.md`, `HISTORICO.md`, `DEPLOY.md`,
 ```
 config/            settings.py (env-driven), urls.py, wsgi.py
 accounts/          app principal: models, views, urls, forms, admin, middleware,
-                   backends, management/commands/, templates de accounts
+                   backends, permissions.py, tenancy.py (multiempresa),
+                   context_processors.py (marca do cliente),
+                   management/commands/, templates de accounts
 wapi/              MÓDULO (não é app instalado): client.py, parser.py, services.py, formatting.py
 gpt/               MÓDULO (não é app): client.py, attendant.py (atendente virtual IA)
 chatbot/           MÓDULO (não é app): handler.py (chatbot de menu, sem IA)
-static/css/        CSS por página (dashboard.css, conversations.css, wapi_settings.css, ...)
+static/css/        CSS por página (dashboard.css, conversations.css, clients.css, ...)
 templates/         base.html + accounts/*.html
+                   (accounts/_sidebar.html = barra lateral única, incluída por todas)
 docs/              documentação (este arquivo, DEPLOY.md, etc.)
 deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos nginx/systemd
 ```
@@ -35,9 +42,18 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
 > `wapi/` é um módulo Python comum (importa `accounts.models`); **não** está em
 > `INSTALLED_APPS`, por isso os models ficam em `accounts/models.py`.
 
-## 3. Modelos (`accounts/models.py`) — migração atual: `0030`
+## 3. Modelos (`accounts/models.py`) — migração atual: `0031`
 
-- **User** (AbstractUser, login por e-mail; `role`: `leitor`/`usuario`/`adm`).
+> **MULTIEMPRESA:** quase todo model abaixo tem um campo **`company`** (a empresa
+> cliente dona do registro) e as unicidades passaram a ser **por empresa**. Os
+> detalhes estão na **seção 16** — leia-a junto com esta.
+
+- **Company**: a **EMPRESA CLIENTE** (uma "instância" do sistema): dados cadastrais,
+  CNPJ, logo, cor de destaque e `is_active`. `get_default()` devolve a **empresa
+  padrão**, que não pode ser excluída nem desativada. Ver seção 16.
+- **User** (AbstractUser, login por e-mail; `role`:
+  `master`/`adm`/`usuario`/`leitor`). **`company`** = empresa da pessoa; **nulo =
+  gestor master** (dono da plataforma, fica acima das empresas e não lê conversas).
 - **Attendant** (perfil de atendente, vínculo com User, troca de senha inicial).
   **Admin como atendente:** todo usuário `adm` ganha **automaticamente** um
   `Attendant` (via sinal em `accounts/signals.py` + backfill na migração `0025`) e é
@@ -389,6 +405,12 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
   `conversation-sync-groups`, `conversation-name-contact` (`/conversas/nomear-contato/`),
   `wapi-webhook-events`.
 
+## 5.0. Tela Clientes (`templates/accounts/clients.html` + `clients.css`)
+
+- Rota `clientes/` (`clients_view`, nome de rota `clients`), **exclusiva do gestor
+  master**: cadastra e administra as **empresas clientes** (dados, CNPJ, logo, cor de
+  destaque, ativar/desativar, excluir). Detalhes completos na **seção 16**.
+
 ## 5.1. Tela Contatos (`templates/accounts/contacts.html` + `contacts.css`)
 
 - Rota `contatos/` (`contacts_view`, nome de rota `contacts`; item da barra lateral).
@@ -553,6 +575,15 @@ seed_demo_data [--no-clear]             # popula DEMO: 5 setores/atendentes + co
 
 ## 10. Pendências / próximas etapas
 
+- **MULTIEMPRESA — Parte 2 (isolamento completo)**: webhook por cliente, configurações
+  W-API/GPT/chatbot por empresa, escopo por empresa nas listas de contatos/setores/
+  atendentes/permissões/dashboard, criação do 1º Administrador de cada cliente pelo
+  master e "Entrar no painel do cliente". **Checklist detalhado no final da seção 16.**
+- **MULTIEMPRESA — Parte 3 (portabilidade)**: botão **Exportar dados da empresa**
+  (ZIP com contatos/conversas/mensagens/setores/atendentes + mídias), para quando o
+  cliente deixar de usar o sistema; e encerrar/desativar cliente com segurança.
+- **MULTIEMPRESA — Parte 4**: planos/limites por cliente, indicadores e consumo de
+  tokens por empresa.
 - **Nova conversa**: botão para iniciar um chat digitando número + mensagem (e abrir
   em Conversas). Combinado como próxima etapa.
 - **Fila de atendimento**: tela/fluxo da fila por setor. Próxima etapa.
@@ -772,9 +803,14 @@ esconder o botão também bloqueia a URL.
 
 - **Features** (botões reais, com ícone) em `MENU_FEATURES`: `dashboard`,
   `conversations`, `contacts`, `attendants`, `sectors`, `settings`. O botão
-  **Permissões** (`permissions`) é exclusivo do ADM e fica fora da matriz. Os
-  placeholders antigos (Atendimentos/Campanhas/Relatórios) foram **removidos** do menu.
-- **Administrador**: sempre **acesso total** (não editável — nunca se tranca fora).
+  **Permissões** (`permissions`) é exclusivo do ADM e o botão **Clientes**
+  (`clients`) é exclusivo do **gestor master**; os dois ficam **fora** da matriz de
+  toggles. Os placeholders antigos (Atendimentos/Campanhas/Relatórios) foram
+  **removidos** do menu.
+- **Gestor master**: vê **somente** o botão Clientes; nenhuma feature de atendimento
+  fica liberada para ele e ele não enxerga conversa nenhuma. Ver seção 16.
+- **Administrador**: sempre **acesso total** — **dentro da empresa dele** (não
+  editável, para nunca se trancar fora).
 - **Padrão** dos demais (`DEFAULT_ROLE_KEYS`): `usuario`/`leitor` = `conversations` +
   `contacts` (sem Dashboard). Ajustável na tela.
 - **Efetivo por usuário** (`allowed_keys_for`): adm → tudo; senão a personalização do
@@ -853,9 +889,11 @@ esconder o botão também bloqueia a URL.
 
 ### Separação das conversas (quem vê quais chats) — configurável
 - `visible_conversations(user, qs)` / `can_see_conversation(user, conv)` /
-  `visible_conversations_q(user)` em `accounts/permissions.py`. **Admin vê tudo.** Para
-  não-admin, as **diretas** dependem do **Alcance efetivo** (`effective_view_scope`,
-  configurado na aba Visualização de conversas):
+  `visible_conversations_q(user)` em `accounts/permissions.py`. **Primeiro filtra pela
+  EMPRESA do usuário** (multiempresa, seção 16): o **gestor master** e quem está sem
+  empresa não veem **nada**; o **admin vê tudo da empresa dele**. Para não-admin, as
+  **diretas** dependem do **Alcance efetivo** (`effective_view_scope`, configurado na
+  aba Visualização de conversas):
   - `own` → só as diretas **atribuídas a ele** (qualquer status);
   - `sector_open` → atribuídas a ele **OU** do(s) setor(es) dele **E não fechada**
     (**padrão de fábrica** = comportamento histórico: cada um só vê os PRÓPRIOS
@@ -880,3 +918,187 @@ esconder o botão também bloqueia a URL.
   `Sector.view_full_history=True` > padrão `False`. *(Antes vinha de
   `RoleMenuPermission`/`UserMenuPermission.full_history`; essas colunas ficaram
   legadas/sem uso — o controle migrou para a aba Visualização de conversas.)*
+
+## 16. MULTIEMPRESA (SaaS): empresas clientes + gestor master
+
+O BEEZAP atende **várias empresas na mesma instalação**. Cada empresa cliente
+(`Company`) é uma "instância" do sistema: tem os **seus** setores, atendentes,
+contatos, conversas, mensagens e as **suas próprias** credenciais de W-API e GPT.
+
+**Decisões de arquitetura (fechadas com o usuário):**
+
+| Decisão | Escolha |
+|---|---|
+| Isolamento | **Banco único com vínculo de empresa** (todo registro aponta para a `Company` dona e as consultas filtram por ela). Funciona com o SQLite atual, um só deploy/migração |
+| Acesso | **Mesma URL** (`/beezap/`): o login já define a empresa. Sem DNS/subdomínio por cliente |
+| Gestor master | **Perfil novo `master`** (acima do Administrador), com a tela **Clientes** |
+| Privacidade | O master **administra e exporta, mas NÃO lê as conversas** dos clientes (LGPD) |
+
+### Model `Company` (empresa cliente)
+
+Campos: `name` (nome fantasia), `legal_name` (razão social), `document` (CNPJ, guardado
+**só em dígitos**), `slug` (identificador curto único — será a base da URL própria de
+webhook na Parte 2), `email`, `phone`, `address`, `city`, `state`, `logo`
+(**`FileField`**, não `ImageField`: evita depender do pacote Pillow — a validação de
+extensão/tamanho fica no `CompanyForm`), `accent_color`, `notes`, `is_active`,
+`is_default`.
+
+Propriedades: `display_name`, `initials`, `status_label`, `formatted_document`,
+`formatted_phone`, `location`, `logo_url`. `Company.get_default()` devolve a
+**empresa padrão** (a que recebeu tudo o que existia antes do multiempresa); ela
+**não pode ser excluída nem desativada**.
+
+### O que ganhou vínculo de empresa
+
+FK/OneToOne `company` **obrigatório** em: `Attendant`, `Sector`, `Contact`,
+`Conversation`, `WapiWebhookEvent`, `RoleMenuPermission`, `WapiConfiguration`,
+`OpenAiConfiguration`, `MenuBotConfiguration`.
+
+`User.company` é **opcional de propósito**: **nulo = gestor master** (fica acima das
+empresas). Todo usuário operacional (`adm`/`usuario`/`leitor`) tem empresa.
+
+**Não** ganharam campo próprio (a empresa é derivada, para não duplicar dado nem ter
+que sincronizar em cada criação): `Message` (via `conversation`), `MenuOption` (via
+`config`), `GroupAccess` (via `conversation`), `UserMenuPermission`,
+`UserConversationView` e `PasswordResetCode` (via `user`).
+
+### Unicidades que mudaram de global para POR EMPRESA
+
+- `Sector.name` → `UniqueConstraint(company, name)` — duas empresas podem ter cada
+  uma o seu setor "Financeiro".
+- `Contact.phone` → `UniqueConstraint(company, phone)` — o mesmo cliente final pode
+  falar com duas empresas, e cada uma tem o seu próprio cadastro/nome.
+- `RoleMenuPermission.role` → `UniqueConstraint(company, role)` — cada cliente define
+  os próprios botões por perfil.
+
+> `User.email` continua **único global** (é a chave de login).
+
+### Configurações deixaram de ser singleton
+
+`WapiConfiguration`, `OpenAiConfiguration` e `MenuBotConfiguration` eram singletons
+`pk=1`. Agora são **uma por empresa**, via **`Modelo.for_company(company)`**.
+`get_solo()` **continua existindo** como compatibilidade: devolve a configuração da
+**empresa padrão** — é o que mantém as telas e serviços funcionando sem alteração até
+a Parte 2. **Código novo deve usar `for_company`.**
+
+`OpenAiConfiguration.record_usage()` / `record_last_exchange()` deixaram de ser
+`classmethod` (que gravavam fixo em `pk=1`) e passaram a ser **métodos de instância** —
+assim o **consumo de tokens é contado no cliente certo** (`gpt/client.py` já usa a
+config que buscou).
+
+### `accounts/tenancy.py` (novo)
+
+Concentra as regras de "quem é o master" e "qual é a empresa da requisição":
+`is_master(user)`, `user_company(user)`, `current_company(request)`,
+`set_active_company(request, company)` (empresa em que o master entra para dar
+suporte, guardada na sessão — uso efetivo na Parte 2), `scoped(queryset, company)`
+(**sem empresa não devolve nada** — a falta de empresa nunca pode virar "ver tudo"),
+`require_master(request)` e `deny_master_json(request)`.
+
+Em `views.py`, `request_company(request)` é o atalho usado em todo ponto de criação
+(retaguarda para a empresa padrão, para nunca gravar registro sem empresa).
+
+### Perfil `master` (`accounts/permissions.py`)
+
+- `CLIENTS_ITEM` = botão **Clientes**, **fora** da matriz de toggles (nenhum perfil de
+  cliente pode receber esse botão).
+- `nav_items_for(master)` devolve **só** "Clientes"; `allowed_keys_for(master)` é
+  **vazio**; `user_can_access(master, <qualquer outra feature>)` = **False**.
+- `first_landing_url_name(master)` = `clients` (e `dashboard_view` já redireciona
+  quem não tem Dashboard).
+- `visible_conversations(master, ...)` = **vazio** e `can_see_conversation(master, ...)`
+  = **False** — o master não lê conversa nenhuma.
+- `visible_conversations` passou a **filtrar pela empresa do usuário** antes de aplicar
+  o Alcance (inclusive para o admin, que agora vê tudo **da empresa dele**, não do
+  sistema). Usuário sem empresa não vê nada.
+- `role_allowed_keys(role, company)` recebe a empresa (a linha de permissão é por
+  empresa).
+
+### Tela **Clientes** (`clients_view`, rota `clientes/`, só master)
+
+`templates/accounts/clients.html` + `static/css/clients.css` (escopo
+`.clients-page`/`.clients-modal`; reaproveita `dashboard.css` e os botões de
+`attendants.css`).
+
+- **Resumo**: empresas cadastradas / ativas.
+- **Busca** por nome, razão social, CNPJ ou cidade.
+- **Lista em cartões** com logo (ou iniciais na cor de destaque), nome, razão social,
+  selos **Ativa/Inativa** e **Padrão**, dados cadastrais e os contadores reais de
+  **usuários** e **conversas** (o master vê o tamanho do cliente, não o conteúdo).
+- **Ações**: Editar, Desativar/Reativar e Excluir. A **empresa padrão** não tem
+  Desativar nem Excluir (bloqueado também no backend). A exclusão avisa que apaga
+  todos os dados e sugere exportar antes (Parte 3).
+- **Modal** com o `CompanyForm` renderizado pelo servidor (tem upload de logo e erros
+  por campo). "Editar" recarrega com `?editar=<id>`, o que mantém o modal preenchido
+  mesmo quando a validação falha. Logo aceita **PNG/JPG/WEBP/SVG até 2 MB**; CNPJ
+  exige 14 dígitos; telefone exige DDD; UF vira maiúscula; `slug` é **gerado pelo
+  nome** quando fica em branco.
+- Layout responsivo: cartão vira coluna única abaixo de 900px e o formulário vira
+  uma coluna abaixo de 620px — sem rolagem horizontal.
+
+### Marca do cliente na barra lateral
+
+- `accounts/context_processors.py` (**novo**, registrado em `settings.TEMPLATES`)
+  fornece `brand` em **todas** as telas: logo e nome **da empresa** de quem está
+  logado; sem logo, as **iniciais** da empresa na **cor de destaque** dela. O master
+  vê a marca do BEEZap com o rótulo "Gestão de clientes".
+- A barra lateral estava **copiada em 8 templates**; virou o include
+  **`templates/accounts/_sidebar.html`** (única fonte). `.sidebar-initials` em
+  `dashboard.css?v=5`.
+
+### Migração `0031_multiempresa`
+
+Roda em 4 fases para **não perder nada em produção**: (1) cria `Company`; (2) adiciona
+`company` **nulo** em todos os models; (3) **cria a "Empresa padrão" e aponta TODOS os
+registros existentes para ela** (usuários, atendentes, setores, contatos, conversas,
+eventos de webhook, permissões de perfil e as três configurações); (4) torna o campo
+**obrigatório** e troca as unicidades globais pelas unicidades por empresa.
+
+Depois dela o sistema funciona **exatamente como antes**: existe uma única empresa e
+todo mundo está nela.
+
+### Como criar o gestor master
+
+Não há tela de cadastro do master (é o dono da plataforma). Pelo shell:
+
+```bash
+venv/bin/python manage.py shell -c "
+from accounts.models import User
+User.objects.create_user(email='master@seudominio.com', password='TROQUE-ESTA-SENHA', role=User.Role.MASTER)
+"
+```
+> O master fica **sem empresa** (`company=None`) — é isso que o coloca acima das
+> empresas. Depois de logar, ele cai direto na tela **Clientes**.
+
+### ⚠️ Ainda NÃO cadastre um segundo cliente para uso real
+
+A Parte 1 entrega a **fundação** (dados, cadastro, marca). O **isolamento completo das
+consultas** vem na Parte 2 — antes disso, uma segunda empresa com usuários e mensagens
+próprias veria dados fora do lugar em algumas telas. Cadastrar empresas para conferir a
+tela é seguro (empresa sem usuário e sem dado é inerte).
+
+### Parte 2 — o que falta para o multiempresa ficar completo
+
+Checklist do que ainda **não** está escopado por empresa (mapeado, não esquecido):
+
+1. **Webhook por cliente**: hoje é uma URL única e o recebimento entra na empresa
+   padrão — os dois únicos pontos são `wapi.services.ingest_company()` e
+   `views.create_wapi_webhook_event`. Dar a cada cliente a **sua URL**
+   (`webhook/wapi/<slug>/`) + resolução por `instanceId` do payload.
+2. **Telas de configuração** (`wapi_settings_view`, `openai_settings_view`,
+   `atendimento_view`, `atendimento_set_mode_view`, `build_settings_tabs`) e
+   `wapi/client.py`, `gpt/attendant.py`, `chatbot/handler.py`: trocar `get_solo()`
+   por `for_company(<empresa da conversa>)`.
+3. **Listas e consultas** que ainda não filtram por empresa: `contacts_view`,
+   `sectors_view`, `attendants_view`, `permissions_view`, `build_dashboard_context`,
+   `conversation_list_view` (a lista de conversas já filtra via
+   `visible_conversations`).
+4. **`SectorForm.clean_name`** e a checagem de telefone duplicado em `contacts_view`
+   validam de forma **global**; precisam validar dentro da empresa.
+5. **Usuários do cliente**: o master precisa poder criar o **primeiro Administrador**
+   de cada empresa (hoje `attendants_view` só cria dentro da própria empresa de quem
+   está logado).
+6. **"Entrar no painel do cliente"** para suporte, usando
+   `tenancy.set_active_company` (já pronto) — respeitando que o master não lê
+   conversas.
+7. **`sync_wapi_group_names` / comandos de management**: passar a agir por empresa.
