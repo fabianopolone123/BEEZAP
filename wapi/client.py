@@ -89,13 +89,25 @@ def _build_wapi_url(prefix, action, instance_id):
     ))
 
 
-def _wapi_get(action, prefix=WAPI_MESSAGE_PREFIX, timeout=30):
+def _company_config(company):
+    """Credenciais da W-API DA EMPRESA informada (multiempresa).
+
+    Cada empresa cliente tem a sua propria instancia/token da W-API, entao toda
+    chamada precisa dizer de qual empresa se trata. Passar `company=None` e
+    considerado erro de programacao: seria enviar mensagem pela instancia errada.
+    """
+    if company is None:
+        raise ValueError('Informe a empresa (company) para usar a W-API.')
+    return WapiConfiguration.for_company(company)
+
+
+def _wapi_get(action, company, prefix=WAPI_MESSAGE_PREFIX, timeout=30):
     """GET em https://api.w-api.app<prefix><action>?instanceId=...
 
     Retorna (ok, status_code, body, friendly_error). O body pode ser lista OU
     dict (ex.: get-all-groups devolve uma lista). Nunca expoe token nem traceback.
     """
-    config = WapiConfiguration.get_solo()
+    config = _company_config(company)
     instance_id = config.resolved_instance_id().strip()
     token = config.resolved_token().strip()
     if not instance_id or not token:
@@ -130,13 +142,14 @@ def _wapi_get(action, prefix=WAPI_MESSAGE_PREFIX, timeout=30):
         return (False, None, None, SEND_GENERIC_ERROR)
 
 
-def _wapi_post(action, payload, timeout=30):
+def _wapi_post(action, payload, company, timeout=30):
     """POST em https://api.w-api.app/v1/message/<action>?instanceId=...
 
     Centraliza credenciais, headers e tratamento de erro. Retorna uma tupla
     (ok, status_code, body_dict, friendly_error). Nunca expoe token nem traceback.
+    As credenciais sao as DA EMPRESA informada (ver `_company_config`).
     """
-    config = WapiConfiguration.get_solo()
+    config = _company_config(company)
     instance_id = config.resolved_instance_id().strip()
     token = config.resolved_token().strip()
     if not instance_id or not token:
@@ -175,7 +188,7 @@ def _wapi_post(action, payload, timeout=30):
         return (False, None, {}, SEND_GENERIC_ERROR)
 
 
-def _send(action, phone, extra):
+def _send(action, phone, extra, company):
     """Monta o body {phone, ...} e devolve WapiSendResult padronizado.
 
     O campo `phone` aceita telefone (so digitos) OU o JID de grupo (@g.us) / LID
@@ -185,7 +198,7 @@ def _send(action, phone, extra):
         return WapiSendResult(success=False, error='Telefone invalido para envio.')
     payload = {'phone': normalized_phone}
     payload.update({k: v for k, v in extra.items() if v not in (None, '')})
-    ok, status, body, err = _wapi_post(action, payload)
+    ok, status, body, err = _wapi_post(action, payload, company)
     if not ok:
         return WapiSendResult(success=False, status_code=status, error=err)
     return WapiSendResult(
@@ -197,33 +210,39 @@ def _send(action, phone, extra):
 
 
 # --- Envio LITE (confirmado na documentacao/Postman da W-API) ---
+#
+# MULTIEMPRESA: `company` e OBRIGATORIO e somente-nomeado em todas as funcoes
+# publicas. Cada empresa cliente tem a sua instancia da W-API; deixar a empresa
+# implicita mandaria a mensagem pelo WhatsApp de outro cliente. Ser somente-nomeado
+# garante que nenhuma chamada antiga passe pela posicao errada em silencio.
 
-def send_text_message(phone, message):
-    return _send('send-text', phone, {'message': message})
-
-
-def send_image_message(phone, image, caption=None):
-    return _send('send-image', phone, {'image': image, 'caption': caption})
-
-
-def send_audio_message(phone, audio):
-    return _send('send-audio', phone, {'audio': audio})
+def send_text_message(phone, message, *, company):
+    return _send('send-text', phone, {'message': message}, company)
 
 
-def send_video_message(phone, video, caption=None):
-    return _send('send-video', phone, {'video': video, 'caption': caption})
+def send_image_message(phone, image, caption=None, *, company):
+    return _send('send-image', phone, {'image': image, 'caption': caption}, company)
 
 
-def send_document_message(phone, document, file_name=None, caption=None, extension=None):
+def send_audio_message(phone, audio, *, company):
+    return _send('send-audio', phone, {'audio': audio}, company)
+
+
+def send_video_message(phone, video, caption=None, *, company):
+    return _send('send-video', phone, {'video': video, 'caption': caption}, company)
+
+
+def send_document_message(phone, document, file_name=None, caption=None, extension=None,
+                          *, company):
     # A W-API exige `extension` (ex.: "pdf"); sem ela responde HTTP 500
     # "A extensao do arquivo e obrigatoria.".
     return _send('send-document', phone, {
         'document': document, 'fileName': file_name,
         'extension': extension, 'caption': caption,
-    })
+    }, company)
 
 
-def download_media(media_key, direct_path, media_type, mimetype):
+def download_media(media_key, direct_path, media_type, mimetype, *, company):
     """Baixa a midia de uma mensagem recebida. Retorna o corpo (com fileLink,
     expires, mimetype, type) em caso de sucesso, ou None em caso de falha."""
     payload = {
@@ -232,15 +251,15 @@ def download_media(media_key, direct_path, media_type, mimetype):
         'type': media_type or '',
         'mimetype': mimetype or '',
     }
-    ok, _status, body, _err = _wapi_post('download-media', payload)
+    ok, _status, body, _err = _wapi_post('download-media', payload, company)
     return body if ok else None
 
 
-def get_all_groups():
-    """Lista os grupos/comunidades da conta conectada (LITE/PRO).
+def get_all_groups(*, company):
+    """Lista os grupos/comunidades da conta conectada DA EMPRESA (LITE/PRO).
 
     GET /v1/group/get-all-groups?instanceId=... — usado para descobrir o nome
     real dos grupos (o webhook geralmente traz so o JID). Retorna o corpo (lista
     ou dict, conforme a W-API) em caso de sucesso, ou None em caso de falha."""
-    ok, _status, body, _err = _wapi_get('get-all-groups', prefix=WAPI_GROUP_PREFIX)
+    ok, _status, body, _err = _wapi_get('get-all-groups', company, prefix=WAPI_GROUP_PREFIX)
     return body if ok else None

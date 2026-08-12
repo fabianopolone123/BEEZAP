@@ -1417,7 +1417,7 @@ class ConversationTransferViewTests(TestCase):
             'chat_id': self.contact.phone,
             'is_group': False,
             'sender_name': self.contact.name,
-        })
+        }, default_company())
 
         self.assertEqual(resolved.id, self.conversation.id)   # MESMA conversa
         self.assertEqual(resolved.status, 'open')             # reaberta
@@ -1717,7 +1717,9 @@ class AiAttendantFlowTests(TestCase):
             'usage': {'prompt_tokens': 5, 'completion_tokens': 3, 'total_tokens': 8},
         })
         with patch.object(gpt_client.request, 'urlopen', return_value=_FakeResp(body)):
-            result = gpt_client.chat_completion([{'role': 'user', 'content': 'ola tudo bem'}])
+            result = gpt_client.chat_completion(
+                [{'role': 'user', 'content': 'ola tudo bem'}], company=default_company()
+            )
         self.assertTrue(result.success)
         cfg = OpenAiConfiguration.get_solo()
         # O request guardado contem a mensagem enviada; o response guardado, o corpo cru.
@@ -1751,7 +1753,7 @@ class AiAttendantFlowTests(TestCase):
         from gpt.attendant import build_system_prompt
         self.config.instructions = ''
         self.config.save()
-        prompt = build_system_prompt(self.config).lower()
+        prompt = build_system_prompt(self.config, default_company()).lower()
         self.assertIn('breve', prompt)
         self.assertIn('nao use apenas "ola"', prompt)
         self.assertIn('nunca invente', prompt)
@@ -1763,7 +1765,7 @@ class AiAttendantFlowTests(TestCase):
         self.config.instructions = 'Prompt custom curtinho.'
         self.config.fallback_sector = self.geral
         self.config.save()
-        prompt = build_system_prompt(self.config)
+        prompt = build_system_prompt(self.config, default_company())
         self.assertIn('Prompt custom curtinho.', prompt)
         self.assertTrue(any(g in prompt for g in ('Bom dia', 'Boa tarde', 'Boa noite')))
         self.assertIn('Setores disponiveis', prompt)

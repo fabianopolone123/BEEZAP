@@ -65,6 +65,13 @@ urlpatterns = [
     path('configuracoes/wapi/eventos/', wapi_webhook_events_view, name='wapi-webhook-events'),
     # Endpoint publico do webhook da W-API. Registrado tambem sob /beezap/ para
     # funcionar quando o app e servido atras do prefixo /beezap/ no Nginx.
+    #
+    # MULTIEMPRESA: a rota COM identificador da empresa e a recomendada (cada cliente
+    # cadastra na W-API a URL propria dele). A rota SEM identificador continua
+    # valida: a empresa e descoberta pelo `instanceId` do payload e, se nada casar,
+    # cai na empresa padrao — assim quem ja usa nao precisa reconfigurar nada.
+    path('webhook/wapi/<slug:company_slug>/', wapi_webhook_view, name='wapi-webhook-company'),
+    path('beezap/webhook/wapi/<slug:company_slug>/', wapi_webhook_view, name='wapi-webhook-company-beezap'),
     path('webhook/wapi/', wapi_webhook_view, name='wapi-webhook'),
     path('beezap/webhook/wapi/', wapi_webhook_view, name='wapi-webhook-beezap'),
     path('logout/', logout_view, name='logout'),

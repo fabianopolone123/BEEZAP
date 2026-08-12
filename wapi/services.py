@@ -89,37 +89,38 @@ def build_group_name_map(groups_response):
     return mapping
 
 
-def get_all_groups_safe():
-    """Busca os grupos na W-API sem nunca derrubar o fluxo (retorna None em falha)."""
+def get_all_groups_safe(company):
+    """Busca os grupos DA EMPRESA na W-API sem nunca derrubar o fluxo (None em falha)."""
     from wapi.client import get_all_groups
     try:
-        return get_all_groups()
+        return get_all_groups(company=company)
     except Exception:
         ingest_logger.exception('Falha ao buscar grupos na W-API.')
         return None
 
 
-def resolve_group_name(group_id, groups_response=None):
-    """Descobre o nome real de um grupo pelo JID, consultando a W-API se preciso."""
+def resolve_group_name(group_id, company, groups_response=None):
+    """Descobre o nome real de um grupo pelo JID, consultando a W-API DA EMPRESA."""
     if not group_id:
         return ''
     if groups_response is None:
-        groups_response = get_all_groups_safe()
+        groups_response = get_all_groups_safe(company)
     if not groups_response:
         return ''
     return build_group_name_map(groups_response).get(_group_key(group_id), '')
 
 
-def sync_group_names():
-    """Atualiza Conversation.name de todas as conversas de grupo a partir da W-API.
+def sync_group_names(company):
+    """Atualiza Conversation.name das conversas de grupo DA EMPRESA a partir da W-API.
 
-    Retorna um resumo {ok, updated, total_groups} para comando/endpoint."""
-    groups_response = get_all_groups_safe()
+    Cada empresa tem a sua instancia da W-API, então a consulta e a atualizacao
+    ficam restritas as conversas dela. Retorna {ok, updated, total_groups}."""
+    groups_response = get_all_groups_safe(company)
     if not groups_response:
         return {'ok': False, 'updated': 0, 'total_groups': 0}
     mapping = build_group_name_map(groups_response)
     updated = 0
-    for conversation in Conversation.objects.filter(chat_type='group'):
+    for conversation in Conversation.objects.filter(company=company, chat_type='group'):
         name = mapping.get(_group_key(conversation.external_id))
         if name and name != conversation.name:
             conversation.name = name
@@ -188,28 +189,62 @@ def _summary_text(message_type, text):
     return label
 
 
-def ingest_company():
-    """EMPRESA CLIENTE dona das mensagens que chegam pelo webhook.
+def resolve_webhook_company(slug='', payload=None):
+    """EMPRESA CLIENTE dona de uma mensagem que chegou pelo webhook.
 
-    MULTIEMPRESA (Parte 2): hoje o webhook e uma URL unica para todo mundo, por
-    isso o recebimento entra na empresa padrao. Na Parte 2 cada cliente ganha a SUA
-    URL de webhook (e a resolucao pelo `instanceId` do payload), e a empresa passa a
-    ser identificada ali — este e o unico ponto que precisa mudar.
+    Cada cliente tem a SUA instancia da W-API, então o recebimento precisa saber de
+    quem e a mensagem. A identificacao acontece em tres degraus, do mais explicito
+    para o mais tolerante:
+
+    1. **Identificador na URL** (`webhook/wapi/<empresa>/`) — o jeito recomendado:
+       cada cliente cadastra na W-API a URL propria dele.
+    2. **`instanceId` do payload** — casado com o `instance_id` cadastrado na tela
+       WhatsApp/W-API da empresa. Cobre quem ainda usa a URL antiga.
+    3. **Empresa padrao** — ultima retaguarda, para a instalacao de um unico cliente
+       continuar funcionando sem reconfigurar nada na W-API.
+
+    Empresa **inativa** nao recebe: devolve None e o webhook descarta a mensagem.
     """
-    return Company.get_default()
+    if slug:
+        company = Company.objects.filter(slug=slug).first()
+        if company is None:
+            ingest_logger.warning('Webhook recebido para empresa inexistente (%s).', slug)
+            return None
+        if not company.is_active:
+            ingest_logger.warning('Webhook recebido para empresa inativa (%s).', slug)
+            return None
+        return company
+
+    instance_id = ''
+    if isinstance(payload, dict):
+        instance_id = (parse_wapi_webhook_payload(payload).get('instance_id') or '').strip()
+    if instance_id:
+        from accounts.models import WapiConfiguration
+        config = (
+            WapiConfiguration.objects
+            .select_related('company')
+            .filter(instance_id=instance_id)
+            .first()
+        )
+        if config is not None:
+            if not config.company.is_active:
+                ingest_logger.warning('Webhook de instancia de empresa inativa (%s).', config.company.slug)
+                return None
+            return config.company
+
+    company = Company.get_default()
+    return company if company.is_active else None
 
 
-def get_or_create_contact(phone, company=None):
+def get_or_create_contact(phone, company):
     """Contato de uma conversa DIRETA (da EMPRESA informada). O contato nasce SEM
     nome de proposito: o nome NAO vem do WhatsApp (pushName). Assim a conversa
     aparece com o NUMERO ate alguem cadastrar o nome — clicando no numero em
     Conversas, que grava o Contato (tela Contatos). Nome cadastrado a mao nunca e
     sobrescrito por nada automatico."""
     phone = normalize_phone(phone)
-    if not phone:
+    if not phone or company is None:
         return None
-    if company is None:
-        company = ingest_company()
     contact, _created = Contact.objects.get_or_create(
         company=company, phone=phone, defaults={'name': ''}
     )
@@ -250,7 +285,7 @@ def attach_contact_from_sender(conversation, ctx):
     return conversation
 
 
-def resolve_conversation_for_context(ctx):
+def resolve_conversation_for_context(ctx, company):
     """Encontra (ou cria) a conversa certa a partir do contexto normalizado.
 
     - GRUPO: keyed pelo JID do grupo (@g.us); nunca cria conversa privada para o
@@ -259,15 +294,13 @@ def resolve_conversation_for_context(ctx):
       antigo de reaproveitar a conversa aberta.
     - DIRETA sem telefone (ex.: @lid): keyed pelo proprio chat_id, sem contato.
 
-    Tudo acontece DENTRO de uma empresa cliente (ver `ingest_company`): a busca e a
-    criacao sao sempre filtradas por ela, entao duas empresas podem conversar com o
-    mesmo numero sem se misturar.
+    Tudo acontece DENTRO da empresa cliente informada (resolvida pelo webhook, ver
+    `resolve_webhook_company`): a busca e a criacao sao sempre filtradas por ela,
+    entao duas empresas podem conversar com o mesmo numero sem se misturar.
     """
     chat_id = (ctx.get('chat_id') or '').strip()
-    if not chat_id:
+    if not chat_id or company is None:
         return None
-
-    company = ingest_company()
 
     if ctx.get('is_group'):
         conversation = (
@@ -286,7 +319,7 @@ def resolve_conversation_for_context(ctx):
         # Conversa de grupo nova: o webhook LITE quase nunca traz o nome, so o JID.
         # Buscamos o nome real na W-API uma unica vez (na criacao) para nao ficar
         # mostrando "Grupo <jid>". Se falhar, o fallback cuida da exibicao.
-        name = ctx.get('display_name') or resolve_group_name(chat_id)
+        name = ctx.get('display_name') or resolve_group_name(chat_id, company)
         return Conversation.objects.create(
             company=company,
             external_id=chat_id,
@@ -507,6 +540,8 @@ def _try_download_media(message, media):
             media.get('direct_path'),
             _DOWNLOAD_TYPE.get(message.message_type, 'image'),
             media.get('media_mimetype') or message.media_mimetype,
+            # A midia e baixada pela instancia da W-API DA EMPRESA da conversa.
+            company=message.conversation.company,
         )
     except Exception:
         media_logger.exception('Erro ao chamar download-media da W-API.')
@@ -666,7 +701,9 @@ def _maybe_trigger_reception(conversation, message):
         return
     try:
         from accounts.models import MenuBotConfiguration
-        mode = MenuBotConfiguration.get_solo().mode
+        # O modo de primeiro atendimento e DA EMPRESA da conversa: um cliente pode
+        # usar a IA enquanto outro usa o chatbot de menu ou nada.
+        mode = MenuBotConfiguration.for_company(conversation.company).mode
         if mode == MenuBotConfiguration.MODE_AI:
             from gpt.attendant import handle_incoming_for_ai_async
             handle_incoming_for_ai_async(conversation.id)
@@ -731,7 +768,7 @@ def save_incoming_message(conversation, ctx, message_type='text', text='',
     return message
 
 
-def ingest_wapi_payload(payload, trigger_ai=True):
+def ingest_wapi_payload(payload, trigger_ai=True, company=None, slug=''):
     """Ponto unico de entrada de uma mensagem recebida da W-API.
 
     Detecta grupo vs direta, resolve a conversa certa e cria a mensagem (texto,
@@ -740,7 +777,17 @@ def ingest_wapi_payload(payload, trigger_ai=True):
 
     `trigger_ai` liga o atendente virtual (IA) — deve ser True apenas no webhook
     AO VIVO; a sincronizacao de eventos antigos chama com trigger_ai=False para
-    NAO responder mensagens historicas."""
+    NAO responder mensagens historicas.
+
+    MULTIEMPRESA: `company` e a empresa dona da mensagem. Quando nao vem pronta, e
+    resolvida por `resolve_webhook_company(slug, payload)` — identificador da URL,
+    `instanceId` do payload ou, por ultimo, a empresa padrao. Sem empresa (ex.:
+    cliente inativo ou identificador desconhecido) NADA e criado."""
+    if company is None:
+        company = resolve_webhook_company(slug, payload)
+    if company is None:
+        return None
+
     parsed = parse_wapi_webhook_payload(payload)
     ctx = normalize_wapi_message_context(payload)
 
@@ -810,7 +857,7 @@ def ingest_wapi_payload(payload, trigger_ai=True):
     # conversa VAZIA para tras (e, em grupo novo, ainda gastava a chamada a W-API em
     # resolve_group_name). Bonus: uma conversa encerrada nao reabre
     # (`_reopen_for_new_service`) por causa de um evento de sistema.
-    conversation = resolve_conversation_for_context(ctx)
+    conversation = resolve_conversation_for_context(ctx, company)
     if conversation is None:
         return None
 

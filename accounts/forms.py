@@ -100,10 +100,19 @@ class OpenAiConfigurationForm(forms.Form):
     )
     fallback_sector = forms.ModelChoiceField(
         label='Setor de fallback (quando nao identificar)',
-        queryset=Sector.objects.all().order_by('name'),
+        queryset=Sector.objects.none(),
         required=False,
         empty_label='(deixar em aberto, sem setor)',
     )
+
+    def __init__(self, *args, company=None, **kwargs):
+        """O select de setor lista SOMENTE os setores da empresa (multiempresa).
+        Sem empresa a lista fica vazia — nunca mostra setor de outro cliente."""
+        super().__init__(*args, **kwargs)
+        self.fields['fallback_sector'].queryset = (
+            Sector.objects.filter(company=company).order_by('name')
+            if company is not None else Sector.objects.none()
+        )
 
 
 class ReceptionModeForm(forms.Form):
@@ -174,10 +183,18 @@ class MenuBotConfigurationForm(forms.Form):
     )
     fallback_sector = forms.ModelChoiceField(
         label='Setor de fallback (quando o cliente nao acerta o menu)',
-        queryset=Sector.objects.all().order_by('name'),
+        queryset=Sector.objects.none(),
         required=False,
         empty_label='(deixar aguardando, sem setor)',
     )
+
+    def __init__(self, *args, company=None, **kwargs):
+        """O select de setor lista SOMENTE os setores da empresa (multiempresa)."""
+        super().__init__(*args, **kwargs)
+        self.fields['fallback_sector'].queryset = (
+            Sector.objects.filter(company=company).order_by('name')
+            if company is not None else Sector.objects.none()
+        )
 
 
 class WapiSendTextForm(forms.Form):
@@ -303,11 +320,20 @@ class SectorForm(forms.ModelForm):
             }),
         }
 
+    def __init__(self, *args, company=None, **kwargs):
+        """`company` = empresa dona do setor, usada na checagem de nome repetido.
+        Ao editar, vale a empresa do proprio setor."""
+        super().__init__(*args, **kwargs)
+        self.company = company or getattr(self.instance, 'company', None)
+
     def clean_name(self):
         name = self.cleaned_data.get('name', '').strip()
         if not name:
             raise forms.ValidationError('O nome do setor é obrigatório.')
+        # O nome e unico POR EMPRESA: outra empresa pode ter um setor com o mesmo
+        # nome, então a checagem precisa ser feita dentro da empresa.
         qs = Sector.objects.filter(name__iexact=name)
+        qs = qs.filter(company=self.company) if self.company is not None else qs.none()
         if self.instance and self.instance.pk:
             qs = qs.exclude(pk=self.instance.pk)
         if qs.exists():

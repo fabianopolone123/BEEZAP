@@ -99,20 +99,22 @@ def _greeting_for(now):
     return 'Boa noite'
 
 
-def available_sectors():
-    return list(Sector.objects.all().order_by('name'))
+def available_sectors(company):
+    """Setores DA EMPRESA. O escopo por empresa é obrigatório: sem ele a IA
+    ofereceria ao cliente os setores de outra empresa."""
+    return list(Sector.objects.filter(company=company).order_by('name'))
 
 
-def available_attendants():
+def available_attendants(company):
+    """Atendentes ativos DA EMPRESA (mesmo motivo de `available_sectors`)."""
     return list(
-        Attendant.objects.filter(user__is_active=True)
+        Attendant.objects.filter(company=company, user__is_active=True)
         .prefetch_related('sectors')
         .order_by('name')
     )
 
 
-def sectors_context_text(sectors=None):
-    sectors = sectors if sectors is not None else available_sectors()
+def sectors_context_text(sectors):
     if not sectors:
         return '(nenhum setor cadastrado)'
     lines = []
@@ -122,8 +124,7 @@ def sectors_context_text(sectors=None):
     return '\n'.join(lines)
 
 
-def attendants_context_text(attendants=None):
-    attendants = attendants if attendants is not None else available_attendants()
+def attendants_context_text(attendants):
     if not attendants:
         return '(nenhum atendente cadastrado)'
     lines = []
@@ -156,8 +157,8 @@ def _time_since_previous_text(conversation):
             'provavelmente uma nova conversa, vale se reapresentar.')
 
 
-def build_system_prompt(config, now=None, context_note=''):
-    """Monta o prompt de sistema enviado ao GPT.
+def build_system_prompt(config, company, now=None, context_note=''):
+    """Monta o prompt de sistema enviado ao GPT (setores/atendentes DA EMPRESA).
 
     = prompt editavel do usuario (persona + regras de comportamento)
       + DADOS DINAMICOS anexados automaticamente (data/hora + saudacao, tempo desde
@@ -176,10 +177,10 @@ def build_system_prompt(config, now=None, context_note=''):
     parts = [
         resolved_instructions(config),
         time_line,
-        'Setores disponiveis para transferencia:\n' + sectors_context_text(),
-        'Atendentes cadastrados:\n' + attendants_context_text(),
+        'Setores disponiveis para transferencia:\n' + sectors_context_text(available_sectors(company)),
+        'Atendentes cadastrados:\n' + attendants_context_text(available_attendants(company)),
     ]
-    general = _resolve_fallback_sector(config)
+    general = _resolve_fallback_sector(config, company)
     if general:
         parts.append(
             f'Setor geral/curinga (use quando o pedido nao se encaixar em nenhum '
@@ -239,18 +240,22 @@ def _parse_decision(raw):
     return {'mensagem': (raw or '').strip(), 'setor': '', 'atendente': ''}
 
 
-def _match_sector(name):
+def _match_sector(name, company):
+    """Casa o setor que a IA escolheu, DENTRO da empresa da conversa."""
     name = (name or '').strip()
     if not name:
         return None
-    return Sector.objects.filter(name__iexact=name).first()
+    return Sector.objects.filter(company=company, name__iexact=name).first()
 
 
-def _match_attendant(name):
+def _match_attendant(name, company):
+    """Casa o atendente que a IA citou, DENTRO da empresa da conversa."""
     name = (name or '').strip()
     if not name:
         return None
-    return Attendant.objects.filter(name__iexact=name, user__is_active=True).first()
+    return Attendant.objects.filter(
+        company=company, name__iexact=name, user__is_active=True
+    ).first()
 
 
 def _human_replied_in_segment(conversation):
@@ -279,7 +284,10 @@ def _send_ai_reply(conversation, text):
         return False
     from wapi.client import send_text_message
     from wapi.services import save_outgoing_text_message
-    result = send_text_message(conversation.recipient, text)
+    # Envio pela instancia da W-API DA EMPRESA da conversa (multiempresa).
+    result = send_text_message(
+        conversation.recipient, text, company=conversation.company
+    )
     if result.success:
         save_outgoing_text_message(
             conversation, text, external_message_id=result.message_id or '', is_ai=True
@@ -318,11 +326,11 @@ def _route_to_attendant(conversation, attendant):
                    conversation.id, sector.name if sector else '-', attendant.name)
 
 
-def _resolve_fallback_sector(config):
+def _resolve_fallback_sector(config, company):
     if config.fallback_sector_id:
         return config.fallback_sector
-    # Sem fallback configurado: tenta um setor chamado "Geral".
-    return Sector.objects.filter(name__iexact='Geral').first()
+    # Sem fallback configurado: tenta um setor chamado "Geral" DA EMPRESA.
+    return Sector.objects.filter(company=company, name__iexact='Geral').first()
 
 
 def _handoff_to_fallback(conversation, config):
@@ -334,7 +342,8 @@ def _handoff_to_fallback(conversation, config):
     `pending` SEM setor: nao entrava em nenhuma fila e so o admin a via (parecia que
     'nao transferiu para ninguem'). Agora sempre cai numa fila real."""
     _send_ai_reply(conversation, HANDOFF_NOTICE)
-    fallback = _resolve_fallback_sector(config) or Sector.ensure_general()
+    fallback = (_resolve_fallback_sector(config, conversation.company)
+                or Sector.ensure_general(conversation.company))
     _route_to_sector(conversation, fallback)
 
 
@@ -345,8 +354,10 @@ def _should_handle(conversation):
     da verdade de qual atendimento automatico roda — nao mais do antigo
     `OpenAiConfiguration.enabled`."""
     from accounts.models import MenuBotConfiguration
-    config = OpenAiConfiguration.get_solo()
-    if MenuBotConfiguration.get_solo().mode != MenuBotConfiguration.MODE_AI:
+    # Cada empresa tem a SUA API Key e o SEU modo de primeiro atendimento.
+    company = conversation.company
+    config = OpenAiConfiguration.for_company(company)
+    if MenuBotConfiguration.for_company(company).mode != MenuBotConfiguration.MODE_AI:
         return None
     if not config.has_api_key:
         return None
@@ -366,7 +377,7 @@ def handle_incoming_for_ai(conversation_id):
     para fora do worker."""
     conversation = (
         Conversation.objects
-        .select_related('contact', 'assigned_attendant', 'sector')
+        .select_related('company', 'contact', 'assigned_attendant', 'sector')
         .filter(pk=conversation_id)
         .first()
     )
@@ -389,14 +400,16 @@ def handle_incoming_for_ai(conversation_id):
     if not history:
         return
 
+    # Setores/atendentes do prompt e a API Key sao SEMPRE da empresa da conversa.
+    company = conversation.company
     system_prompt = build_system_prompt(
-        config, context_note=_time_since_previous_text(conversation)
+        config, company, context_note=_time_since_previous_text(conversation)
     )
     messages = [{'role': 'system', 'content': system_prompt}] + history
 
     from gpt.client import chat_completion
     result = chat_completion(
-        messages, temperature=0.3, max_tokens=400,
+        messages, company=company, temperature=0.3, max_tokens=400,
         response_format={'type': 'json_object'},
     )
     if not result.success:
@@ -406,8 +419,8 @@ def handle_incoming_for_ai(conversation_id):
 
     decision = _parse_decision(result.text)
     reply = decision['mensagem']
-    attendant = _match_attendant(decision['atendente'])
-    sector = _match_sector(decision['setor'])
+    attendant = _match_attendant(decision['atendente'], company)
+    sector = _match_sector(decision['setor'], company)
 
     if attendant:
         _send_ai_reply(conversation, reply)

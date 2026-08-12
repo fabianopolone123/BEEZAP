@@ -104,7 +104,8 @@ class Command(BaseCommand):
         linked = 0
         reused = 0
         for conv, phone in resolved:
-            contact = get_or_create_contact(phone)
+            # O contato e resolvido dentro da MESMA empresa da conversa.
+            contact = get_or_create_contact(phone, conv.company)
             if contact is None:
                 continue
             if contact.name:

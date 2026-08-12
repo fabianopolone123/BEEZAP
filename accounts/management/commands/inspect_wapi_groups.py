@@ -17,6 +17,10 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument('--full', action='store_true', help='Imprime a resposta crua (JSON, truncada).')
+        parser.add_argument(
+            '--empresa', default='',
+            help='Identificador (slug) da empresa. Sem isto, usa a empresa padrao.',
+        )
 
     def handle(self, *args, **options):
         from wapi.services import (
@@ -24,7 +28,19 @@ class Command(BaseCommand):
             _group_item_id, _group_item_name, _group_key,
         )
 
-        resp = get_all_groups_safe()
+        # MULTIEMPRESA: os grupos vem da instancia da W-API DA EMPRESA escolhida.
+        from accounts.models import Company
+        slug = (options.get('empresa') or '').strip()
+        if slug:
+            company = Company.objects.filter(slug=slug).first()
+            if company is None:
+                self.stdout.write(self.style.ERROR(f'Empresa "{slug}" nao encontrada.'))
+                return
+        else:
+            company = Company.get_default()
+        self.stdout.write(f'Empresa: {company.name} ({company.slug})')
+
+        resp = get_all_groups_safe(company)
         if resp is None:
             self.stdout.write(self.style.ERROR(
                 'Falha ao chamar get-all-groups. Verifique Instance ID/Token e a conexao do WhatsApp.'))

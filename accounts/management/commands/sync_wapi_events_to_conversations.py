@@ -19,14 +19,17 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         created = 0
         skipped = 0
-        events = WapiWebhookEvent.objects.order_by('received_at')
+        events = WapiWebhookEvent.objects.select_related('company').order_by('received_at')
 
         for event in events:
             payload = event.raw_payload if isinstance(event.raw_payload, dict) else {}
             try:
                 # trigger_ai=False: reprocessar eventos antigos NAO deve acionar a
                 # IA (evita responder mensagens historicas).
-                message = ingest_wapi_payload(payload, trigger_ai=False)
+                # A empresa vem do proprio evento — cada um ja sabe de quem e.
+                message = ingest_wapi_payload(
+                    payload, trigger_ai=False, company=event.company
+                )
             except Exception:
                 message = None
             if message:

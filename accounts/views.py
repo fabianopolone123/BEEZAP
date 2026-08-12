@@ -117,11 +117,12 @@ ROLE_RANK = {
 # Abas da area de Configuracoes (barra horizontal no topo das telas de config).
 # WhatsApp (W-API) e Atendimento (chatbot de menu + IA). A aba Atendimento tem duas
 # sub-abas: Chatbot e Inteligencia (IA).
-def build_settings_tabs(active_tab, active_subtab=''):
+def build_settings_tabs(active_tab, active_subtab='', company=None):
     return {
         'active_tab': active_tab,
         'active_subtab': active_subtab,
-        'reception_mode': MenuBotConfiguration.get_solo().mode,
+        # O modo de primeiro atendimento e DA EMPRESA (multiempresa).
+        'reception_mode': MenuBotConfiguration.for_company(company).mode if company else '',
     }
 
 
@@ -246,6 +247,9 @@ def clear_password_recovery_session(request):
 
 
 def create_and_send_password_recovery_code(user, phone):
+    # O codigo vai pelo WhatsApp DA EMPRESA da pessoa. O gestor master nao tem
+    # empresa, entao usa a instancia da empresa padrao (a da propria plataforma).
+    company = user.company or Company.get_default()
     code = f'{secrets.randbelow(1000000):06d}'
     now = timezone.now()
     PasswordResetCode.objects.filter(user=user, used_at__isnull=True).update(used_at=now)
@@ -258,7 +262,7 @@ def create_and_send_password_recovery_code(user, phone):
         f'Seu codigo de recuperacao de senha do BEEZAP e: {code}\n\n'
         'Este codigo expira em 10 minutos.'
     )
-    result = send_text_message(phone=phone, message=message)
+    result = send_text_message(phone=phone, message=message, company=company)
     return reset_code if result.success else None
 
 
@@ -280,13 +284,15 @@ def request_password_recovery_code(request, email):
         request.session[PASSWORD_RECOVERY_CODE_ID_KEY] = reset_code.id
 
 
-def create_wapi_webhook_event(payload):
-    # MULTIEMPRESA (Parte 2): hoje o webhook e uma URL unica e por isso o evento
-    # entra na empresa padrao. Na Parte 2 cada cliente ganha a SUA URL de webhook
-    # (e a resolucao por instanceId), e a empresa passa a vir de la.
+def create_wapi_webhook_event(payload, company):
+    """Registra o evento BRUTO do webhook na empresa dona e alimenta as Conversas.
+
+    A empresa vem resolvida pela view (identificador na URL, `instanceId` do payload
+    ou empresa padrao — ver `resolve_webhook_company`).
+    """
     parsed_payload = parse_wapi_webhook_payload(payload)
     event = WapiWebhookEvent.objects.create(
-        company=Company.get_default(),
+        company=company,
         raw_payload=payload if isinstance(payload, dict) else {},
         **parsed_payload,
     )
@@ -295,15 +301,16 @@ def create_wapi_webhook_event(payload):
     # certa e cria a mensagem (texto/reacao/midia). Falha aqui nunca deve derrubar
     # o webhook — o evento bruto ja foi salvo acima em WapiWebhookEvent.
     try:
-        ingest_wapi_payload(payload)
+        ingest_wapi_payload(payload, company=company)
     except Exception:
         wapi_webhook_logger.exception('Falha ao criar conversa a partir do webhook W-API.')
 
     return event
 
 
-def is_valid_wapi_webhook_token(request):
-    config = WapiConfiguration.get_solo()
+def is_valid_wapi_webhook_token(request, company):
+    """Valida o token de webhook DA EMPRESA (cada cliente tem o seu, opcional)."""
+    config = WapiConfiguration.for_company(company)
     expected_token = config.resolved_webhook_token().strip()
     if not expected_token:
         # Sem token configurado o recebimento fica aberto (protecao opcional).
@@ -318,9 +325,18 @@ def is_valid_wapi_webhook_token(request):
     return bool(received_token) and compare_digest(received_token, expected_token)
 
 
-def build_wapi_webhook_url(request):
-    # Com FORCE_SCRIPT_NAME=/beezap, reverse ja gera /beezap/webhook/wapi/.
-    # Sem prefixo (local), gera /webhook/wapi/.
+def build_wapi_webhook_url(request, company=None):
+    """URL de webhook que o cliente deve cadastrar na W-API.
+
+    MULTIEMPRESA: com empresa, devolve a URL PROPRIA dela
+    (`.../webhook/wapi/<empresa>/`) — e assim que o sistema sabe de quem e cada
+    mensagem quando ha mais de um cliente. Com FORCE_SCRIPT_NAME=/beezap, o reverse
+    ja inclui o prefixo.
+    """
+    if company is not None:
+        return request.build_absolute_uri(
+            reverse('wapi-webhook-company', args=[company.slug])
+        )
     return request.build_absolute_uri(reverse('wapi-webhook'))
 
 
@@ -608,14 +624,19 @@ def openai_settings_view(request):
     from gpt.attendant import (
         DEFAULT_INSTRUCTIONS,
         attendants_context_text,
+        available_attendants,
+        available_sectors,
         resolved_instructions,
         sectors_context_text,
     )
 
-    config = OpenAiConfiguration.get_solo()
-    menubot = MenuBotConfiguration.get_solo()
+    # Cada empresa tem a SUA API Key, o SEU prompt e o SEU contador de consumo.
+    company = request_company(request)
+    config = OpenAiConfiguration.for_company(company)
+    menubot = MenuBotConfiguration.for_company(company)
     config_form = OpenAiConfigurationForm(
         request.POST if request.POST.get('form_type') == 'config' else None,
+        company=company,
         initial={
             'model': config.resolved_model(),
             'instructions': config.instructions,
@@ -645,7 +666,7 @@ def openai_settings_view(request):
             if not config.has_api_key:
                 messages.error(request, 'Cadastre a API Key do GPT antes de testar.')
             else:
-                result = gpt_test_connection()
+                result = gpt_test_connection(company=company)
                 if result.success:
                     messages.success(
                         request,
@@ -667,7 +688,7 @@ def openai_settings_view(request):
             'config_form': config_form,
             'config': config,
             'nav_items': build_nav_items(request.user, 'Configurações'),
-            'settings_tabs': build_settings_tabs('atendimento', 'ia'),
+            'settings_tabs': build_settings_tabs('atendimento', 'ia', company),
             'mode_form': ReceptionModeForm(initial={'mode': menubot.mode}),
             'ai_active': menubot.mode == MenuBotConfiguration.MODE_AI,
             'role_label': request.user.get_role_display(),
@@ -679,8 +700,8 @@ def openai_settings_view(request):
             'usage_requests': _fmt_int(config.total_requests),
             # Pre-visualizacao do que e enviado a IA (contexto auto-gerido).
             'preview_instructions': resolved_instructions(config),
-            'preview_sectors': sectors_context_text(),
-            'preview_attendants': attendants_context_text(),
+            'preview_sectors': sectors_context_text(available_sectors(company)),
+            'preview_attendants': attendants_context_text(available_attendants(company)),
             # Diagnostico: conteudo completo da ultima chamada real ao GPT.
             'last_request': config.last_request,
             'last_response': config.last_response,
@@ -708,9 +729,12 @@ def atendimento_view(request):
         build_menu_text,
     )
 
-    config = MenuBotConfiguration.get_solo()
+    # O chatbot de cada empresa tem os SEUS textos, opcoes, tentativas e fallback.
+    company = request_company(request)
+    config = MenuBotConfiguration.for_company(company)
     config_form = MenuBotConfigurationForm(
         request.POST if request.POST.get('form_type') == 'chatbot' else None,
+        company=company,
         initial={
             'greeting': config.greeting,
             'menu_intro': config.menu_intro,
@@ -751,7 +775,7 @@ def atendimento_view(request):
             # Setores em JSON para o preenchimento automatico (JS monta as opcoes).
             'sectors_json': [{'id': s.id, 'name': s.name} for s in sectors],
             'nav_items': build_nav_items(request.user, 'Configurações'),
-            'settings_tabs': build_settings_tabs('atendimento', 'chatbot'),
+            'settings_tabs': build_settings_tabs('atendimento', 'chatbot', company),
             'mode_form': ReceptionModeForm(initial={'mode': config.mode}),
             'menu_active': config.mode == MenuBotConfiguration.MODE_MENU,
             'role_label': request.user.get_role_display(),
@@ -780,7 +804,10 @@ def _save_menu_options(config, post):
         if not label:
             continue
         order += 1
-        sector = Sector.objects.filter(pk=sector_id).first() if sector_id else None
+        sector = (
+            Sector.objects.filter(company=config.company_id, pk=sector_id).first()
+            if sector_id else None
+        )
         MenuOption.objects.create(config=config, order=order, label=label, sector=sector)
 
 
@@ -795,13 +822,14 @@ def atendimento_set_mode_view(request):
     blocked = block_readonly(request)
     if blocked:
         return blocked
-    config = MenuBotConfiguration.get_solo()
+    company = request_company(request)
+    config = MenuBotConfiguration.for_company(company)
     form = ReceptionModeForm(request.POST)
     if form.is_valid():
         config.mode = form.cleaned_data['mode']
         config.save(update_fields=['mode', 'updated_at'])
         # Mantem o interruptor antigo da IA coerente com o modo (compatibilidade).
-        ai = OpenAiConfiguration.get_solo()
+        ai = OpenAiConfiguration.for_company(company)
         ai.enabled = (config.mode == MenuBotConfiguration.MODE_AI)
         ai.save(update_fields=['enabled', 'updated_at'])
         messages.success(request, 'Modo de atendimento atualizado.')
@@ -1165,7 +1193,9 @@ def wapi_settings_view(request):
     if forbidden:
         return forbidden
 
-    config = WapiConfiguration.get_solo()
+    # Cada empresa tem a SUA instancia/token da W-API e o SEU webhook.
+    company = request_company(request)
+    config = WapiConfiguration.for_company(company)
     config_form = WapiConfigurationForm(
         request.POST if request.POST.get('form_type') == 'config' else None,
         initial={'instance_id': config.instance_id},
@@ -1195,6 +1225,7 @@ def wapi_settings_view(request):
             result = send_text_message(
                 phone=send_form.cleaned_data['phone'].strip(),
                 message=send_form.cleaned_data['message'].strip(),
+                company=company,
             )
             if result.success:
                 messages.success(request, 'Mensagem enviada com sucesso.')
@@ -1212,10 +1243,10 @@ def wapi_settings_view(request):
             'config_form': config_form,
             'send_form': send_form,
             'config': config,
-            'webhook_url': build_wapi_webhook_url(request),
-            'latest_webhook_events': WapiWebhookEvent.objects.all()[:5],
+            'webhook_url': build_wapi_webhook_url(request, company),
+            'latest_webhook_events': WapiWebhookEvent.objects.filter(company=company)[:5],
             'nav_items': build_nav_items(request.user, 'Configurações'),
-            'settings_tabs': build_settings_tabs('whatsapp'),
+            'settings_tabs': build_settings_tabs('whatsapp', company=company),
             'role_label': request.user.get_role_display(),
             'user_initial': (request.user.first_name[:1] or request.user.email[:1]).upper(),
             'token_configured': config.has_token,
@@ -1917,7 +1948,8 @@ def conversation_send_view(request, conversation_id):
             {'ok': False, 'error': 'Nao foi possivel enviar: conversa sem destino.'}, status=400
         )
 
-    config = WapiConfiguration.get_solo()
+    # Credenciais DA EMPRESA da conversa (cada cliente tem a sua instancia).
+    config = WapiConfiguration.for_company(conversation.company)
     if not config.resolved_instance_id().strip() or not config.resolved_token().strip():
         return JsonResponse(
             {'ok': False, 'error': 'Configure a W-API antes de enviar mensagens.'}, status=400
@@ -2049,7 +2081,8 @@ def conversation_send_media_view(request, conversation_id):
     if not _media_category_ok(media_type, mimetype):
         return JsonResponse({'ok': False, 'error': 'Arquivo nao compativel com o tipo escolhido.'}, status=400)
 
-    config = WapiConfiguration.get_solo()
+    # Credenciais DA EMPRESA da conversa (cada cliente tem a sua instancia).
+    config = WapiConfiguration.for_company(conversation.company)
     if not config.resolved_instance_id().strip() or not config.resolved_token().strip():
         return JsonResponse({'ok': False, 'error': 'Configure a W-API antes de enviar mensagens.'}, status=400)
 
@@ -2094,19 +2127,21 @@ def conversation_send_media_view(request, conversation_id):
     # Em grupo, destino e o JID (@g.us) — nunca o participante individual.
     phone = conversation.recipient
 
+    # Toda mídia sai pela instância da W-API DA EMPRESA da conversa.
+    company = conversation.company
     if media_type == 'image':
-        result = send_image_message(phone, media_payload, caption=caption or None)
+        result = send_image_message(phone, media_payload, caption=caption or None, company=company)
     elif media_type == 'audio':
-        result = send_audio_message(phone, media_payload)
+        result = send_audio_message(phone, media_payload, company=company)
     elif media_type == 'video':
-        result = send_video_message(phone, media_payload, caption=caption or None)
+        result = send_video_message(phone, media_payload, caption=caption or None, company=company)
     else:
         # A W-API exige a extensao do documento; usa a do nome e cai no mapa por mimetype.
         doc_ext = os.path.splitext(uploaded.name or '')[1].lstrip('.').lower() \
             or WAPI_DOC_EXT_BY_MIME.get(mimetype, '')
         result = send_document_message(
             phone, media_payload, file_name=uploaded.name,
-            caption=caption or None, extension=doc_ext,
+            caption=caption or None, extension=doc_ext, company=company,
         )
 
     if result.success:
@@ -2131,7 +2166,8 @@ def conversation_sync_groups_view(request):
     readonly = deny_readonly_json(request)
     if readonly:
         return readonly
-    result = sync_group_names()
+    # Sincroniza os grupos DA EMPRESA de quem pediu (instancia propria da W-API).
+    result = sync_group_names(request_company(request))
     if not result.get('ok'):
         return JsonResponse(
             {'ok': False, 'error': 'Nao foi possivel sincronizar os grupos. Verifique a conexao do WhatsApp.'},
@@ -2420,14 +2456,17 @@ def sectors_save_organization_view(request):
 
 
 @csrf_exempt
-def wapi_webhook_view(request):
+def wapi_webhook_view(request, company_slug=''):
+    """Recebe as mensagens da W-API.
+
+    MULTIEMPRESA: cada cliente cadastra na W-API a URL PROPRIA dele
+    (`webhook/wapi/<empresa>/`). A URL antiga, sem identificador, continua
+    funcionando: nesse caso a empresa e descoberta pelo `instanceId` do payload e,
+    se nada casar, cai na empresa padrao (instalacao de um unico cliente).
+    """
     if request.method != 'POST':
         # GET/HEAD respondem JSON amigavel (405) para facilitar o diagnostico.
         return JsonResponse({'ok': False, 'error': 'Metodo nao permitido.'}, status=405)
-
-    if not is_valid_wapi_webhook_token(request):
-        wapi_webhook_logger.warning('Webhook W-API recusado: token invalido.')
-        return JsonResponse({'ok': False, 'error': 'Token de webhook invalido.'}, status=403)
 
     try:
         payload = json.loads(request.body.decode('utf-8') or '{}')
@@ -2446,8 +2485,22 @@ def wapi_webhook_view(request):
             if isinstance(message_node, dict):
                 wapi_webhook_logger.info('Webhook W-API data.message keys: %s', list(message_node.keys()))
 
+    # Identifica a EMPRESA dona da mensagem antes de qualquer coisa: o token de
+    # webhook e as credenciais sao dela, nao do sistema.
+    company = resolve_webhook_company(company_slug, payload)
+    if company is None:
+        wapi_webhook_logger.warning(
+            'Webhook W-API recusado: empresa nao identificada ou inativa (%s).',
+            company_slug or 'sem identificador',
+        )
+        return JsonResponse({'ok': False, 'error': 'Empresa nao encontrada.'}, status=404)
+
+    if not is_valid_wapi_webhook_token(request, company):
+        wapi_webhook_logger.warning('Webhook W-API recusado: token invalido (%s).', company.slug)
+        return JsonResponse({'ok': False, 'error': 'Token de webhook invalido.'}, status=403)
+
     try:
-        event = create_wapi_webhook_event(payload)
+        event = create_wapi_webhook_event(payload, company)
     except Exception:
         # Nunca expor traceback para quem chama o webhook.
         wapi_webhook_logger.exception('Falha ao registrar evento de webhook W-API.')
