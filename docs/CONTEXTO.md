@@ -87,9 +87,10 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
   visualização de conversas, sobrepõe o setor. `view_scope` (nulo = herdar) e
   `view_full_history` (nulo = herdar). Ver seção 15.
 - **PasswordResetCode** (recuperação de senha por código no WhatsApp).
-- **WapiConfiguration** (singleton `get_solo()`): `instance_id`, `token`,
-  `webhook_token`. Credenciais reais ficam **aqui (no banco)**, editadas na tela
-  Configurações → WhatsApp/W-API. `resolved_*()` cai para env se vazio.
+- **WapiConfiguration** (**uma por empresa**, `for_company(company)`): `instance_id`,
+  `token`, `webhook_token`. Credenciais reais ficam **aqui (no banco)**, editadas na
+  tela Configurações → WhatsApp/W-API. `resolved_*()` cai para env se vazio.
+  `get_solo()` sobrevive só como compatibilidade (empresa padrão). Ver seção 16.
 - **WapiWebhookEvent**: todo evento recebido do webhook (com `raw_payload`).
 - **OpenAiConfiguration** (singleton `get_solo()`): `api_key`, `model`
   (padrão `gpt-4.1-nano`), `enabled`. Guarda a **API Key do GPT no banco**
@@ -274,11 +275,18 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
 - Rótulos de "última mensagem": 📷 Imagem, 🎧 Áudio, 🎥 Vídeo, 🎞️ GIF, 💟 Figurinha,
   👍 Reação, 📄 Documento.
 
-### Webhook
-- View `wapi_webhook_view` (`@csrf_exempt`). Rotas: `/webhook/wapi/` e
-  `/beezap/webhook/wapi/`. Aceita a chamada externa **sem token quando nenhum
-  webhook_token está configurado** (senão exige `?token=`/header). URL exibida na
-  tela vem de `reverse('wapi-webhook')` → com prefixo vira `/beezap/webhook/wapi/`.
+### Webhook (POR CLIENTE — ver seção 16)
+- View `wapi_webhook_view` (`@csrf_exempt`). Rotas: **`/webhook/wapi/<empresa>/`**
+  (recomendada) e `/webhook/wapi/` (antiga, mantida) — cada uma também sob
+  `/beezap/`. A **empresa** é resolvida por `resolve_webhook_company`: identificador
+  da URL → `instanceId` do payload → empresa padrão. **Empresa inativa ou
+  identificador desconhecido devolve 404 e nada é criado.**
+- Aceita a chamada externa **sem token quando nenhum webhook_token está configurado**
+  naquela empresa (senão exige `?token=`/header) — o token é **por empresa** e a
+  validação acontece **depois** de identificar o cliente. A URL exibida na tela é a
+  **do cliente** (`build_wapi_webhook_url(request, company)`).
+- O cliente centralizado (`wapi/client.py`) exige **`company`** em toda função (ver
+  seção 16): sem empresa não há envio, para nunca sair pela instância errada.
 
 ## 5. Tela Conversas (`templates/accounts/conversations.html` + `conversations.css`)
 
@@ -575,13 +583,10 @@ seed_demo_data [--no-clear]             # popula DEMO: 5 setores/atendentes + co
 
 ## 10. Pendências / próximas etapas
 
-- **MULTIEMPRESA — Parte 2 (isolamento completo)**: webhook por cliente, configurações
-  W-API/GPT/chatbot por empresa, escopo por empresa nas listas de contatos/setores/
-  atendentes/permissões/dashboard, criação do 1º Administrador de cada cliente pelo
-  master e "Entrar no painel do cliente". **Checklist detalhado no final da seção 16.**
 - **MULTIEMPRESA — Parte 3 (portabilidade)**: botão **Exportar dados da empresa**
   (ZIP com contatos/conversas/mensagens/setores/atendentes + mídias), para quando o
   cliente deixar de usar o sistema; e encerrar/desativar cliente com segurança.
+  **Próxima etapa.** (As Partes 1 e 2 estão concluídas — ver seção 16.)
 - **MULTIEMPRESA — Parte 4**: planos/limites por cliente, indicadores e consumo de
   tokens por empresa.
 - **Nova conversa**: botão para iniciar um chat digitando número + mensagem (e abrir
@@ -1070,35 +1075,135 @@ User.objects.create_user(email='master@seudominio.com', password='TROQUE-ESTA-SE
 > O master fica **sem empresa** (`company=None`) — é isso que o coloca acima das
 > empresas. Depois de logar, ele cai direto na tela **Clientes**.
 
-### ⚠️ Ainda NÃO cadastre um segundo cliente para uso real
+### Isolamento completo (Parte 2 — CONCLUÍDA)
 
-A Parte 1 entrega a **fundação** (dados, cadastro, marca). O **isolamento completo das
-consultas** vem na Parte 2 — antes disso, uma segunda empresa com usuários e mensagens
-próprias veria dados fora do lugar em algumas telas. Cadastrar empresas para conferir a
-tela é seguro (empresa sem usuário e sem dado é inerte).
+O sistema já pode atender **vários clientes de verdade ao mesmo tempo**: cada um com o
+seu WhatsApp, a sua IA e os seus dados, sem se ver.
 
-### Parte 2 — o que falta para o multiempresa ficar completo
+#### Webhook por cliente (`resolve_webhook_company`)
 
-Checklist do que ainda **não** está escopado por empresa (mapeado, não esquecido):
+Rotas: **`webhook/wapi/<empresa>/`** (recomendada — `wapi-webhook-company`) e a antiga
+`webhook/wapi/` (mantida). A empresa é identificada em **três degraus**:
 
-1. **Webhook por cliente**: hoje é uma URL única e o recebimento entra na empresa
-   padrão — os dois únicos pontos são `wapi.services.ingest_company()` e
-   `views.create_wapi_webhook_event`. Dar a cada cliente a **sua URL**
-   (`webhook/wapi/<slug>/`) + resolução por `instanceId` do payload.
-2. **Telas de configuração** (`wapi_settings_view`, `openai_settings_view`,
-   `atendimento_view`, `atendimento_set_mode_view`, `build_settings_tabs`) e
-   `wapi/client.py`, `gpt/attendant.py`, `chatbot/handler.py`: trocar `get_solo()`
-   por `for_company(<empresa da conversa>)`.
-3. **Listas e consultas** que ainda não filtram por empresa: `contacts_view`,
-   `sectors_view`, `attendants_view`, `permissions_view`, `build_dashboard_context`,
-   `conversation_list_view` (a lista de conversas já filtra via
-   `visible_conversations`).
-4. **`SectorForm.clean_name`** e a checagem de telefone duplicado em `contacts_view`
-   validam de forma **global**; precisam validar dentro da empresa.
-5. **Usuários do cliente**: o master precisa poder criar o **primeiro Administrador**
-   de cada empresa (hoje `attendants_view` só cria dentro da própria empresa de quem
-   está logado).
-6. **"Entrar no painel do cliente"** para suporte, usando
-   `tenancy.set_active_company` (já pronto) — respeitando que o master não lê
-   conversas.
-7. **`sync_wapi_group_names` / comandos de management**: passar a agir por empresa.
+1. **identificador na URL** (o `slug` da empresa) — cada cliente cadastra na W-API a
+   URL própria dele, que a tela WhatsApp/W-API já exibe pronta;
+2. **`instanceId` do payload**, casado com o `instance_id` cadastrado na tela da
+   empresa — cobre quem ainda usa a URL antiga;
+3. **empresa padrão**, última retaguarda, para a instalação de um único cliente
+   continuar funcionando sem reconfigurar nada.
+
+**Empresa inativa não recebe**: o webhook responde 404 e **nada** é criado (nem o
+evento bruto). O **token de webhook é validado por empresa** (`WapiConfiguration`
+daquele cliente), e a validação acontece **depois** de identificar a empresa.
+
+#### `company` obrigatório no cliente da W-API
+
+Em `wapi/client.py` todas as funções públicas (`send_text_message`,
+`send_image_message`, `send_audio_message`, `send_video_message`,
+`send_document_message`, `download_media`, `get_all_groups`) recebem **`company`
+obrigatório e somente-nomeado** (`*, company`). `_company_config()` **levanta erro**
+se vier `None`. É uma escolha deliberada: deixar a empresa implícita mandaria a
+mensagem pelo WhatsApp de outro cliente, então o código não permite mais isso —
+qualquer chamada esquecida falha na hora em vez de errar em silêncio.
+
+O envio sempre usa `conversation.company`; o download de mídia usa
+`message.conversation.company`.
+
+#### IA e chatbot por empresa
+
+- `gpt/client.chat_completion(..., company=)` e `test_connection(company=)`: API Key,
+  modelo e **contador de tokens** são os da empresa.
+- `gpt/attendant.py`: `available_sectors(company)`, `available_attendants(company)`,
+  `build_system_prompt(config, company, ...)`, `_match_sector(name, company)`,
+  `_match_attendant(name, company)` e `_resolve_fallback_sector(config, company)`.
+  **Isto era um vazamento real:** sem o escopo, a IA listaria no prompt (e ofereceria
+  ao cliente final) os setores e atendentes de outra empresa.
+- `chatbot/handler.py`: textos, opções, modo e fallback vêm de
+  `MenuBotConfiguration.for_company(conversation.company)`.
+- `wapi.services._maybe_trigger_reception` lê o **modo** da empresa da conversa: um
+  cliente pode usar IA enquanto outro usa o chatbot de menu ou nada.
+
+#### Telas escopadas por empresa
+
+Todas as consultas passam pela empresa de quem está logado (`request_company(request)`):
+
+| Tela | O que é escopado |
+|---|---|
+| Contatos | lista, busca, contagem, edição e exclusão |
+| Setores | lista, edição, exclusão e o arrastar-e-soltar (com a re-inclusão dos admins) |
+| Atendentes | lista e edição (id de outro cliente dá 404) |
+| Permissões | pessoas, padrões por perfil, personalização por usuário, setores da aba Visualização e grupos |
+| Dashboard | todos os indicadores |
+| Conversas | já vinha de `visible_conversations`, que agora filtra por empresa antes do Alcance |
+| Transferência | selects **e** o POST só aceitam setor/atendente da mesma empresa |
+| Configurações | credenciais, textos, modo, URL de webhook e eventos exibidos |
+
+Detalhes que também mudaram: os **selects de setor de fallback** (IA e chatbot) só
+listam setores da empresa (`CompanyForm`-style `company=` no `__init__` dos forms); a
+**validação de nome de setor repetido** (`SectorForm`) e a de **telefone duplicado**
+valem dentro da empresa; a resolução de nomes nas **mensagens de grupo**
+(`_build_name_map`) usa apenas contatos da própria empresa; e a regra **"deve existir
+ao menos um administrador"** passou a valer **por empresa**.
+
+#### Acesso do cliente (criado pelo master)
+
+Na tela **Clientes**, cada empresa sem acesso mostra **"Criar o acesso do cliente"**
+(`action=create-admin`, `CompanyAdminForm`): nome, e-mail, senha inicial e WhatsApp.
+Cria o **Administrador** da empresa (`role=adm`, `company=<empresa>`), provisiona o
+`Attendant` dele com **`must_change_password=True`** (o `InitialPasswordChangeMiddleware`
+força a troca no primeiro acesso) e garante o setor **Geral** da empresa nova. O
+**e-mail é único no sistema inteiro** (é a chave de login), não por empresa. Empresas
+que já têm acesso mostram a lista de administradores no cartão.
+
+#### Modo suporte ("Entrar no painel do cliente")
+
+`action=enter` grava a empresa na sessão (`tenancy.set_active_company`) e leva o master
+para a tela WhatsApp/W-API daquele cliente. Nesse modo ele acessa **apenas as telas de
+configuração** — `MASTER_SUPPORT_KEYS = {'settings', 'sectors', 'attendants',
+'permissions'}`.
+
+**Conversas, Contatos e Dashboard ficam fora de propósito**: são os dados pessoais dos
+clientes finais da empresa, e a regra do projeto é que o master administra sem ler o
+atendimento de ninguém. `visible_conversations` continua devolvendo **vazio** para o
+master, inclusive no modo suporte.
+
+A barra lateral e a tela Clientes mostram um **aviso âmbar** ("Modo suporte — você está
+no painel de X") com o botão **Sair do painel** (`action=leave`), para o master nunca
+confundir de quem é o painel que está vendo. `user_can_access(user, key, in_company=)`
+e `nav_items_for(user, label, in_company=)` recebem esse estado; `require_feature` e
+`build_nav_items(user, label, request)` o calculam por `master_in_company(request)`.
+
+#### Comandos de management por empresa
+
+```bash
+sync_wapi_group_names                  # todas as empresas ativas (uma chamada por empresa)
+sync_wapi_group_names --empresa acme   # apenas uma
+inspect_wapi_groups --empresa acme     # diagnostico da instancia daquele cliente
+sync_wapi_events_to_conversations      # usa a empresa gravada em cada evento
+link_lid_contacts --apply              # resolve o contato dentro da empresa da conversa
+```
+
+#### Como colocar um cliente novo no ar
+
+1. **Clientes → Nova empresa**: dados, logo e cor.
+2. No cartão da empresa, **Criar o acesso do cliente** (o Administrador dele).
+3. **Entrar no painel** → aba **WhatsApp**: colar o Instance ID e o Token da W-API
+   **daquele** cliente e copiar a **URL de webhook exibida** (já vem com o
+   identificador da empresa) para cadastrar no painel da W-API.
+4. Ainda no painel: **Atendimento** (chatbot de menu ou IA) e **Setores**.
+5. **Sair do painel**. O Administrador do cliente entra com a senha inicial, troca a
+   senha e cadastra os atendentes dele.
+
+> A **empresa padrão** continua sendo a dona de tudo o que existia antes do
+> multiempresa e o destino do webhook sem identificador. Não pode ser excluída nem
+> desativada.
+
+### Parte 3 — próxima etapa (portabilidade)
+
+- Botão **Exportar dados da empresa**: ZIP com contatos, conversas, mensagens, setores
+  e atendentes (JSON/CSV) + a pasta de mídias daquele cliente, para quando a empresa
+  deixar de usar o sistema.
+- Encerrar cliente com segurança (exportar → desativar → excluir), com aviso do que
+  será apagado.
+- Ainda em aberto (menor): o **envio de mídia local em base64** e o retry de mídia
+  seguem por conversa, então já respeitam a empresa; nada pendente ali.

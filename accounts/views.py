@@ -26,6 +26,7 @@ from django.views.decorators.http import require_POST
 
 from .forms import (
     AttendantForm,
+    CompanyAdminForm,
     CompanyForm,
     InitialPasswordChangeForm,
     LoginForm,
@@ -75,6 +76,7 @@ from wapi.services import (
     ensure_wapi_image,
     document_filename,
     ingest_wapi_payload,
+    resolve_webhook_company,
     retry_conversation_media_async,
     save_outgoing_media_message,
     save_outgoing_text_message,
@@ -126,10 +128,33 @@ def build_settings_tabs(active_tab, active_subtab='', company=None):
     }
 
 
-def build_nav_items(user, active_label):
+def set_active_company(request, company):
+    """Entra/sai do painel de um cliente (modo suporte do master)."""
+    from .tenancy import set_active_company as _set_active_company
+    return _set_active_company(request, company)
+
+
+def current_company(request):
+    """Empresa da requisicao (ver accounts/tenancy.py)."""
+    from .tenancy import current_company as _current_company
+    return _current_company(request)
+
+
+def master_in_company(request):
+    """O gestor master esta no MODO SUPORTE (entrou no painel de um cliente)?
+
+    Nesse modo ele acessa as telas de CONFIGURACAO daquele cliente
+    (`MASTER_SUPPORT_KEYS`), nunca Conversas/Contatos. Ver accounts/tenancy.py.
+    """
+    from .tenancy import current_company, is_master
+    return is_master(request.user) and current_company(request) is not None
+
+
+def build_nav_items(user, active_label, request=None):
     """Itens do menu conforme as PERMISSOES do usuario (ver accounts/permissions.py)."""
     from .permissions import nav_items_for
-    return nav_items_for(user, active_label)
+    in_company = master_in_company(request) if request is not None else False
+    return nav_items_for(user, active_label, in_company=in_company)
 
 
 def require_master(request):
@@ -153,7 +178,7 @@ def require_feature(request, key):
     """Retorna 403 se o usuario nao pode acessar a feature/botao `key` (o admin
     sempre pode). Retorna None quando o acesso e permitido."""
     from .permissions import user_can_access
-    if not user_can_access(request.user, key):
+    if not user_can_access(request.user, key, in_company=master_in_company(request)):
         return HttpResponseForbidden('Acesso restrito.')
     return None
 
@@ -609,7 +634,7 @@ def dashboard_view(request):
         'role': request.user.role,
         'role_label': request.user.get_role_display(),
         'user_initial': (request.user.first_name[:1] or request.user.email[:1]).upper(),
-        'nav_items': build_nav_items(request.user, 'Dashboard'),
+        'nav_items': build_nav_items(request.user, 'Dashboard', request),
         'today_str': timezone.localdate().strftime('%d/%m/%Y'),
     })
     return render(request, 'accounts/dashboard.html', context)
@@ -690,7 +715,7 @@ def openai_settings_view(request):
         {
             'config_form': config_form,
             'config': config,
-            'nav_items': build_nav_items(request.user, 'Configurações'),
+            'nav_items': build_nav_items(request.user, 'Configurações', request),
             'settings_tabs': build_settings_tabs('atendimento', 'ia', company),
             'mode_form': ReceptionModeForm(initial={'mode': menubot.mode}),
             'ai_active': menubot.mode == MenuBotConfiguration.MODE_AI,
@@ -777,7 +802,7 @@ def atendimento_view(request):
             'sectors': sectors,
             # Setores em JSON para o preenchimento automatico (JS monta as opcoes).
             'sectors_json': [{'id': s.id, 'name': s.name} for s in sectors],
-            'nav_items': build_nav_items(request.user, 'Configurações'),
+            'nav_items': build_nav_items(request.user, 'Configurações', request),
             'settings_tabs': build_settings_tabs('atendimento', 'chatbot', company),
             'mode_form': ReceptionModeForm(initial={'mode': config.mode}),
             'menu_active': config.mode == MenuBotConfiguration.MODE_MENU,
@@ -1194,7 +1219,7 @@ def permissions_view(request):
         request,
         'accounts/permissions.html',
         {
-            'nav_items': build_nav_items(request.user, 'Permissões'),
+            'nav_items': build_nav_items(request.user, 'Permissões', request),
             'role_label': request.user.get_role_display(),
             'user_initial': (request.user.first_name[:1] or request.user.email[:1]).upper(),
             'features': MENU_FEATURES,
@@ -1271,7 +1296,7 @@ def wapi_settings_view(request):
             'config': config,
             'webhook_url': build_wapi_webhook_url(request, company),
             'latest_webhook_events': WapiWebhookEvent.objects.filter(company=company)[:5],
-            'nav_items': build_nav_items(request.user, 'Configurações'),
+            'nav_items': build_nav_items(request.user, 'Configurações', request),
             'settings_tabs': build_settings_tabs('whatsapp', company=company),
             'role_label': request.user.get_role_display(),
             'user_initial': (request.user.first_name[:1] or request.user.email[:1]).upper(),
@@ -1288,7 +1313,7 @@ def wapi_webhook_events_view(request):
     if forbidden_response:
         return forbidden_response
 
-    events = WapiWebhookEvent.objects.all()[:5]
+    events = WapiWebhookEvent.objects.filter(company=request_company(request))[:5]
     return JsonResponse({
         'ok': True,
         'events': [serialize_wapi_event(event) for event in events],
@@ -1380,7 +1405,7 @@ def attendants_view(request):
             'form': form,
             'show_modal': show_modal,
             'modal_mode': modal_mode,
-            'nav_items': build_nav_items(request.user, 'Atendentes'),
+            'nav_items': build_nav_items(request.user, 'Atendentes', request),
             'role_label': request.user.get_role_display(),
             'user_initial': (request.user.first_name[:1] or request.user.email[:1]).upper(),
         },
@@ -1661,7 +1686,7 @@ def conversations_view(request):
         'accounts/conversations.html',
         {
             'role': role,
-            'nav_items': build_nav_items(request.user, 'Conversas'),
+            'nav_items': build_nav_items(request.user, 'Conversas', request),
             'role_label': request.user.get_role_display(),
             'user_initial': (request.user.first_name[:1] or request.user.email[:1]).upper(),
             'conversations': [_serialize_conversation_item(c, request.user) for c in conversations],
@@ -1722,6 +1747,73 @@ def clients_view(request):
                 messages.success(request, f'A empresa "{target.display_name}" foi {estado}.')
             return redirect('clients')
 
+        if action == 'create-admin':
+            # Primeiro ACESSO da empresa: cria o Administrador dela. Dai em diante e
+            # ele quem cadastra atendentes, setores e configuracoes do cliente.
+            if target is None:
+                messages.error(request, 'Empresa não encontrada.')
+                return redirect('clients')
+            admin_form = CompanyAdminForm(request.POST)
+            if admin_form.is_valid():
+                try:
+                    with transaction.atomic():
+                        new_admin = User.objects.create_user(
+                            email=admin_form.cleaned_data['email'],
+                            password=admin_form.cleaned_data['password'],
+                            role=User.Role.ADM,
+                            company=target,
+                        )
+                        first_name, last_name = split_name_parts(admin_form.cleaned_data['name'])
+                        new_admin.first_name = first_name
+                        new_admin.last_name = last_name
+                        new_admin.save(update_fields=['first_name', 'last_name'])
+                        # O sinal ja provisionou o Attendant do admin (ver
+                        # accounts/signals.py); aqui ajustamos nome/telefone e
+                        # OBRIGAMOS a troca da senha no primeiro acesso.
+                        from .signals import ensure_admin_attendant
+                        attendant = ensure_admin_attendant(new_admin)
+                        if attendant is not None:
+                            attendant.name = admin_form.cleaned_data['name']
+                            attendant.phone = admin_form.cleaned_data['phone']
+                            attendant.must_change_password = True
+                            attendant.save(update_fields=[
+                                'name', 'phone', 'must_change_password', 'updated_at',
+                            ])
+                        # Garante o setor Geral da empresa nova.
+                        Sector.ensure_general(target)
+                    messages.success(
+                        request,
+                        f'Acesso criado para "{target.display_name}". '
+                        f'{new_admin.email} entra como Administrador e troca a senha no primeiro acesso.',
+                    )
+                    return redirect('clients')
+                except IntegrityError:
+                    messages.error(request, 'Este e-mail já está em uso no sistema.')
+                    return redirect('clients')
+            # Erro de validacao: mostra a primeira mensagem (padrao toast do projeto).
+            first_error = next(iter(admin_form.errors.values()))[0]
+            messages.error(request, first_error)
+            return redirect('clients')
+
+        if action == 'enter':
+            # MODO SUPORTE: o master passa a operar as telas de CONFIGURACAO deste
+            # cliente (nunca Conversas/Contatos — ver accounts/permissions.py).
+            if target is None:
+                messages.error(request, 'Empresa não encontrada.')
+                return redirect('clients')
+            set_active_company(request, target)
+            messages.success(
+                request,
+                f'Você está no painel de "{target.display_name}". '
+                'Dá para ajustar as configurações do cliente; as conversas dele continuam privadas.',
+            )
+            return redirect('wapi-settings')
+
+        if action == 'leave':
+            set_active_company(request, None)
+            messages.success(request, 'Você saiu do painel do cliente.')
+            return redirect('clients')
+
         # Cadastro (sem company_id) ou edicao (com company_id).
         editing = target
         form = CompanyForm(request.POST, request.FILES, instance=editing)
@@ -1751,6 +1843,16 @@ def clients_view(request):
         conversations_count=Count('conversations', distinct=True),
     )
 
+    # Quem ja tem ACESSO de administrador em cada empresa (para a tela mostrar se
+    # o cliente ja consegue entrar ou se ainda falta criar o primeiro acesso).
+    admins_by_company = {}
+    for u in User.objects.filter(role=User.Role.ADM, company__isnull=False).order_by('email'):
+        admins_by_company.setdefault(u.company_id, []).append(
+            {'email': u.email, 'name': u.get_full_name() or u.email, 'active': u.is_active}
+        )
+    for c in companies:
+        c.admin_list = admins_by_company.get(c.id, [])
+
     # Abrir o modal de edicao direto pelo link da lista (?editar=<id>).
     edit_id = (request.GET.get('editar') or '').strip()
     if form is None and edit_id:
@@ -1767,10 +1869,12 @@ def clients_view(request):
             'form': form or CompanyForm(),
             'editing': editing,
             'show_modal': show_modal,
+            'admin_form': CompanyAdminForm(),
+            'active_company': current_company(request),
             'search_term': term,
             'total_companies': Company.objects.count(),
             'active_companies': Company.objects.filter(is_active=True).count(),
-            'nav_items': build_nav_items(request.user, 'Clientes'),
+            'nav_items': build_nav_items(request.user, 'Clientes', request),
             'role_label': request.user.get_role_display(),
             'user_initial': (request.user.first_name[:1] or request.user.email[:1]).upper(),
         },
@@ -1833,7 +1937,7 @@ def contacts_view(request):
             'contacts': contacts,
             'search_term': term,
             'total_contacts': Contact.objects.filter(company=company).count(),
-            'nav_items': build_nav_items(request.user, 'Contatos'),
+            'nav_items': build_nav_items(request.user, 'Contatos', request),
             'role_label': request.user.get_role_display(),
             'user_initial': (request.user.first_name[:1] or request.user.email[:1]).upper(),
             'read_only': is_read_only(request.user),
@@ -2002,7 +2106,10 @@ def conversation_send_view(request, conversation_id):
 
     # Reutiliza o mesmo servico de envio da tela de teste da W-API.
     # Em grupo, recipient e o JID (@g.us) — nunca o participante individual.
-    result = send_text_message(phone=conversation.recipient, message=outgoing_text)
+    result = send_text_message(
+        phone=conversation.recipient, message=outgoing_text,
+        company=conversation.company,
+    )
     if not result.success:
         # Erro tecnico ja foi logado com seguranca no servico; aqui vai o texto amigavel.
         return JsonResponse({
@@ -2438,7 +2545,7 @@ def sectors_view(request):
         'accounts/sectors.html',
         {
             'role': request.user.role,
-            'nav_items': build_nav_items(request.user, 'Setores'),
+            'nav_items': build_nav_items(request.user, 'Setores', request),
             'role_label': request.user.get_role_display(),
             'user_initial': (request.user.first_name[:1] or request.user.email[:1]).upper(),
             'sectors': sectors,

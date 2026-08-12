@@ -23,6 +23,18 @@ Espera no contexto: `nav_items` (montado por build_nav_items) e `brand`.
     </div>
   </div>
 
+  {% if brand.support_company %}
+    {# MODO SUPORTE: o gestor master entrou no painel deste cliente. O aviso deixa
+       claro de quem e o painel e da a saida em um clique. #}
+    <form method="post" action="{% url 'clients' %}" class="sidebar-support">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="leave">
+      <strong>Modo suporte</strong>
+      <span>Você está no painel de {{ brand.support_company.display_name }}. As conversas dele continuam privadas.</span>
+      <button type="submit">Sair do painel</button>
+    </form>
+  {% endif %}
+
   <nav class="sidebar-nav">
     {% for item in nav_items %}
       <a href="{% if item.href %}{% url item.href %}{% else %}#{% endif %}"

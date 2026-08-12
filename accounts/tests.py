@@ -1,3 +1,4 @@
+import json as _json
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -2904,3 +2905,518 @@ class CompanyBrandingTests(TestCase):
         self.assertEqual(self.company.initials, 'PB')
         self.assertEqual(self.company.location, 'Ribeirão Preto/SP')
         self.assertEqual(Company(name='Sidertec', slug='s').initials, 'SI')
+
+
+class WebhookCompanyRoutingTests(TestCase):
+    """Webhook por cliente: de quem e a mensagem que acabou de chegar?
+
+    Tres degraus (ver wapi.services.resolve_webhook_company): identificador na URL,
+    `instanceId` do payload e, por ultimo, a empresa padrao.
+    """
+
+    def setUp(self):
+        from accounts.models import Company, WapiConfiguration
+        self.default_company = Company.get_default()
+        self.acme = Company.objects.create(name='Acme', slug='acme')
+        cfg = WapiConfiguration.for_company(self.acme)
+        cfg.instance_id = 'INSTANCIA-ACME'
+        cfg.save(update_fields=['instance_id'])
+
+    def _payload(self, text='ola', instance_id=None, phone='5516999990001'):
+        payload = {
+            'messageId': f'MSG-{text}-{phone}',
+            'sender': {'id': phone, 'pushName': 'Cliente'},
+            'chat': {'id': phone},
+            'msgContent': {'conversation': text},
+        }
+        if instance_id:
+            payload['instanceId'] = instance_id
+        return payload
+
+    def test_url_with_slug_routes_to_that_company(self):
+        from wapi.services import resolve_webhook_company
+        self.assertEqual(resolve_webhook_company('acme', {}).pk, self.acme.pk)
+
+    def test_unknown_slug_is_refused(self):
+        from wapi.services import resolve_webhook_company
+        self.assertIsNone(resolve_webhook_company('nao-existe', {}))
+
+    def test_inactive_company_is_refused(self):
+        from wapi.services import resolve_webhook_company
+        self.acme.is_active = False
+        self.acme.save(update_fields=['is_active'])
+        self.assertIsNone(resolve_webhook_company('acme', {}))
+
+    def test_instance_id_resolves_company_without_slug(self):
+        """URL antiga (sem identificador): a empresa vem do instanceId do payload."""
+        from wapi.services import resolve_webhook_company
+        company = resolve_webhook_company('', self._payload(instance_id='INSTANCIA-ACME'))
+        self.assertEqual(company.pk, self.acme.pk)
+
+    def test_unknown_instance_falls_back_to_default(self):
+        from wapi.services import resolve_webhook_company
+        company = resolve_webhook_company('', self._payload(instance_id='NAO-CADASTRADA'))
+        self.assertEqual(company.pk, self.default_company.pk)
+
+    def test_no_slug_no_instance_falls_back_to_default(self):
+        from wapi.services import resolve_webhook_company
+        self.assertEqual(resolve_webhook_company('', {}).pk, self.default_company.pk)
+
+    def test_webhook_url_creates_conversation_in_that_company(self):
+        from accounts.models import Conversation
+        with patch('wapi.services._try_download_media'):
+            r = self.client.post(
+                reverse('wapi-webhook-company', args=['acme']),
+                data=_json.dumps(self._payload(text='ola acme')),
+                content_type='application/json',
+            )
+        self.assertEqual(r.status_code, 200)
+        conv = Conversation.objects.get(company=self.acme)
+        self.assertEqual(conv.messages.first().text, 'ola acme')
+        # Nada foi criado na outra empresa.
+        self.assertFalse(Conversation.objects.filter(company=self.default_company).exists())
+
+    def test_webhook_of_unknown_company_creates_nothing(self):
+        from accounts.models import Conversation, WapiWebhookEvent
+        r = self.client.post(
+            reverse('wapi-webhook-company', args=['nao-existe']),
+            data=_json.dumps(self._payload()),
+            content_type='application/json',
+        )
+        self.assertEqual(r.status_code, 404)
+        self.assertFalse(WapiWebhookEvent.objects.exists())
+        self.assertFalse(Conversation.objects.exists())
+
+    def test_same_number_talking_to_two_companies_stays_separate(self):
+        """O MESMO cliente final falando com duas empresas gera dois chats."""
+        from accounts.models import Conversation
+        with patch('wapi.services._try_download_media'):
+            self.client.post(
+                reverse('wapi-webhook-company', args=['acme']),
+                data=_json.dumps(self._payload(text='oi acme')),
+                content_type='application/json',
+            )
+            self.client.post(
+                reverse('wapi-webhook-company', args=[self.default_company.slug]),
+                data=_json.dumps(self._payload(text='oi padrao')),
+                content_type='application/json',
+            )
+        self.assertEqual(Conversation.objects.filter(company=self.acme).count(), 1)
+        self.assertEqual(Conversation.objects.filter(company=self.default_company).count(), 1)
+        self.assertEqual(
+            Conversation.objects.filter(company=self.acme).first().messages.first().text,
+            'oi acme',
+        )
+
+    def test_webhook_token_is_validated_per_company(self):
+        """Token cadastrado numa empresa nao libera o webhook da outra."""
+        from accounts.models import WapiConfiguration
+        cfg = WapiConfiguration.for_company(self.acme)
+        cfg.webhook_token = 'SEGREDO-ACME'
+        cfg.save(update_fields=['webhook_token'])
+
+        url = reverse('wapi-webhook-company', args=['acme'])
+        r = self.client.post(url, data=_json.dumps(self._payload()), content_type='application/json')
+        self.assertEqual(r.status_code, 403)
+
+        r = self.client.post(
+            f'{url}?token=SEGREDO-ACME',
+            data=_json.dumps(self._payload()), content_type='application/json',
+        )
+        self.assertEqual(r.status_code, 200)
+
+        # A empresa padrao nao tem token: continua aberta (comportamento atual).
+        r = self.client.post(
+            reverse('wapi-webhook-company', args=[self.default_company.slug]),
+            data=_json.dumps(self._payload()), content_type='application/json',
+        )
+        self.assertEqual(r.status_code, 200)
+
+
+class SendUsesCompanyInstanceTests(TestCase):
+    """O envio sai SEMPRE pela instancia da W-API da empresa da conversa."""
+
+    def setUp(self):
+        from accounts.models import Company, Contact, Conversation, WapiConfiguration
+        self.acme = Company.objects.create(name='Acme', slug='acme')
+        for company, instance in ((Company.get_default(), 'INSTANCIA-PADRAO'),
+                                  (self.acme, 'INSTANCIA-ACME')):
+            cfg = WapiConfiguration.for_company(company)
+            cfg.instance_id = instance
+            cfg.token = f'TOKEN-{instance}'
+            cfg.save(update_fields=['instance_id', 'token'])
+
+        self.user = User.objects.create_user(
+            email='adm@acme.com', password='x', role=User.Role.ADM, company=self.acme
+        )
+        contact = Contact.objects.create(company=self.acme, phone='5516999990001', name='Cliente')
+        self.conversation = Conversation.objects.create(
+            company=self.acme, contact=contact, external_id='5516999990001',
+            assigned_attendant=self.user.attendant_profile,
+        )
+        self.client.force_login(self.user)
+
+    def test_send_passes_conversation_company(self):
+        from wapi.client import WapiSendResult
+        send_ok = WapiSendResult(success=True, message_id='WAPI-1')
+        with patch('accounts.views.send_text_message', return_value=send_ok) as mock_send:
+            r = self.client.post(
+                reverse('conversation-send', args=[self.conversation.id]),
+                {'text': 'ola'},
+            )
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(mock_send.call_args.kwargs['company'], self.acme)
+
+    def test_wapi_client_uses_company_credentials(self):
+        """O `_wapi_post` monta a URL com o instanceId DA EMPRESA informada."""
+        from accounts.models import Company
+        from wapi import client as wapi_client
+
+        captured = {}
+
+        class _Resp:
+            status = 200
+
+            def read(self):
+                return b'{"messageId": "X"}'
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+        def _fake_urlopen(req, timeout=None):
+            captured['url'] = req.full_url
+            captured['auth'] = req.headers.get('Authorization')
+            return _Resp()
+
+        with patch.object(wapi_client.request, 'urlopen', _fake_urlopen):
+            wapi_client.send_text_message('5516999990001', 'ola', company=self.acme)
+        self.assertIn('INSTANCIA-ACME', captured['url'])
+        self.assertIn('TOKEN-INSTANCIA-ACME', captured['auth'])
+
+        with patch.object(wapi_client.request, 'urlopen', _fake_urlopen):
+            wapi_client.send_text_message('5516999990001', 'ola', company=Company.get_default())
+        self.assertIn('INSTANCIA-PADRAO', captured['url'])
+
+    def test_company_is_required(self):
+        """Sem empresa a chamada falha de proposito — nunca "escolhe" uma instancia."""
+        from wapi import client as wapi_client
+        with self.assertRaises(ValueError):
+            wapi_client._company_config(None)
+
+
+class CompanyDataIsolationTests(TestCase):
+    """Duas empresas usando o sistema ao mesmo tempo: nenhuma ve a outra."""
+
+    def setUp(self):
+        from accounts.models import Company, Contact, Conversation, Sector
+        self.a = Company.objects.create(name='Empresa A', slug='empresa-a')
+        self.b = Company.objects.create(name='Empresa B', slug='empresa-b')
+
+        self.adm_a = User.objects.create_user(
+            email='adm@a.com', password='x', role=User.Role.ADM, company=self.a
+        )
+        self.adm_b = User.objects.create_user(
+            email='adm@b.com', password='x', role=User.Role.ADM, company=self.b
+        )
+
+        Sector.objects.create(company=self.a, name='Financeiro A')
+        Sector.objects.create(company=self.b, name='Financeiro B')
+        Contact.objects.create(company=self.a, phone='5516000000001', name='Contato A')
+        Contact.objects.create(company=self.b, phone='5516000000002', name='Contato B')
+
+        c_a = Contact.objects.create(company=self.a, phone='5516111111111', name='Cliente A')
+        c_b = Contact.objects.create(company=self.b, phone='5516222222222', name='Cliente B')
+        self.conv_a = Conversation.objects.create(
+            company=self.a, contact=c_a, external_id=c_a.phone, last_message_text='msg da A'
+        )
+        self.conv_b = Conversation.objects.create(
+            company=self.b, contact=c_b, external_id=c_b.phone, last_message_text='msg da B'
+        )
+
+    def test_contacts_screen_shows_only_own_company(self):
+        self.client.force_login(self.adm_a)
+        r = self.client.get(reverse('contacts'))
+        self.assertContains(r, 'Contato A')
+        self.assertNotContains(r, 'Contato B')
+        # A empresa A tem 2 contatos proprios; os da B nao entram na contagem.
+        self.assertContains(r, '2 contato(s) cadastrado(s).')
+
+    def test_sectors_screen_shows_only_own_company(self):
+        self.client.force_login(self.adm_a)
+        r = self.client.get(reverse('sectors'))
+        self.assertContains(r, 'Financeiro A')
+        self.assertNotContains(r, 'Financeiro B')
+
+    def test_attendants_screen_shows_only_own_company(self):
+        self.client.force_login(self.adm_a)
+        r = self.client.get(reverse('attendants'))
+        self.assertContains(r, 'adm@a.com')
+        self.assertNotContains(r, 'adm@b.com')
+
+    def test_permissions_screen_shows_only_own_people(self):
+        self.client.force_login(self.adm_a)
+        r = self.client.get(reverse('permissions'))
+        self.assertContains(r, 'adm@a.com')
+        self.assertNotContains(r, 'adm@b.com')
+
+    def test_conversation_list_shows_only_own_company(self):
+        self.client.force_login(self.adm_a)
+        r = self.client.get(reverse('conversation-list'))
+        titles = [c['name'] for c in r.json()['conversations']]
+        self.assertIn('Cliente A', titles)
+        self.assertNotIn('Cliente B', titles)
+
+    def test_cannot_open_conversation_of_another_company(self):
+        self.client.force_login(self.adm_a)
+        r = self.client.get(reverse('conversation-messages', args=[self.conv_b.id]))
+        self.assertEqual(r.status_code, 403)
+
+    def test_cannot_delete_contact_of_another_company(self):
+        from accounts.models import Contact
+        other = Contact.objects.get(phone='5516000000002')
+        self.client.force_login(self.adm_a)
+        self.client.post(reverse('contacts'), {'action': 'delete', 'contact_id': other.id})
+        self.assertTrue(Contact.objects.filter(pk=other.pk).exists())
+
+    def test_cannot_transfer_to_sector_of_another_company(self):
+        from accounts.models import Sector
+        sector_b = Sector.objects.get(name='Financeiro B')
+        self.client.force_login(self.adm_a)
+        r = self.client.post(
+            reverse('conversation-transfer', args=[self.conv_a.id]),
+            {'sector_id': sector_b.id},
+        )
+        self.assertEqual(r.status_code, 200)
+        self.conv_a.refresh_from_db()
+        self.assertIsNone(self.conv_a.sector_id)   # o setor de outra empresa e ignorado
+
+    def test_dashboard_counts_only_own_company(self):
+        from accounts.views import build_dashboard_context
+        def ativas(ctx):
+            return next(s['value'] for s in ctx['stats'] if s['label'] == 'Conversas ativas')
+
+        # Cada empresa tem 1 conversa ativa: nenhum indicador soma o movimento da outra.
+        self.assertEqual(ativas(build_dashboard_context(self.a)), '1')
+        self.assertEqual(ativas(build_dashboard_context(self.b)), '1')
+
+    def test_same_sector_name_allowed_in_both(self):
+        from accounts.models import Sector
+        self.client.force_login(self.adm_a)
+        self.client.post(reverse('sectors'), {'name': 'Suporte', 'description': ''})
+        self.client.force_login(self.adm_b)
+        self.client.post(reverse('sectors'), {'name': 'Suporte', 'description': ''})
+        self.assertEqual(Sector.objects.filter(name='Suporte').count(), 2)
+
+    def test_duplicated_sector_name_in_same_company_still_blocked(self):
+        from accounts.models import Sector
+        self.client.force_login(self.adm_a)
+        self.client.post(reverse('sectors'), {'name': 'Suporte', 'description': ''})
+        r = self.client.post(reverse('sectors'), {'name': 'Suporte', 'description': ''})
+        self.assertContains(r, 'Já existe um setor com este nome.')
+        self.assertEqual(Sector.objects.filter(company=self.a, name='Suporte').count(), 1)
+
+    def test_each_company_keeps_its_own_admin_rule(self):
+        """A regra "deve existir ao menos um administrador" vale POR EMPRESA: o unico
+        admin da empresa A nao pode ser rebaixado, mesmo havendo admin na B."""
+        self.client.force_login(self.adm_a)
+        outro = User.objects.create_user(
+            email='joao@a.com', password='x', role=User.Role.USUARIO, company=self.a
+        )
+        # Rebaixar o proprio admin e bloqueado (nao pode mexer no proprio perfil).
+        r = self.client.post(reverse('permissions'), {
+            'form_type': 'profile-role', 'user_id': self.adm_a.id, 'role': 'usuario',
+        })
+        self.adm_a.refresh_from_db()
+        self.assertEqual(self.adm_a.role, User.Role.ADM)
+        # Promover alguem da propria empresa funciona.
+        self.client.post(reverse('permissions'), {
+            'form_type': 'profile-role', 'user_id': outro.id, 'role': 'adm',
+        })
+        outro.refresh_from_db()
+        self.assertEqual(outro.role, User.Role.ADM)
+        # Mas nao da para mexer em quem e de outra empresa.
+        self.client.post(reverse('permissions'), {
+            'form_type': 'profile-role', 'user_id': self.adm_b.id, 'role': 'leitor',
+        })
+        self.adm_b.refresh_from_db()
+        self.assertEqual(self.adm_b.role, User.Role.ADM)
+
+
+class MasterClientAccessTests(TestCase):
+    """O master cria o PRIMEIRO ACESSO de cada cliente (o Administrador dele)."""
+
+    def setUp(self):
+        from accounts.models import Company
+        self.acme = Company.objects.create(name='Acme', slug='acme')
+        self.master = User.objects.create_user(
+            email='master@beezap.com', password='x', role=User.Role.MASTER
+        )
+        self.client.force_login(self.master)
+
+    def _create_admin(self, email='responsavel@acme.com', company=None):
+        return self.client.post(reverse('clients'), {
+            'action': 'create-admin',
+            'company_id': (company or self.acme).id,
+            'name': 'Maria Souza',
+            'email': email,
+            'password': 'senha1234',
+            'phone': '(16) 99999-0001',
+        })
+
+    def test_creates_company_admin(self):
+        from accounts.models import Attendant, Sector
+        r = self._create_admin()
+        self.assertRedirects(r, reverse('clients'))
+
+        novo = User.objects.get(email='responsavel@acme.com')
+        self.assertEqual(novo.role, User.Role.ADM)
+        self.assertEqual(novo.company, self.acme)
+        self.assertEqual(novo.get_full_name(), 'Maria Souza')
+
+        attendant = Attendant.objects.get(user=novo)
+        self.assertEqual(attendant.company, self.acme)
+        self.assertEqual(attendant.name, 'Maria Souza')
+        self.assertEqual(attendant.phone, '16999990001')
+        # Obrigado a trocar a senha no primeiro acesso.
+        self.assertTrue(attendant.must_change_password)
+        # A empresa nova ja nasce com o setor Geral padrao.
+        self.assertTrue(Sector.objects.filter(company=self.acme, name='Geral').exists())
+
+    def test_new_admin_can_log_in_and_must_change_password(self):
+        self._create_admin()
+        self.client.logout()
+        self.assertTrue(self.client.login(email='responsavel@acme.com', password='senha1234'))
+        r = self.client.get(reverse('contacts'))
+        self.assertRedirects(r, reverse('change-initial-password'))
+
+    def test_duplicated_email_is_refused(self):
+        User.objects.create_user(email='ocupado@acme.com', password='x', role=User.Role.USUARIO)
+        r = self._create_admin(email='ocupado@acme.com')
+        self.assertRedirects(r, reverse('clients'))
+        self.assertIn(
+            'Este e-mail já está em uso no sistema.',
+            [str(m) for m in get_messages(r.wsgi_request)],
+        )
+        self.assertEqual(User.objects.filter(email='ocupado@acme.com').count(), 1)
+
+    def test_client_admin_sees_only_own_company(self):
+        """O admin criado administra a empresa dele — e so ela."""
+        from accounts.models import Company, Contact
+        outra = Company.objects.create(name='Outra', slug='outra')
+        Contact.objects.create(company=outra, phone='5516999998888', name='Contato da Outra')
+        self._create_admin()
+
+        novo = User.objects.get(email='responsavel@acme.com')
+        novo.attendant_profile.must_change_password = False
+        novo.attendant_profile.save(update_fields=['must_change_password'])
+
+        self.client.force_login(novo)
+        r = self.client.get(reverse('contacts'))
+        self.assertNotContains(r, 'Contato da Outra')
+        # E nao alcanca a gestao de clientes.
+        self.assertEqual(self.client.get(reverse('clients')).status_code, 403)
+
+    def test_only_master_can_create_client_access(self):
+        adm = User.objects.create_user(
+            email='adm@acme.com', password='x', role=User.Role.ADM, company=self.acme
+        )
+        self.client.force_login(adm)
+        r = self._create_admin(email='tentativa@acme.com')
+        self.assertEqual(r.status_code, 403)
+        self.assertFalse(User.objects.filter(email='tentativa@acme.com').exists())
+
+
+class MasterSupportModeTests(TestCase):
+    """MODO SUPORTE: o master entra no painel do cliente para CONFIGURAR — e so isso.
+
+    Conversas e Contatos ficam de fora de proposito (dados pessoais dos clientes
+    finais da empresa). Ver accounts/permissions.MASTER_SUPPORT_KEYS.
+    """
+
+    def setUp(self):
+        from accounts.models import Company
+        self.acme = Company.objects.create(name='Acme', slug='acme')
+        self.master = User.objects.create_user(
+            email='master@beezap.com', password='x', role=User.Role.MASTER
+        )
+        self.client.force_login(self.master)
+
+    def _enter(self, company=None):
+        return self.client.post(reverse('clients'), {
+            'action': 'enter', 'company_id': (company or self.acme).id,
+        })
+
+    def test_enter_redirects_to_client_settings(self):
+        r = self._enter()
+        self.assertRedirects(r, reverse('wapi-settings'))
+
+    def test_config_screens_open_in_support_mode(self):
+        self._enter()
+        for route in ('wapi-settings', 'atendimento', 'openai-settings', 'sectors',
+                      'attendants', 'permissions'):
+            self.assertEqual(self.client.get(reverse(route)).status_code, 200, route)
+
+    def test_conversations_and_contacts_stay_blocked(self):
+        """Mesmo dentro do painel do cliente, o master nao le o atendimento dele."""
+        self._enter()
+        for route in ('conversations', 'contacts', 'dashboard'):
+            r = self.client.get(reverse(route))
+            self.assertNotEqual(r.status_code, 200, route)
+
+    def test_settings_saved_go_to_that_company(self):
+        from accounts.models import WapiConfiguration
+        self._enter()
+        self.client.post(reverse('wapi-settings'), {
+            'form_type': 'config', 'instance_id': 'INSTANCIA-DO-ACME', 'token': 'TOK', 'webhook_token': '',
+        })
+        self.assertEqual(
+            WapiConfiguration.for_company(self.acme).instance_id, 'INSTANCIA-DO-ACME'
+        )
+
+    def test_webhook_url_shown_is_the_client_one(self):
+        self._enter()
+        r = self.client.get(reverse('wapi-settings'))
+        self.assertContains(r, 'webhook/wapi/acme/')
+
+    def test_sector_created_in_support_mode_belongs_to_client(self):
+        from accounts.models import Sector
+        self._enter()
+        self.client.post(reverse('sectors'), {'name': 'Suporte Acme', 'description': ''})
+        sector = Sector.objects.get(name='Suporte Acme')
+        self.assertEqual(sector.company, self.acme)
+
+    def test_leaving_blocks_config_again(self):
+        self._enter()
+        self.assertEqual(self.client.get(reverse('wapi-settings')).status_code, 200)
+        self.client.post(reverse('clients'), {'action': 'leave'})
+        self.assertEqual(self.client.get(reverse('wapi-settings')).status_code, 403)
+
+    def test_support_banner_names_the_client(self):
+        self._enter()
+        r = self.client.get(reverse('clients'))
+        self.assertContains(r, 'Você está no painel de Acme')
+        self.assertContains(r, 'Modo suporte')
+
+    def test_master_menu_grows_in_support_mode(self):
+        from accounts.permissions import nav_items_for
+        labels = [i['label'] for i in nav_items_for(self.master, '', in_company=True)]
+        self.assertIn('Clientes', labels)
+        self.assertIn('Configurações', labels)
+        self.assertIn('Setores', labels)
+        self.assertIn('Permissões', labels)
+        self.assertNotIn('Conversas', labels)
+        self.assertNotIn('Contatos', labels)
+        self.assertNotIn('Dashboard', labels)
+
+    def test_master_still_sees_no_conversation_in_support_mode(self):
+        from accounts.models import Contact, Conversation
+        from accounts.permissions import visible_conversations
+        contact = Contact.objects.create(company=self.acme, phone='5516999990001')
+        Conversation.objects.create(company=self.acme, contact=contact, external_id=contact.phone)
+        self._enter()
+        self.assertFalse(
+            visible_conversations(self.master, Conversation.objects.all()).exists()
+        )

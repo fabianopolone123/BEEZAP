@@ -17,7 +17,7 @@ com ?editar=<id>, o que mantem o modal preenchido mesmo com erro de validacao.
 <link rel="stylesheet" href="{% static 'css/dashboard.css' %}?v=5">
 {# attendants.css traz os botoes compartilhados (primary/secondary/modal-close). #}
 <link rel="stylesheet" href="{% static 'css/attendants.css' %}">
-<link rel="stylesheet" href="{% static 'css/clients.css' %}?v=1">
+<link rel="stylesheet" href="{% static 'css/clients.css' %}?v=2">
 {% endblock %}
 
 {% block content %}
@@ -58,6 +58,21 @@ com ?editar=<id>, o que mantem o modal preenchido mesmo com erro de validacao.
         </article>
       </section>
 
+      {% if active_company %}
+        {# O master está com um painel de cliente aberto (modo suporte). #}
+        <section class="clients-support-bar">
+          <div>
+            <strong>Você está no painel de {{ active_company.display_name }}</strong>
+            <span>Dá para ajustar WhatsApp, IA, setores, atendentes e permissões desse cliente. As conversas dele continuam privadas.</span>
+          </div>
+          <form method="post" class="client-inline-form">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="leave">
+            <button type="submit" class="secondary-button">Sair do painel</button>
+          </form>
+        </section>
+      {% endif %}
+
       <section class="clients-toolbar">
         <form method="get" class="clients-search" role="search">
           <input type="search" name="q" value="{{ search_term }}" placeholder="Buscar por nome, CNPJ ou cidade...">
@@ -95,8 +110,51 @@ com ?editar=<id>, o que mantem o modal preenchido mesmo com erro de validacao.
                 <div><dt>Conversas</dt><dd>{{ c.conversations_count }}</dd></div>
               </dl>
 
+              <div class="client-access">
+                {% if c.admin_list %}
+                  <span class="client-access-label">Acesso do cliente</span>
+                  <ul class="client-admins">
+                    {% for a in c.admin_list %}
+                      <li>{{ a.name }} <span>{{ a.email }}</span></li>
+                    {% endfor %}
+                  </ul>
+                {% else %}
+                  <details class="client-new-access">
+                    <summary>Criar o acesso do cliente</summary>
+                    <p class="client-access-hint">
+                      Cadastre o Administrador da empresa. É ele quem depois cria os
+                      atendentes, os setores e as configurações do WhatsApp.
+                    </p>
+                    <form method="post" class="client-access-form">
+                      {% csrf_token %}
+                      <input type="hidden" name="action" value="create-admin">
+                      <input type="hidden" name="company_id" value="{{ c.id }}">
+                      <label for="admin-name-{{ c.id }}">Nome do responsável</label>
+                      <input type="text" id="admin-name-{{ c.id }}" name="name" maxlength="150" required>
+                      <label for="admin-email-{{ c.id }}">E-mail de acesso</label>
+                      <input type="email" id="admin-email-{{ c.id }}" name="email" required>
+                      <label for="admin-pass-{{ c.id }}">Senha inicial</label>
+                      <input type="password" id="admin-pass-{{ c.id }}" name="password" minlength="4" required
+                             autocomplete="new-password">
+                      <label for="admin-phone-{{ c.id }}">WhatsApp (opcional)</label>
+                      <input type="text" id="admin-phone-{{ c.id }}" name="phone" maxlength="20">
+                      <span class="clients-field-hint">A pessoa troca esta senha no primeiro acesso.</span>
+                      <button type="submit" class="primary-button">Criar acesso</button>
+                    </form>
+                  </details>
+                {% endif %}
+              </div>
+
               <div class="client-actions">
                 <a href="?editar={{ c.id }}{% if search_term %}&amp;q={{ search_term }}{% endif %}" class="secondary-button">Editar</a>
+                {% if c.is_active %}
+                  <form method="post" class="client-inline-form">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="enter">
+                    <input type="hidden" name="company_id" value="{{ c.id }}">
+                    <button type="submit" class="secondary-button">Entrar no painel</button>
+                  </form>
+                {% endif %}
                 {% if not c.is_default %}
                   <form method="post" class="client-inline-form">
                     {% csrf_token %}

@@ -108,6 +108,44 @@ a {
   color: rgba(248, 251, 255, 0.7);
 }
 
+/* Aviso de MODO SUPORTE: o gestor master está operando o painel de um cliente
+   (ver templates/accounts/_sidebar.html). Fica em âmbar para não passar batido. */
+.sidebar-support {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(247, 181, 0, 0.14);
+  border: 1px solid rgba(247, 181, 0, 0.4);
+}
+
+.sidebar-support strong {
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: #f7b500;
+}
+
+.sidebar-support span {
+  font-size: 0.78rem;
+  line-height: 1.35;
+  color: rgba(248, 251, 255, 0.82);
+}
+
+.sidebar-support button {
+  margin-top: 2px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 10px;
+  background: rgba(248, 251, 255, 0.92);
+  color: #15213d;
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
 .sidebar-nav {
   display: grid;
   gap: 8px;

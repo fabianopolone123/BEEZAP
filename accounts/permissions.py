@@ -36,6 +36,16 @@ PERMISSIONS_ITEM = {'label': 'Permissões', 'url_name': 'permissions'}
 # matriz de toggles (nenhum perfil de cliente pode receber este botao).
 CLIENTS_ITEM = {'label': 'Clientes', 'url_name': 'clients'}
 
+# MODO SUPORTE: o que o master pode acessar quando "entra no painel" de um cliente.
+# Sao apenas as telas de CONFIGURACAO — o master ajusta a W-API/IA/chatbot, os
+# setores, os atendentes e as permissoes daquele cliente para dar suporte.
+#
+# `conversations` e `contacts` ficam DE FORA de proposito: sao os dados pessoais dos
+# clientes finais da empresa, e a regra do projeto e que o master administra sem ler
+# o atendimento de ninguem (ver accounts/tenancy.py). `dashboard` tambem fica fora
+# (indicadores do movimento do cliente).
+MASTER_SUPPORT_KEYS = {'settings', 'sectors', 'attendants', 'permissions'}
+
 # Perfis que aparecem na tela para edicao (o admin e sempre acesso total).
 EDITABLE_ROLES = [
     {'role': 'usuario', 'label': 'Usuário'},
@@ -94,16 +104,21 @@ def allowed_keys_for(user):
     return role_allowed_keys(user.role, getattr(user, 'company', None))
 
 
-def user_can_access(user, key):
-    """O usuario pode acessar a feature/botao `key`?"""
+def user_can_access(user, key, in_company=False):
+    """O usuario pode acessar a feature/botao `key`?
+
+    `in_company` = o gestor master esta no MODO SUPORTE (entrou no painel de um
+    cliente). Nesse modo ele acessa apenas as telas de configuracao
+    (`MASTER_SUPPORT_KEYS`) — nunca Conversas/Contatos.
+    """
     if not getattr(user, 'is_authenticated', False):
         return False
     role = getattr(user, 'role', None)
-    # A gestao de clientes e so do master; e o master SO acessa ela.
+    # A gestao de clientes e so do master; e nenhum perfil de cliente a acessa.
     if key == 'clients':
         return role == 'master'
     if role == 'master':
-        return False
+        return in_company and key in MASTER_SUPPORT_KEYS
     if key == 'permissions':
         return role == 'adm'
     if role == 'adm':
@@ -111,17 +126,35 @@ def user_can_access(user, key):
     return key in allowed_keys_for(user)
 
 
-def nav_items_for(user, active_label):
+def nav_items_for(user, active_label, in_company=False):
     """Itens do menu que o usuario pode ver, no formato esperado pelo template."""
     role = getattr(user, 'role', None)
-    # O master tem um menu proprio: so a gestao das empresas clientes.
+    # O master tem um menu proprio: a gestao das empresas clientes e, quando esta no
+    # painel de um cliente (modo suporte), as telas de configuracao dele.
     if role == 'master':
-        return [{
+        items = [{
             'label': CLIENTS_ITEM['label'],
             'url_name': CLIENTS_ITEM['url_name'],
             'href': CLIENTS_ITEM['url_name'],
             'active': CLIENTS_ITEM['label'] == active_label,
         }]
+        if in_company:
+            items += [
+                {
+                    'label': f['label'],
+                    'url_name': f['url_name'],
+                    'href': f['url_name'],
+                    'active': f['label'] == active_label,
+                }
+                for f in MENU_FEATURES if f['key'] in MASTER_SUPPORT_KEYS
+            ]
+            items.append({
+                'label': PERMISSIONS_ITEM['label'],
+                'url_name': PERMISSIONS_ITEM['url_name'],
+                'href': PERMISSIONS_ITEM['url_name'],
+                'active': PERMISSIONS_ITEM['label'] == active_label,
+            })
+        return items
     allowed = allowed_keys_for(user)
     is_adm = role == 'adm'
     items = []

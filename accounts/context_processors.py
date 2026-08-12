@@ -26,15 +26,20 @@ def branding(request):
         return {}
 
     if is_master(user):
+        # MODO SUPORTE: quando o master entra no painel de um cliente, a barra
+        # lateral mostra de quem e o painel para ele nao se confundir.
+        support_company = current_company(request)
         return {
             'brand': {
-                'company': None,
-                'name': PLATFORM_NAME,
-                'subtitle': MASTER_SUBTITLE,
-                'logo_url': '',
-                'initials': '',
-                'accent': '',
+                'company': support_company,
+                'name': support_company.display_name if support_company else PLATFORM_NAME,
+                'subtitle': (f'Suporte · {MASTER_SUBTITLE}' if support_company
+                             else MASTER_SUBTITLE),
+                'logo_url': support_company.logo_url if support_company else '',
+                'initials': support_company.initials if support_company else '',
+                'accent': support_company.accent_color if support_company else '',
                 'is_master': True,
+                'support_company': support_company,
             }
         }
 

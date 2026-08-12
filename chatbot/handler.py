@@ -183,7 +183,10 @@ def _send_reply(conversation, text):
         return False
     from wapi.client import send_text_message
     from wapi.services import save_outgoing_text_message
-    result = send_text_message(conversation.recipient, text)
+    # Envio pela instancia da W-API DA EMPRESA da conversa (multiempresa).
+    result = send_text_message(
+        conversation.recipient, text, company=conversation.company
+    )
     if result.success:
         save_outgoing_text_message(
             conversation, text, external_message_id=result.message_id or '', is_ai=True
@@ -214,7 +217,7 @@ def _handoff(conversation, config):
     Sem divisoria (ver _route_to_sector)."""
     from accounts.models import Sector
     _send_reply(conversation, resolved_handoff_message(config))
-    fallback = config.fallback_sector or Sector.ensure_general()
+    fallback = config.fallback_sector or Sector.ensure_general(conversation.company)
     Conversation.objects.filter(pk=conversation.id).update(
         sector=fallback, assigned_attendant=None, status='pending', ai_turns=0,
     )
@@ -223,7 +226,8 @@ def _handoff(conversation, config):
 
 def _should_handle(conversation):
     """Retorna a config se o chatbot de menu deve atuar nesta conversa, senao None."""
-    config = MenuBotConfiguration.get_solo()
+    # O chatbot de cada empresa tem os SEUS textos, opcoes e modo.
+    config = MenuBotConfiguration.for_company(conversation.company)
     if config.mode != MenuBotConfiguration.MODE_MENU:
         return None
     if conversation.chat_type != 'private':

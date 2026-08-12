@@ -85,9 +85,33 @@
   gap: 14px;
 }
 
+/* Faixa de MODO SUPORTE (o master está com o painel de um cliente aberto). */
+.clients-support-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: rgba(247, 181, 0, 0.14);
+  border: 1px solid rgba(247, 181, 0, 0.42);
+}
+
+.clients-support-bar strong {
+  display: block;
+  color: var(--text);
+}
+
+.clients-support-bar span {
+  display: block;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
 .client-card {
   display: grid;
-  grid-template-columns: minmax(200px, 1.1fr) minmax(0, 2fr) auto;
+  grid-template-columns: minmax(200px, 1.1fr) minmax(0, 1.6fr) minmax(0, 1.2fr) auto;
   align-items: start;
   gap: 18px;
   background: var(--card-bg);
@@ -204,6 +228,93 @@
   font-weight: 600;
   color: var(--text);
   overflow-wrap: anywhere;
+}
+
+/* ── Acesso do cliente (quem administra a empresa) ────────────────────────── */
+
+.client-access {
+  min-width: 0;
+}
+
+.client-access-label {
+  display: block;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+
+.client-admins {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 4px;
+}
+
+.client-admins li {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.client-admins li span {
+  display: block;
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+/* Empresa sem acesso ainda: formulário recolhido para não poluir o cartão. */
+.client-new-access summary {
+  cursor: pointer;
+  font-size: 0.86rem;
+  font-weight: 700;
+  color: var(--blue);
+  padding: 6px 0;
+}
+
+.client-access-hint {
+  margin: 4px 0 10px;
+  font-size: 0.78rem;
+  line-height: 1.4;
+  color: var(--muted);
+}
+
+.client-access-form {
+  display: grid;
+  gap: 6px;
+}
+
+.client-access-form label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.client-access-form input {
+  width: 100%;
+  min-width: 0;
+  padding: 9px 11px;
+  border: 1px solid var(--card-border);
+  border-radius: 11px;
+  background: #fff;
+  font: inherit;
+  font-size: 0.88rem;
+  color: var(--text);
+}
+
+.client-access-form input:focus {
+  outline: 2px solid rgba(45, 108, 223, 0.35);
+  outline-offset: 1px;
+}
+
+.client-access-form .primary-button {
+  margin-top: 6px;
+  padding: 10px 14px;
+  font-size: 0.88rem;
 }
 
 .client-actions {
@@ -427,11 +538,22 @@
 
 /* ── Responsivo ───────────────────────────────────────────────────────────── */
 
+@media (max-width: 1100px) {
+  .client-card {
+    /* Identidade + dados na 1a linha; acesso + acoes na 2a. */
+    grid-template-columns: minmax(200px, 1fr) minmax(0, 1.4fr);
+  }
+}
+
 @media (max-width: 900px) {
   .client-card {
-    /* Cartao vira coluna unica: identidade, dados e acoes empilhados. */
+    /* Cartao vira coluna unica: identidade, dados, acesso e acoes empilhados. */
     grid-template-columns: 1fr;
     gap: 14px;
+  }
+
+  .clients-support-bar {
+    align-items: flex-start;
   }
 
   .client-actions {

@@ -469,6 +469,49 @@ class CompanyForm(forms.ModelForm):
         return self.cleaned_data.get('is_active', True)
 
 
+class CompanyAdminForm(forms.Form):
+    """Primeiro ACESSO de uma empresa cliente (criado pelo gestor master).
+
+    Cria o **Administrador** da empresa: e ele quem, depois, cadastra os atendentes,
+    os setores e as configuracoes do cliente. A senha informada aqui e inicial — a
+    pessoa e obrigada a troca-la no primeiro login (ver
+    `InitialPasswordChangeMiddleware`).
+    """
+
+    name = forms.CharField(
+        label='Nome do responsável',
+        max_length=150,
+        widget=forms.TextInput(attrs={'placeholder': 'Nome de quem vai administrar', 'autocomplete': 'off'}),
+    )
+    email = forms.EmailField(
+        label='E-mail de acesso',
+        widget=forms.EmailInput(attrs={'placeholder': 'responsavel@empresa.com', 'autocomplete': 'off'}),
+    )
+    password = forms.CharField(
+        label='Senha inicial',
+        min_length=4,
+        widget=forms.PasswordInput(attrs={'placeholder': 'Senha para o primeiro acesso', 'autocomplete': 'new-password'}),
+        help_text='A pessoa será obrigada a trocar esta senha no primeiro acesso.',
+    )
+    phone = forms.CharField(
+        label='WhatsApp (para recuperar a senha)',
+        max_length=20,
+        required=False,
+        widget=forms.TextInput(attrs={'placeholder': '5511999999999', 'autocomplete': 'off'}),
+    )
+
+    def clean_email(self):
+        """O e-mail e a chave de login, portanto unico em TODO o sistema (não por
+        empresa) — duas empresas nao podem usar o mesmo e-mail."""
+        email = self.cleaned_data['email'].strip().lower()
+        if User.objects.filter(email=email).exists():
+            raise forms.ValidationError('Este e-mail já está em uso no sistema.')
+        return email
+
+    def clean_phone(self):
+        return Attendant.normalize_phone(self.cleaned_data.get('phone'))
+
+
 class PasswordRecoveryRequestForm(forms.Form):
     email = forms.EmailField(
         label='E-mail',
