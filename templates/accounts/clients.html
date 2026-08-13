@@ -146,6 +146,7 @@ com ?editar=<id>, o que mantem o modal preenchido mesmo com erro de validacao.
               </div>
 
               <div class="client-actions">
+                <a href="{% url 'client-metrics' c.id %}" class="secondary-button">Métricas</a>
                 <a href="?editar={{ c.id }}{% if search_term %}&amp;q={{ search_term }}{% endif %}" class="secondary-button">Editar</a>
                 {% if c.is_active %}
                   <form method="post" class="client-inline-form">

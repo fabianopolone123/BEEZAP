@@ -15,9 +15,10 @@ from django.contrib import messages
 from django.contrib.auth.hashers import make_password
 from django.contrib.auth import authenticate, login, logout, update_session_auth_hash
 from django.contrib.auth.decorators import login_required
+from django.core import signing
 from django.db import IntegrityError, transaction
 from django.db.models import Count, Q
-from django.http import HttpResponseForbidden, JsonResponse
+from django.http import FileResponse, Http404, HttpResponseForbidden, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
@@ -62,6 +63,7 @@ from .models import (
 )
 from gpt.client import test_connection as gpt_test_connection
 from wapi.client import (
+    check_connection as wapi_check_connection,
     send_audio_message,
     send_document_message,
     send_image_message,
@@ -930,15 +932,30 @@ def permissions_view(request):
         EDITABLE_ROLES, MENU_FEATURES, ALL_FEATURE_KEYS,
         role_allowed_keys, allowed_keys_for, history_full_for, effective_view_scope,
     )
+    from .tenancy import is_master
     is_ajax = request.headers.get('x-requested-with') == 'XMLHttpRequest'
     # MULTIEMPRESA: esta tela decide quem ve o que, então TODA consulta aqui e
     # restrita a empresa de quem esta logado — pessoas, setores e grupos de outro
     # cliente nunca aparecem nem podem ser alvo de um POST forjado.
     company = request_company(request)
     company_users = User.objects.filter(company=company)
+    # A aba GRUPOS lista os grupos de WhatsApp do cliente pelo NOME — isso e conteudo
+    # do atendimento, nao configuracao de plataforma. O gestor master nao ve essa aba
+    # nem no modo suporte; quem libera grupo e o Administrador da empresa.
+    show_groups_tab = not is_master(request.user)
 
     if request.method == 'POST':
         form_type = request.POST.get('form_type')
+
+        # Esconder a aba nao basta: o master tambem nao pode MEXER nos grupos do
+        # cliente por um POST forjado (renomear, remover ou liberar acesso).
+        if not show_groups_tab and form_type in ('groups', 'group-name', 'group-remove'):
+            if is_ajax:
+                return JsonResponse(
+                    {'ok': False, 'error': 'O gestor master nao administra os grupos do cliente.'},
+                    status=403,
+                )
+            return HttpResponseForbidden('O gestor master nao administra os grupos do cliente.')
 
         if form_type == 'roles':
             for entry in EDITABLE_ROLES:
@@ -1171,7 +1188,7 @@ def permissions_view(request):
         Conversation.objects.filter(company=company, chat_type='group')
         .prefetch_related('access__sectors', 'access__users')
         .order_by('name', 'external_id')
-    )
+    ) if show_groups_tab else []
     groups_ctx = []
     for g in groups:
         access = getattr(g, 'access', None)
@@ -1266,11 +1283,14 @@ def permissions_view(request):
 
     tab = request.GET.get('tab')
     active_tab = tab if tab in ('people', 'botoes', 'grupos', 'visualizacao') else 'people'
+    if active_tab == 'grupos' and not show_groups_tab:
+        active_tab = 'people'
 
     return render(
         request,
         'accounts/permissions.html',
         {
+            'show_groups_tab': show_groups_tab,
             'nav_items': build_nav_items(request.user, 'Permissões', request),
             'role_label': request.user.get_role_display(),
             'user_initial': (request.user.first_name[:1] or request.user.email[:1]).upper(),
@@ -1757,6 +1777,131 @@ def conversations_view(request):
     )
 
 
+def build_company_metrics(company):
+    """Indicadores de UMA empresa cliente para o gestor master — SO NUMEROS.
+
+    A regra do produto e que o master administra os clientes sem ler o atendimento
+    deles. Entao aqui nao entra nada de conteudo: nenhum texto de mensagem, nome de
+    contato, nome de grupo ou arquivo. Sao contagens, datas e o estado do canal —
+    o suficiente para saber o tamanho do cliente, se ele esta usando o sistema e se
+    o WhatsApp dele esta de pe.
+    """
+    from .models import (
+        Attendant, Contact, Conversation, MenuBotConfiguration, Message, Sector,
+        WapiConfiguration, WapiWebhookEvent,
+    )
+
+    now = timezone.now()
+    last_7 = now - timedelta(days=7)
+    last_30 = now - timedelta(days=30)
+
+    convs = Conversation.objects.filter(company=company)
+    msgs = Message.objects.filter(conversation__company=company).exclude(message_type='system')
+    incoming = msgs.filter(direction='in')
+    outgoing = msgs.filter(direction='out')
+
+    last_in = incoming.order_by('-created_at').values_list('created_at', flat=True).first()
+    last_out = outgoing.order_by('-created_at').values_list('created_at', flat=True).first()
+    last_event = (
+        WapiWebhookEvent.objects.filter(company=company)
+        .order_by('-received_at').values_list('received_at', flat=True).first()
+    )
+
+    users = User.objects.filter(company=company)
+    wapi_config = WapiConfiguration.for_company(company)
+    menu_config = MenuBotConfiguration.for_company(company)
+
+    return {
+        'company': company,
+        'mensagens': {
+            'enviadas': outgoing.count(),
+            'recebidas': incoming.count(),
+            'enviadas_7d': outgoing.filter(created_at__gte=last_7).count(),
+            'recebidas_7d': incoming.filter(created_at__gte=last_7).count(),
+            'enviadas_30d': outgoing.filter(created_at__gte=last_30).count(),
+            'recebidas_30d': incoming.filter(created_at__gte=last_30).count(),
+            # Respostas do atendimento automatico (IA ou chatbot de menu).
+            'automaticas': outgoing.filter(is_ai=True).count(),
+            'com_arquivo': msgs.exclude(media_file='').exclude(media_file__isnull=True).count(),
+            'ultima_recebida': timezone.localtime(last_in) if last_in else None,
+            'ultima_enviada': timezone.localtime(last_out) if last_out else None,
+        },
+        'conversas': {
+            'total': convs.count(),
+            'ativas': convs.exclude(status='closed').count(),
+            'aguardando': convs.filter(status='pending').count(),
+            'finalizadas': convs.filter(status='closed').count(),
+            'grupos': convs.filter(chat_type='group').count(),
+            'novas_7d': convs.filter(created_at__gte=last_7).count(),
+        },
+        'equipe': {
+            'usuarios': users.count(),
+            'usuarios_ativos': users.filter(is_active=True).count(),
+            'administradores': users.filter(role=User.Role.ADM, is_active=True).count(),
+            'atendentes': Attendant.objects.filter(company=company).count(),
+            'setores': Sector.objects.filter(company=company).count(),
+            'contatos': Contact.objects.filter(company=company).count(),
+        },
+        'canal': {
+            # Nunca o Instance ID nem o token — so se existe credencial cadastrada.
+            'configurado': bool(
+                wapi_config.resolved_instance_id().strip() and wapi_config.resolved_token().strip()
+            ),
+            'ultimo_evento': timezone.localtime(last_event) if last_event else None,
+            'eventos': WapiWebhookEvent.objects.filter(company=company).count(),
+            'modo': menu_config.mode,
+            'modo_label': menu_config.get_mode_display(),
+        },
+    }
+
+
+@login_required
+def client_metrics_view(request, company_id):
+    """Tela METRICAS DO CLIENTE (exclusiva do gestor master).
+
+    Mostra o tamanho e a atividade da empresa em NUMEROS — mensagens, conversas,
+    equipe, saude do canal e quando foi a ultima mensagem. Conteudo de conversa,
+    contato, grupo e arquivo continua fora do alcance do master, aqui e em qualquer
+    outra tela (ver accounts/permissions.py e docs/CONTEXTO.md secao 16).
+    """
+    forbidden = require_master(request)
+    if forbidden:
+        return forbidden
+    company = get_object_or_404(Company, pk=company_id)
+    return render(
+        request,
+        'accounts/client_metrics.html',
+        {
+            'nav_items': build_nav_items(request.user, 'Clientes', request),
+            'role_label': request.user.get_role_display(),
+            'user_initial': (request.user.first_name[:1] or request.user.email[:1]).upper(),
+            'metrics': build_company_metrics(company),
+        },
+    )
+
+
+@login_required
+@require_POST
+def client_connection_check_view(request, company_id):
+    """Testa AGORA a conexao do WhatsApp daquele cliente (botao da tela de metricas).
+
+    Fica atras de um botao de proposito: verificar na abertura da tela faria uma
+    chamada externa por empresa toda vez que o master abrisse a lista.
+    """
+    forbidden = require_master(request)
+    if forbidden:
+        return JsonResponse({'ok': False, 'error': 'Área restrita ao gestor master.'}, status=403)
+    company = get_object_or_404(Company, pk=company_id)
+    health = wapi_check_connection(company=company)
+    return JsonResponse({
+        'ok': True,
+        'configured': health.configured,
+        'connected': health.connected,
+        'label': health.label,
+        'detail': health.detail,
+    })
+
+
 @login_required
 def clients_view(request):
     """Tela CLIENTES (exclusiva do gestor master): cadastra e administra as EMPRESAS
@@ -2238,6 +2383,85 @@ def _host_reachable_by_wapi(host):
     return not (ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved)
 
 
+# ---------------------------------------------------------------------------
+# Midia (arquivos das conversas) — acesso controlado
+#
+# Foto, audio, video e documento sao CONTEUDO DO CLIENTE. Por isso o Nginx nao
+# serve mais /beezap/media/whatsapp/ direto (ver docs/DEPLOY.md): o arquivo so sai
+# por `message_media_view`, que aplica as mesmas regras da conversa — empresa +
+# alcance. Uma empresa nao alcanca o arquivo da outra, e o gestor master tambem
+# nao, porque `can_see_conversation` e False para ele.
+#
+# A UNICA excecao e o link assinado (`media_public_view`): a W-API roda na nuvem e
+# baixa pela URL a midia que NOS enviamos, entao esse link precisa ser publico. Ele
+# e assinado, aponta para uma unica mensagem e expira em minutos.
+# ---------------------------------------------------------------------------
+
+MEDIA_LINK_SALT = 'beezap.midia.publica'
+MEDIA_LINK_MAX_AGE = 15 * 60  # 15 min — sobra para a W-API baixar e nada alem disso
+
+
+def _media_link_token(message):
+    """Token assinado (curta duracao) que libera UMA mensagem para a W-API baixar."""
+    return signing.dumps({'m': message.pk}, salt=MEDIA_LINK_SALT)
+
+
+def _serve_media_file(message, as_attachment=False):
+    """Entrega o arquivo local da mensagem. Quem pode pedir e decidido por quem chama."""
+    if not message.media_file:
+        raise Http404('Arquivo nao disponivel.')
+    try:
+        handle = message.media_file.open('rb')
+    except (FileNotFoundError, OSError, ValueError):
+        raise Http404('Arquivo nao disponivel.')
+    filename = ''
+    if message.message_type == 'document':
+        filename = document_filename(message)
+    filename = filename or os.path.basename(message.media_file.name)
+    response = FileResponse(
+        handle,
+        content_type=message.media_mimetype or 'application/octet-stream',
+        as_attachment=as_attachment,
+        filename=filename,
+    )
+    # Conteudo de cliente: nunca em cache compartilhado.
+    response['Cache-Control'] = 'private, max-age=0, no-store'
+    return response
+
+
+@login_required
+def message_media_view(request, message_id):
+    """Serve o arquivo de uma mensagem para quem pode ver aquela conversa.
+
+    Mesma regra da tela: `can_see_conversation` ja filtra por EMPRESA e depois pelo
+    alcance do usuario. Logo: outra empresa recebe 403, um atendente sem alcance
+    recebe 403 e o gestor master tambem — ele administra os clientes, nao le o
+    atendimento deles.
+    """
+    from .permissions import can_see_conversation
+    message = get_object_or_404(
+        Message.objects.select_related('conversation'), pk=message_id
+    )
+    if not can_see_conversation(request.user, message.conversation):
+        return HttpResponseForbidden('Voce nao tem acesso a este arquivo.')
+    return _serve_media_file(message)
+
+
+def media_public_view(request, token):
+    """Link PUBLICO e TEMPORARIO de um arquivo — existe so para a W-API.
+
+    A W-API (nuvem) baixa pela URL a midia que enviamos, entao esse link nao pode
+    exigir login. Em troca ele e assinado (`signing`), vale para UMA mensagem e
+    expira em `MEDIA_LINK_MAX_AGE`. Sem token valido, 404.
+    """
+    try:
+        data = signing.loads(token, salt=MEDIA_LINK_SALT, max_age=MEDIA_LINK_MAX_AGE)
+    except signing.BadSignature:
+        raise Http404('Link expirado ou invalido.')
+    message = get_object_or_404(Message, pk=data.get('m'))
+    return _serve_media_file(message)
+
+
 def _media_file_to_data_uri(field_file, mimetype):
     """Le os bytes do arquivo salvo e devolve um data URI base64 aceito pela W-API
     (ex.: data:image/jpeg;base64,....). Usado quando a URL publica nao e acessivel."""
@@ -2320,8 +2544,12 @@ def conversation_send_media_view(request, conversation_id):
         sender_name=_current_attendant_name(request),
     )
 
-    # URL publica que a W-API consegue baixar (respeita o prefixo /beezap/ via MEDIA_URL).
-    public_url = request.build_absolute_uri(message.media_file.url)
+    # Link ASSINADO e temporario para a W-API baixar o arquivo (ver MEDIA_LINK_SALT).
+    # Nao usamos mais a URL crua do /media/: ela ficaria acessivel para sempre e para
+    # qualquer um que adivinhasse o caminho.
+    public_url = request.build_absolute_uri(
+        reverse('media-public', args=[_media_link_token(message)])
+    )
     # A W-API (nuvem) baixa a midia pela URL. Em producao (dominio publico) isso
     # funciona; em ambiente local (localhost/IP privado) ela nao alcanca a URL e o
     # envio falha -> nesse caso mandamos a midia em base64 (data URI), aceito pela API.

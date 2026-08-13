@@ -5,6 +5,8 @@ from .views import (
     atendimento_set_mode_view,
     attendants_view,
     change_initial_password_view,
+    client_connection_check_view,
+    client_metrics_view,
     clients_view,
     conversation_list_view,
     conversation_close_view,
@@ -20,6 +22,8 @@ from .views import (
     dashboard_view,
     login_view,
     logout_view,
+    media_public_view,
+    message_media_view,
     openai_settings_view,
     permissions_view,
     password_recovery_request_view,
@@ -42,6 +46,11 @@ urlpatterns = [
     path('dashboard/', dashboard_view, name='dashboard'),
     # Gestao das empresas clientes (exclusiva do gestor master).
     path('clientes/', clients_view, name='clients'),
+    # Metricas de um cliente (so o gestor master): numeros e saude do canal, nunca
+    # conteudo de conversa. Ver docs/CONTEXTO.md secao 16.
+    path('clientes/<int:company_id>/metricas/', client_metrics_view, name='client-metrics'),
+    path('clientes/<int:company_id>/metricas/conexao/', client_connection_check_view,
+         name='client-connection-check'),
     path('conversas/', conversations_view, name='conversations'),
     path('contatos/', contacts_view, name='contacts'),
     path('conversas/lista/', conversation_list_view, name='conversation-list'),
@@ -53,6 +62,12 @@ urlpatterns = [
     path('conversas/<int:conversation_id>/transferir/', conversation_transfer_view, name='conversation-transfer'),
     path('conversas/<int:conversation_id>/assumir/', conversation_take_view, name='conversation-take'),
     path('conversas/<int:conversation_id>/encerrar/', conversation_close_view, name='conversation-close'),
+    # Midia das conversas. O arquivo NAO e mais servido direto pelo /media/ do Nginx:
+    # e conteudo do cliente, entao sai por uma view que aplica as regras da conversa
+    # (empresa + alcance). O link publico e assinado, temporario e existe so porque a
+    # W-API (nuvem) baixa a midia que enviamos. Ver accounts/views.py.
+    path('midia/<int:message_id>/', message_media_view, name='message-media'),
+    path('midia-publica/<str:token>/', media_public_view, name='media-public'),
     path('setores/', sectors_view, name='sectors'),
     path('setores/salvar/', sectors_save_organization_view, name='sectors-save'),
     path('atendentes/', attendants_view, name='attendants'),

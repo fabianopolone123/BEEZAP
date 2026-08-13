@@ -512,8 +512,12 @@ def _download_to_media_file(message, file_link, mimetype):
             )
             continue
         try:
+            # Nome ALEATORIO (uuid), nunca o id da mensagem: o nome sequencial
+            # `wapi_<id>.jpg` era adivinhavel, entao quem descobrisse um caminho
+            # descobria todos — inclusive os de outra empresa. Hoje o acesso passa
+            # pela view autenticada `message-media`, e o uuid e a segunda tranca.
             message.media_file.save(
-                f'wapi_{message.id}.{_ext_for_media(message, mimetype)}', ContentFile(data), save=False
+                f'{uuid.uuid4().hex}.{_ext_for_media(message, mimetype)}', ContentFile(data), save=False
             )
             media_logger.info(
                 'download-media: salvo local (msg=%s bytes=%s ctype=%s).',

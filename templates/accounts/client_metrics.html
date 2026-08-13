@@ -1,0 +1,238 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% comment %}
+Tela METRICAS DO CLIENTE — exclusiva do GESTOR MASTER.
+
+Regra de privacidade do projeto (docs/CONTEXTO.md secao 16): o master administra as
+empresas clientes, mas NAO le o atendimento delas. Por isso aqui so entram NUMEROS,
+DATAS e o estado do canal — nunca texto de mensagem, nome de contato, nome de grupo
+ou arquivo. Quem precisar do conteudo e o Administrador da propria empresa.
+{% endcomment %}
+
+{% block title %}Métricas de {{ metrics.company.display_name }} | BEEZap{% endblock %}
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/dashboard.css' %}?v=5">
+<link rel="stylesheet" href="{% static 'css/attendants.css' %}">
+<link rel="stylesheet" href="{% static 'css/client_metrics.css' %}?v=1">
+{% endblock %}
+
+{% block content %}
+<main class="dashboard-shell">
+  {% include "accounts/_sidebar.html" %}
+
+  <section class="dashboard-main">
+    <div class="metrics-page">
+      <header class="topbar">
+        <div class="topbar-left">
+          <h1>Métricas do cliente</h1>
+          <p>Acompanhe o uso da empresa sem entrar no atendimento dela.</p>
+        </div>
+        <div class="topbar-right">
+          <a href="{% url 'clients' %}" class="secondary-button">Voltar para Clientes</a>
+        </div>
+      </header>
+
+      <article class="metrics-identity">
+        <div class="metrics-logo"
+             {% if not metrics.company.logo_url %}style="background: {{ metrics.company.accent_color|default:'#1f7a53' }};"{% endif %}>
+          {% if metrics.company.logo_url %}
+            <img src="{{ metrics.company.logo_url }}" alt="Logo de {{ metrics.company.display_name }}">
+          {% else %}
+            {{ metrics.company.initials }}
+          {% endif %}
+        </div>
+        <div class="metrics-identity-text">
+          <h2>{{ metrics.company.display_name }}</h2>
+          <p>
+            {% if metrics.company.legal_name %}{{ metrics.company.legal_name }} · {% endif %}
+            <span class="metrics-badge {% if metrics.company.is_active %}is-on{% else %}is-off{% endif %}">
+              {{ metrics.company.status_label }}
+            </span>
+          </p>
+        </div>
+      </article>
+
+      <p class="metrics-privacy">
+        🔒 Esta tela mostra apenas quantidades e datas. O conteúdo das conversas,
+        os contatos e os arquivos da empresa continuam fora do alcance da gestão.
+      </p>
+
+      <!-- ============ CANAL (WhatsApp) ============ -->
+      <section class="metrics-block">
+        <h3>Canal de WhatsApp</h3>
+        <div class="metrics-grid">
+          <article class="metrics-card">
+            <span class="metrics-label">Credenciais</span>
+            <strong class="metrics-value {% if metrics.canal.configurado %}is-ok{% else %}is-pending{% endif %}">
+              {% if metrics.canal.configurado %}Configuradas{% else %}Pendentes{% endif %}
+            </strong>
+            <span class="metrics-hint">Instance ID e Token cadastrados na aba WhatsApp.</span>
+          </article>
+
+          <article class="metrics-card" data-health-card>
+            <span class="metrics-label">Conexão agora</span>
+            <strong class="metrics-value" data-health-label>Não verificada</strong>
+            <span class="metrics-hint" data-health-detail>Clique em "Testar conexão" para consultar a W-API.</span>
+            <button type="button" class="secondary-button metrics-test"
+                    data-check-url="{% url 'client-connection-check' metrics.company.id %}">
+              Testar conexão
+            </button>
+          </article>
+
+          <article class="metrics-card">
+            <span class="metrics-label">Primeiro atendimento</span>
+            <strong class="metrics-value">{{ metrics.canal.modo_label }}</strong>
+            <span class="metrics-hint">Modo escolhido pelo cliente (desligado, chatbot ou IA).</span>
+          </article>
+
+          <article class="metrics-card">
+            <span class="metrics-label">Último evento recebido</span>
+            <strong class="metrics-value">
+              {% if metrics.canal.ultimo_evento %}{{ metrics.canal.ultimo_evento|date:"d/m/Y H:i" }}{% else %}—{% endif %}
+            </strong>
+            <span class="metrics-hint">{{ metrics.canal.eventos }} evento(s) de webhook no total.</span>
+          </article>
+        </div>
+      </section>
+
+      <!-- ============ MENSAGENS ============ -->
+      <section class="metrics-block">
+        <h3>Mensagens</h3>
+        <div class="metrics-grid">
+          <article class="metrics-card">
+            <span class="metrics-label">Enviadas</span>
+            <strong class="metrics-value">{{ metrics.mensagens.enviadas }}</strong>
+            <span class="metrics-hint">{{ metrics.mensagens.enviadas_7d }} em 7 dias · {{ metrics.mensagens.enviadas_30d }} em 30 dias</span>
+          </article>
+          <article class="metrics-card">
+            <span class="metrics-label">Recebidas</span>
+            <strong class="metrics-value">{{ metrics.mensagens.recebidas }}</strong>
+            <span class="metrics-hint">{{ metrics.mensagens.recebidas_7d }} em 7 dias · {{ metrics.mensagens.recebidas_30d }} em 30 dias</span>
+          </article>
+          <article class="metrics-card">
+            <span class="metrics-label">Última enviada</span>
+            <strong class="metrics-value">
+              {% if metrics.mensagens.ultima_enviada %}{{ metrics.mensagens.ultima_enviada|date:"d/m/Y H:i" }}{% else %}—{% endif %}
+            </strong>
+            <span class="metrics-hint">Só a data e a hora — nunca o texto.</span>
+          </article>
+          <article class="metrics-card">
+            <span class="metrics-label">Última recebida</span>
+            <strong class="metrics-value">
+              {% if metrics.mensagens.ultima_recebida %}{{ metrics.mensagens.ultima_recebida|date:"d/m/Y H:i" }}{% else %}—{% endif %}
+            </strong>
+            <span class="metrics-hint">Serve para saber se o canal está vivo.</span>
+          </article>
+          <article class="metrics-card">
+            <span class="metrics-label">Respostas automáticas</span>
+            <strong class="metrics-value">{{ metrics.mensagens.automaticas }}</strong>
+            <span class="metrics-hint">Enviadas pela IA ou pelo chatbot de menu.</span>
+          </article>
+          <article class="metrics-card">
+            <span class="metrics-label">Mensagens com arquivo</span>
+            <strong class="metrics-value">{{ metrics.mensagens.com_arquivo }}</strong>
+            <span class="metrics-hint">Quantidade de anexos guardados (sem acesso a eles).</span>
+          </article>
+        </div>
+      </section>
+
+      <!-- ============ CONVERSAS ============ -->
+      <section class="metrics-block">
+        <h3>Conversas</h3>
+        <div class="metrics-grid">
+          <article class="metrics-card">
+            <span class="metrics-label">Ativas</span>
+            <strong class="metrics-value">{{ metrics.conversas.ativas }}</strong>
+            <span class="metrics-hint">Ainda não finalizadas.</span>
+          </article>
+          <article class="metrics-card">
+            <span class="metrics-label">Aguardando</span>
+            <strong class="metrics-value">{{ metrics.conversas.aguardando }}</strong>
+            <span class="metrics-hint">Na fila de algum setor.</span>
+          </article>
+          <article class="metrics-card">
+            <span class="metrics-label">Finalizadas</span>
+            <strong class="metrics-value">{{ metrics.conversas.finalizadas }}</strong>
+            <span class="metrics-hint">Atendimentos encerrados.</span>
+          </article>
+          <article class="metrics-card">
+            <span class="metrics-label">Novas em 7 dias</span>
+            <strong class="metrics-value">{{ metrics.conversas.novas_7d }}</strong>
+            <span class="metrics-hint">{{ metrics.conversas.total }} no total · {{ metrics.conversas.grupos }} grupo(s).</span>
+          </article>
+        </div>
+      </section>
+
+      <!-- ============ EQUIPE ============ -->
+      <section class="metrics-block">
+        <h3>Equipe e cadastro</h3>
+        <div class="metrics-grid">
+          <article class="metrics-card">
+            <span class="metrics-label">Atendentes</span>
+            <strong class="metrics-value">{{ metrics.equipe.atendentes }}</strong>
+            <span class="metrics-hint">{{ metrics.equipe.administradores }} administrador(es).</span>
+          </article>
+          <article class="metrics-card">
+            <span class="metrics-label">Usuários ativos</span>
+            <strong class="metrics-value">{{ metrics.equipe.usuarios_ativos }}</strong>
+            <span class="metrics-hint">{{ metrics.equipe.usuarios }} conta(s) cadastrada(s).</span>
+          </article>
+          <article class="metrics-card">
+            <span class="metrics-label">Setores</span>
+            <strong class="metrics-value">{{ metrics.equipe.setores }}</strong>
+            <span class="metrics-hint">Filas de atendimento da empresa.</span>
+          </article>
+          <article class="metrics-card">
+            <span class="metrics-label">Contatos</span>
+            <strong class="metrics-value">{{ metrics.equipe.contatos }}</strong>
+            <span class="metrics-hint">Quantidade — a lista é do cliente.</span>
+          </article>
+        </div>
+      </section>
+    </div>
+  </section>
+</main>
+
+<script>
+(function () {
+  var button = document.querySelector('[data-check-url]');
+  if (!button) { return; }
+  var card = document.querySelector('[data-health-card]');
+  var label = card.querySelector('[data-health-label]');
+  var detail = card.querySelector('[data-health-detail]');
+
+  function csrf() {
+    var m = document.cookie.match(/(^|;)\s*csrftoken=([^;]+)/);
+    return m ? m[2] : '';
+  }
+
+  button.addEventListener('click', function () {
+    button.disabled = true;
+    label.textContent = 'Verificando…';
+    label.className = 'metrics-value';
+    detail.textContent = 'Consultando a W-API deste cliente.';
+
+    fetch(button.dataset.checkUrl, {
+      method: 'POST',
+      headers: { 'X-CSRFToken': csrf(), 'X-Requested-With': 'XMLHttpRequest' },
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (!data.ok) { throw new Error(data.error || 'Falha'); }
+        label.textContent = data.label;
+        // Verde conectado, ambar indefinido, vermelho fora do ar.
+        label.className = 'metrics-value ' +
+          (data.connected === true ? 'is-ok' : (data.connected === false ? 'is-off' : 'is-pending'));
+        detail.textContent = data.detail || 'A instância respondeu normalmente.';
+      })
+      .catch(function () {
+        label.textContent = 'Não foi possível verificar';
+        label.className = 'metrics-value is-pending';
+        detail.textContent = 'Tente de novo em alguns instantes.';
+      })
+      .then(function () { button.disabled = false; });
+  });
+})();
+</script>
+{% endblock %}

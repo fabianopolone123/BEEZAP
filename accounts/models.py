@@ -920,12 +920,17 @@ class Message(models.Model):
 
     @property
     def resolved_media_url(self):
-        """Preferir o arquivo salvo localmente; senao o link remoto (pode expirar)."""
+        """URL para EXIBIR a midia no chat.
+
+        O arquivo local NAO e mais entregue pela URL direta do /media/: foto, audio,
+        video e documento sao conteudo do cliente, entao passam pela view autenticada
+        `message-media`, que aplica as MESMAS regras da conversa (empresa + alcance) —
+        e por isso o gestor master tambem nao alcanca. Sem arquivo local, sobra o link
+        remoto da W-API (que expira).
+        """
         if self.media_file:
-            try:
-                return self.media_file.url
-            except ValueError:
-                return ''
+            from django.urls import reverse
+            return reverse('message-media', args=[self.pk])
         return self.media_url or ''
 
     def __str__(self):

@@ -11,8 +11,11 @@ server {
         alias /var/www/beezap/staticfiles/;
     }
 
-    location /media/ {
-        alias /var/www/beezap/media/;
+    # ATENCAO: servir /media/ inteiro deixa a midia das conversas (foto, audio,
+    # video, documento) publica para quem souber o caminho. Libere SO os logos das
+    # empresas; a midia sai pela view autenticada do Django (/midia/<id>/).
+    location /media/empresas/ {
+        alias /var/www/beezap/media/empresas/;
     }
 
     location / {
@@ -54,8 +57,20 @@ location /beezap/static/ {
     access_log off;
 }
 
-location /beezap/media/ {
-    alias /var/www/beezap/media/;
+# 3) MIDIA — cuidado aqui.
+#
+# NAO servir /beezap/media/ inteiro. A pasta `media/whatsapp/` guarda as fotos,
+# audios, videos e documentos das conversas dos CLIENTES: servida direto pelo
+# Nginx, ela fica acessivel a qualquer um que descubra o caminho, sem login e sem
+# checagem de empresa. Essa midia sai pela view autenticada do Django
+# (`/beezap/midia/<id>/`), que aplica as regras da conversa, e a W-API baixa a
+# midia enviada por um link assinado e temporario (`/beezap/midia-publica/...`).
+#
+# Aqui fica publica apenas a pasta dos LOGOS das empresas, que aparecem na barra
+# lateral e nao tem nada de conversa.
+location /beezap/media/empresas/ {
+    alias /var/www/beezap/media/empresas/;
+    access_log off;
 }
 
 location /beezap/ {

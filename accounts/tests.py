@@ -3661,3 +3661,398 @@ class AiFallbackUsesCompanyChatbotSectorTests(TestCase):
         self.assertEqual(resolved.pk, geral_outra.pk)
         self.assertEqual(resolved.company, outra)   # o Geral da propria empresa
         self.assertNotEqual(resolved.pk, self.triagem.pk)
+
+
+class MediaAccessTests(TestCase):
+    """Arquivo de conversa (foto/audio/video/documento) e conteudo do CLIENTE.
+
+    Antes, a midia ficava em `media/whatsapp/wapi_<id>.<ext>` e o Nginx servia a
+    pasta inteira: qualquer um que adivinhasse o caminho baixava o arquivo, de
+    qualquer empresa, sem login. Agora ela so sai pela view `message-media`, com as
+    mesmas regras da conversa — e o gestor master tambem nao passa.
+    """
+
+    def setUp(self):
+        from django.core.files.base import ContentFile
+        from accounts.models import Company, Contact, Conversation, Message
+        self.a = Company.objects.create(name='Midia A', slug='midia-a')
+        self.b = Company.objects.create(name='Midia B', slug='midia-b')
+        self.adm_a = User.objects.create_user(
+            email='adm@midia-a.com', password='x', role=User.Role.ADM, company=self.a
+        )
+        self.adm_b = User.objects.create_user(
+            email='adm@midia-b.com', password='x', role=User.Role.ADM, company=self.b
+        )
+        self.master = User.objects.create_user(
+            email='master@midia.com', password='x', role=User.Role.MASTER
+        )
+        contact = Contact.objects.create(company=self.a, phone='5516999990001', name='Cliente A')
+        self.conv = Conversation.objects.create(
+            company=self.a, contact=contact, external_id=contact.phone
+        )
+        self.message = Message.objects.create(
+            conversation=self.conv, direction='in', message_type='image',
+            media_mimetype='image/jpeg', media_status='ok',
+        )
+        self.message.media_file.save('teste.jpg', ContentFile(b'conteudo-secreto'), save=True)
+        self.url = reverse('message-media', args=[self.message.pk])
+
+    def tearDown(self):
+        self.message.media_file.delete(save=False)
+
+    def test_owner_company_can_open_the_file(self):
+        self.client.force_login(self.adm_a)
+        r = self.client.get(self.url)
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(b''.join(r.streaming_content), b'conteudo-secreto')
+
+    def test_other_company_cannot_open_the_file(self):
+        self.client.force_login(self.adm_b)
+        self.assertEqual(self.client.get(self.url).status_code, 403)
+
+    def test_master_cannot_open_the_file(self):
+        """O master administra os clientes; nao le nem baixa o atendimento deles."""
+        self.client.force_login(self.master)
+        self.assertEqual(self.client.get(self.url).status_code, 403)
+
+    def test_master_in_support_mode_cannot_open_the_file(self):
+        """Nem dentro do painel do cliente (modo suporte)."""
+        from accounts.tenancy import ACTIVE_COMPANY_SESSION_KEY
+        self.client.force_login(self.master)
+        session = self.client.session
+        session[ACTIVE_COMPANY_SESSION_KEY] = self.a.pk
+        session.save()
+        self.assertEqual(self.client.get(self.url).status_code, 403)
+
+    def test_anonymous_is_sent_to_login(self):
+        r = self.client.get(self.url)
+        self.assertEqual(r.status_code, 302)
+
+    def test_serializer_points_to_the_protected_url(self):
+        """O chat recebe a URL da view, nunca o caminho cru em /media/."""
+        self.assertEqual(self.message.resolved_media_url, self.url)
+        self.assertNotIn('/media/', self.message.resolved_media_url)
+
+    def test_downloaded_media_filename_is_not_guessable(self):
+        """Nome de arquivo aleatorio: sem o `wapi_<id>` sequencial de antes."""
+        from unittest.mock import MagicMock
+        from unittest.mock import patch as _patch
+        from accounts.models import Message
+        from wapi.services import _download_to_media_file
+        message = Message.objects.create(
+            conversation=self.conv, direction='in', message_type='image',
+            media_mimetype='image/jpeg',
+        )
+        fake = MagicMock()
+        fake.__enter__.return_value.read.return_value = b'bytes-da-foto'
+        fake.__enter__.return_value.headers.get.return_value = 'image/jpeg'
+        with _patch('wapi.services.request.urlopen', return_value=fake):
+            saved = _download_to_media_file(message, 'http://exemplo/arquivo', 'image/jpeg')
+        self.assertTrue(saved)
+        name = message.media_file.name or ''
+        self.assertTrue(name)
+        self.assertNotIn('wapi_%s' % message.pk, name)
+        message.media_file.delete(save=False)
+
+
+class PublicMediaLinkTests(TestCase):
+    """Link assinado que a W-API usa para baixar a midia que ENVIAMOS.
+
+    E o unico caminho publico que sobrou, porque a W-API roda na nuvem e busca o
+    arquivo pela URL. Em troca ele e assinado, vale para uma mensagem so e expira.
+    """
+
+    def setUp(self):
+        from django.core.files.base import ContentFile
+        from accounts.models import Company, Contact, Conversation, Message
+        self.company = Company.objects.create(name='Envio', slug='envio-midia')
+        contact = Contact.objects.create(company=self.company, phone='5516999990002', name='Cliente')
+        conv = Conversation.objects.create(
+            company=self.company, contact=contact, external_id=contact.phone
+        )
+        self.message = Message.objects.create(
+            conversation=conv, direction='out', message_type='image',
+            media_mimetype='image/jpeg', media_status='ok',
+        )
+        self.message.media_file.save('saida.jpg', ContentFile(b'foto-enviada'), save=True)
+
+    def tearDown(self):
+        self.message.media_file.delete(save=False)
+
+    def test_valid_token_serves_the_file_without_login(self):
+        from accounts.views import _media_link_token
+        url = reverse('media-public', args=[_media_link_token(self.message)])
+        r = self.client.get(url)
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(b''.join(r.streaming_content), b'foto-enviada')
+
+    def test_invalid_token_is_404(self):
+        self.assertEqual(self.client.get(reverse('media-public', args=['abc'])).status_code, 404)
+
+    def test_expired_token_is_404(self):
+        from unittest.mock import patch as _patch
+        from accounts.views import _media_link_token
+        url = reverse('media-public', args=[_media_link_token(self.message)])
+        with _patch('accounts.views.MEDIA_LINK_MAX_AGE', -1):
+            self.assertEqual(self.client.get(url).status_code, 404)
+
+
+class MasterDoesNotSeeGroupNamesTests(TestCase):
+    """Nome de grupo de WhatsApp e conteudo do cliente, nao configuracao."""
+
+    def setUp(self):
+        from accounts.models import Company, Conversation
+        from accounts.tenancy import ACTIVE_COMPANY_SESSION_KEY
+        self.company = Company.objects.create(name='Grupos', slug='grupos-cli')
+        self.adm = User.objects.create_user(
+            email='adm@grupos.com', password='x', role=User.Role.ADM, company=self.company
+        )
+        self.master = User.objects.create_user(
+            email='master@grupos.com', password='x', role=User.Role.MASTER
+        )
+        Conversation.objects.create(
+            company=self.company, chat_type='group',
+            external_id='120363000000000001@g.us', name='Obra Rua das Flores',
+        )
+        self.session_key = ACTIVE_COMPANY_SESSION_KEY
+
+    def _enter_support_mode(self):
+        self.client.force_login(self.master)
+        session = self.client.session
+        session[self.session_key] = self.company.pk
+        session.save()
+
+    def test_company_admin_still_sees_the_groups_tab(self):
+        self.client.force_login(self.adm)
+        r = self.client.get(reverse('permissions'))
+        self.assertContains(r, 'Obra Rua das Flores')
+
+    def test_master_in_support_mode_does_not_see_group_names(self):
+        self._enter_support_mode()
+        r = self.client.get(reverse('permissions'))
+        self.assertEqual(r.status_code, 200)
+        self.assertNotContains(r, 'Obra Rua das Flores')
+        self.assertNotContains(r, 'Acesso aos grupos')
+
+    def test_master_cannot_rename_a_group_by_forged_post(self):
+        from accounts.models import Conversation
+        self._enter_support_mode()
+        group = Conversation.objects.get(external_id='120363000000000001@g.us')
+        r = self.client.post(reverse('permissions'), {
+            'form_type': 'group-name', 'group_id': group.pk, 'name': 'Renomeado pelo master',
+        })
+        self.assertEqual(r.status_code, 403)
+        group.refresh_from_db()
+        self.assertEqual(group.name, 'Obra Rua das Flores')
+
+    def test_master_cannot_remove_a_group_by_forged_post(self):
+        from accounts.models import Conversation
+        self._enter_support_mode()
+        group = Conversation.objects.get(external_id='120363000000000001@g.us')
+        r = self.client.post(reverse('permissions'), {
+            'form_type': 'group-remove', 'group_id': group.pk,
+        })
+        self.assertEqual(r.status_code, 403)
+        self.assertTrue(Conversation.objects.filter(pk=group.pk).exists())
+
+
+class ClientMetricsTests(TestCase):
+    """Painel de METRICAS do master: numeros do cliente, nunca o conteudo dele."""
+
+    def setUp(self):
+        from accounts.models import (
+            Company, Contact, Conversation, Message, Sector, WapiWebhookEvent,
+        )
+        self.company = Company.objects.create(name='Metrica SA', slug='metrica-sa')
+        self.outra = Company.objects.create(name='Outra SA', slug='outra-sa')
+        self.master = User.objects.create_user(
+            email='master@metricas.com', password='x', role=User.Role.MASTER
+        )
+        self.adm = User.objects.create_user(
+            email='adm@metrica.com', password='x', role=User.Role.ADM, company=self.company
+        )
+        Sector.objects.create(company=self.company, name='Suporte')
+
+        contact = Contact.objects.create(
+            company=self.company, phone='5516988880000', name='Joana Segredo'
+        )
+        self.conv = Conversation.objects.create(
+            company=self.company, contact=contact, external_id=contact.phone, status='open'
+        )
+        Message.objects.create(
+            conversation=self.conv, direction='in', message_type='text',
+            text='meu cartao de credito e 1234',
+        )
+        Message.objects.create(
+            conversation=self.conv, direction='out', message_type='text', text='resposta secreta',
+        )
+        Message.objects.create(
+            conversation=self.conv, direction='out', message_type='text',
+            text='resposta da IA', is_ai=True,
+        )
+        Conversation.objects.create(
+            company=self.company, chat_type='group',
+            external_id='120363000000000009@g.us', name='Grupo Confidencial',
+        )
+        WapiWebhookEvent.objects.create(company=self.company, event_type='message')
+
+        # Dados da OUTRA empresa: nao podem entrar na conta desta.
+        outro_contato = Contact.objects.create(
+            company=self.outra, phone='5516977770000', name='De Outra'
+        )
+        conv_outra = Conversation.objects.create(
+            company=self.outra, contact=outro_contato, external_id=outro_contato.phone
+        )
+        Message.objects.create(
+            conversation=conv_outra, direction='in', message_type='text', text='da outra',
+        )
+
+        self.url = reverse('client-metrics', args=[self.company.pk])
+
+    # ----- Quem entra -----
+
+    def test_master_opens_the_metrics_screen(self):
+        self.client.force_login(self.master)
+        r = self.client.get(self.url)
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, 'Métricas do cliente')
+        self.assertContains(r, 'Metrica SA')
+
+    def test_company_admin_cannot_open_the_metrics_screen(self):
+        """A tela e de gestao da plataforma; o cliente tem o Dashboard dele."""
+        self.client.force_login(self.adm)
+        self.assertEqual(self.client.get(self.url).status_code, 403)
+
+    def test_anonymous_is_sent_to_login(self):
+        self.assertEqual(self.client.get(self.url).status_code, 302)
+
+    # ----- O que a tela mostra (e o que nao mostra) -----
+
+    def test_screen_never_shows_conversation_content(self):
+        self.client.force_login(self.master)
+        r = self.client.get(self.url)
+        self.assertNotContains(r, 'meu cartao de credito')
+        self.assertNotContains(r, 'resposta secreta')
+        self.assertNotContains(r, 'Joana Segredo')
+        self.assertNotContains(r, 'Grupo Confidencial')
+        self.assertNotContains(r, '5516988880000')
+
+    def test_screen_never_shows_credentials(self):
+        from accounts.models import WapiConfiguration
+        config = WapiConfiguration.for_company(self.company)
+        config.instance_id = 'INSTANCIA-SECRETA'
+        config.token = 'TOKEN-SECRETO'
+        config.save()
+        self.client.force_login(self.master)
+        r = self.client.get(self.url)
+        self.assertNotContains(r, 'INSTANCIA-SECRETA')
+        self.assertNotContains(r, 'TOKEN-SECRETO')
+        self.assertContains(r, 'Configuradas')
+
+    # ----- Os numeros -----
+
+    def test_metrics_count_only_this_company(self):
+        from accounts.views import build_company_metrics
+        m = build_company_metrics(self.company)
+        self.assertEqual(m['mensagens']['recebidas'], 1)   # a da outra empresa fica fora
+        self.assertEqual(m['mensagens']['enviadas'], 2)
+        self.assertEqual(m['mensagens']['automaticas'], 1)
+        self.assertEqual(m['conversas']['total'], 2)       # a direta + o grupo
+        self.assertEqual(m['conversas']['grupos'], 1)
+        self.assertEqual(m['equipe']['contatos'], 1)
+        # "Suporte" + o setor "Geral", que toda empresa ganha automaticamente.
+        self.assertEqual(m['equipe']['setores'], 2)
+        self.assertEqual(m['canal']['eventos'], 1)
+
+    def test_metrics_bring_the_last_message_dates(self):
+        from accounts.views import build_company_metrics
+        m = build_company_metrics(self.company)
+        self.assertIsNotNone(m['mensagens']['ultima_recebida'])
+        self.assertIsNotNone(m['mensagens']['ultima_enviada'])
+
+    def test_system_dividers_do_not_count_as_messages(self):
+        from accounts.models import Message
+        from accounts.views import build_company_metrics
+        Message.objects.create(
+            conversation=self.conv, direction='out', message_type='system',
+            text='Atendimento encerrado',
+        )
+        m = build_company_metrics(self.company)
+        self.assertEqual(m['mensagens']['enviadas'], 2)
+
+    def test_channel_shows_pending_when_there_is_no_credential(self):
+        from accounts.views import build_company_metrics
+        self.assertFalse(build_company_metrics(self.company)['canal']['configurado'])
+
+
+class ClientConnectionCheckTests(TestCase):
+    """Botao "Testar conexao": estado do canal do cliente, sem expor credencial."""
+
+    def setUp(self):
+        from accounts.models import Company
+        self.company = Company.objects.create(name='Canal SA', slug='canal-sa')
+        self.master = User.objects.create_user(
+            email='master@canal.com', password='x', role=User.Role.MASTER
+        )
+        self.adm = User.objects.create_user(
+            email='adm@canal.com', password='x', role=User.Role.ADM, company=self.company
+        )
+        self.url = reverse('client-connection-check', args=[self.company.pk])
+
+    def test_master_gets_the_channel_state(self):
+        from unittest.mock import patch as _patch
+        from wapi.client import WapiHealth
+        health = WapiHealth(configured=True, connected=True, label='Conectado', detail='')
+        self.client.force_login(self.master)
+        with _patch('accounts.views.wapi_check_connection', return_value=health):
+            r = self.client.post(self.url)
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json()['label'], 'Conectado')
+        self.assertTrue(r.json()['connected'])
+
+    def test_company_admin_cannot_use_it(self):
+        self.client.force_login(self.adm)
+        self.assertEqual(self.client.post(self.url).status_code, 403)
+
+    def test_without_credentials_it_says_not_configured_without_calling_the_api(self):
+        from wapi.client import check_connection
+        health = check_connection(company=self.company)
+        self.assertFalse(health.configured)
+        self.assertEqual(health.label, 'Nao configurado')
+
+    def test_reads_connected_from_the_status_body(self):
+        from unittest.mock import patch as _patch
+        from accounts.models import WapiConfiguration
+        from wapi.client import check_connection
+        config = WapiConfiguration.for_company(self.company)
+        config.instance_id, config.token = 'i', 't'
+        config.save()
+        with _patch('wapi.client._wapi_get', return_value=(True, 200, {'connected': True}, None)):
+            self.assertTrue(check_connection(company=self.company).connected)
+        with _patch('wapi.client._wapi_get', return_value=(True, 200, {'status': 'disconnected'}, None)):
+            self.assertFalse(check_connection(company=self.company).connected)
+
+    def test_rejected_credential_is_reported(self):
+        from unittest.mock import patch as _patch
+        from accounts.models import WapiConfiguration
+        from wapi.client import check_connection
+        config = WapiConfiguration.for_company(self.company)
+        config.instance_id, config.token = 'i', 't'
+        config.save()
+        with _patch('wapi.client._wapi_get', return_value=(False, 401, None, 'erro')):
+            health = check_connection(company=self.company)
+        self.assertFalse(health.connected)
+        self.assertEqual(health.label, 'Credencial recusada')
+
+    def test_falls_back_to_the_groups_probe_when_status_route_is_missing(self):
+        from unittest.mock import patch as _patch
+        from accounts.models import WapiConfiguration
+        from wapi.client import check_connection
+        config = WapiConfiguration.for_company(self.company)
+        config.instance_id, config.token = 'i', 't'
+        config.save()
+        respostas = [(False, 404, None, 'erro'), (True, 200, [], None)]
+        with _patch('wapi.client._wapi_get', side_effect=respostas):
+            health = check_connection(company=self.company)
+        self.assertTrue(health.connected)
+        self.assertEqual(health.label, 'Conectado')

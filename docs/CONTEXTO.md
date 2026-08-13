@@ -277,6 +277,37 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
 - Rótulos de "última mensagem": 📷 Imagem, 🎧 Áudio, 🎥 Vídeo, 🎞️ GIF, 💟 Figurinha,
   👍 Reação, 📄 Documento.
 
+### Arquivos de mídia: acesso controlado (NÃO servir pelo Nginx)
+
+Foto, áudio, vídeo e documento das conversas são **conteúdo do cliente**. Eles ficam
+em `media/whatsapp/`, mas **essa pasta não é publicada pelo Nginx** — o arquivo só
+sai por duas rotas do Django:
+
+| Rota | Quem passa | Para quê |
+|---|---|---|
+| `midia/<id>/` (`message-media`) | **login** + `can_see_conversation` | é o que o chat usa |
+| `midia-publica/<token>/` (`media-public`) | qualquer um **com o token assinado**, por 15 min | só para a **W-API** baixar a mídia que enviamos |
+
+- `Message.resolved_media_url` devolve a rota **autenticada** (não mais
+  `media_file.url`), então o serializer do chat nunca entrega o caminho cru.
+- O **gestor master é barrado** aqui como qualquer um de fora, porque
+  `can_see_conversation` é `False` para ele — inclusive no modo suporte.
+- O link público é gerado por `_media_link_token(message)`
+  (`django.core.signing`, salt `beezap.midia.publica`, `MEDIA_LINK_MAX_AGE` = 15 min)
+  e usado em `conversation_send_media_view`. Ele existe porque a W-API roda na
+  **nuvem** e baixa a mídia pela URL; o envio local continua caindo em **base64**
+  (`_host_reachable_by_wapi`).
+- Os arquivos recebidos passaram a ser salvos com **nome aleatório (uuid)**. Antes
+  eram `wapi_<id_da_mensagem>.<ext>` — **sequencial**, então quem descobrisse um
+  caminho descobria todos. Arquivos antigos continuam no disco com o nome velho; o
+  acesso a eles agora também passa pela view, então não há o que migrar.
+- `media/empresas/` (logos das empresas) **continua público**: aparece na barra
+  lateral e não tem nada de conversa.
+
+> **No deploy isso exige mudar o Nginx** (trocar `location /beezap/media/` por
+> `location /beezap/media/empresas/`). Ver `DEPLOY.md` — sem isso, a mídia continua
+> aberta pelo caminho antigo mesmo com o código novo.
+
 ### Webhook (POR CLIENTE — ver seção 16)
 - View `wapi_webhook_view` (`@csrf_exempt`). Rotas: **`/webhook/wapi/<empresa>/`**
   (recomendada) e `/webhook/wapi/` (antiga, mantida) — cada uma também sob
@@ -420,6 +451,30 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
 - Rota `clientes/` (`clients_view`, nome de rota `clients`), **exclusiva do gestor
   master**: cadastra e administra as **empresas clientes** (dados, CNPJ, logo, cor de
   destaque, ativar/desativar, excluir). Detalhes completos na **seção 16**.
+- Cada cartão tem o botão **Métricas**, que leva à tela da seção 5.3.
+
+## 5.0.1. Tela Métricas do cliente (`templates/accounts/client_metrics.html` + `client_metrics.css`)
+
+- Rota `clientes/<id>/metricas/` (`client_metrics_view`, nome `client-metrics`),
+  **exclusiva do gestor master** (`require_master`; o ADM do cliente recebe **403**).
+- **Só números, datas e estado do canal** — é a tela que responde "qual o tamanho
+  deste cliente e ele está usando o sistema?", sem violar a regra de que o master não
+  lê o atendimento. Dados de `build_company_metrics(company)` (em `views.py`):
+  - **Canal**: credenciais configuradas (sim/não — **nunca** o Instance ID ou o
+    token), modo de primeiro atendimento, último evento de webhook e total de eventos.
+  - **Mensagens**: enviadas e recebidas (total, 7 e 30 dias), respostas automáticas
+    (IA/chatbot), mensagens com arquivo e **data/hora da última enviada e recebida**.
+  - **Conversas**: ativas, aguardando, finalizadas, grupos e novas em 7 dias.
+  - **Equipe**: atendentes, administradores, usuários ativos, setores e contatos.
+  - As divisórias (`message_type='system'`) **não** entram na contagem de mensagens.
+- **Saúde da conexão**: botão **Testar conexão** (`client-connection-check`, POST,
+  só master) → `wapi.client.check_connection(company=...)`, que consulta
+  `status-instance` e, se essa rota não existir no plano (404/405), sonda com
+  `get-all-groups`. Devolve `WapiHealth` (configurado / conectado / rótulo /
+  explicação). Fica **atrás de um botão** de propósito: verificar na abertura faria
+  uma chamada externa por empresa a cada visita.
+- Há teste garantindo que a tela **não** exibe texto de mensagem, nome de contato,
+  nome de grupo, telefone nem credencial.
 
 ## 5.1. Tela Contatos (`templates/accounts/contacts.html` + `contacts.css`)
 
@@ -462,9 +517,14 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
   ```nginx
   location /beezap/static/admin/ { alias /var/www/beezap/staticfiles/admin/; }
   location /beezap/static/       { alias /var/www/beezap/static/; }   # serve a FONTE
-  location /beezap/media/        { alias /var/www/beezap/media/; }
+  location /beezap/media/empresas/ { alias /var/www/beezap/media/empresas/; }  # SO logos
   location /beezap/              { proxy_pass http://127.0.0.1:8103/; ... }
   ```
+  > **Não servir `/beezap/media/` inteiro.** A pasta `media/whatsapp/` guarda os
+  > arquivos das conversas dos clientes; publicada pelo Nginx, ela fica acessível
+  > sem login e sem checagem de empresa. A mídia sai pela view autenticada do Django
+  > (ver seção 4, "Arquivos de mídia"). Se o servidor ainda tiver o bloco antigo,
+  > **trocar no deploy** — o código novo sozinho não fecha esse caminho.
 - **Prefixo `/beezap/`**: resolvido no Django via **`FORCE_SCRIPT_NAME=/beezap`**
   (`.env`), que prefixa todos os `{% url %}`/redirects. `LOGIN_URL`/
   `LOGIN_REDIRECT_URL`/`LOGOUT_REDIRECT_URL` são **nomes de rota** (herdam o prefixo).
@@ -597,8 +657,9 @@ seed_demo_data [--no-clear]             # popula DEMO: 5 setores/atendentes + co
   (ZIP com contatos/conversas/mensagens/setores/atendentes + mídias), para quando o
   cliente deixar de usar o sistema; e encerrar/desativar cliente com segurança.
   **Próxima etapa.** (As Partes 1 e 2 estão concluídas — ver seção 16.)
-- **MULTIEMPRESA — Parte 4**: planos/limites por cliente, indicadores e consumo de
-  tokens por empresa.
+- **MULTIEMPRESA — Parte 4**: planos/limites por cliente e consumo de **tokens por
+  empresa**. *(Os **indicadores por cliente já existem** — tela de Métricas, seção
+  5.0.1. Falta o rateio de tokens, que hoje é só da plataforma, e os limites/planos.)*
 - **Nova conversa**: botão para iniciar um chat digitando número + mensagem (e abrir
   em Conversas). Combinado como próxima etapa.
 - **Fila de atendimento**: tela/fluxo da fila por setor. Próxima etapa.
@@ -636,6 +697,12 @@ seed_demo_data [--no-clear]             # popula DEMO: 5 setores/atendentes + co
 - Servidor: usar **chave SSH** e usuário não-root; **rotacionar** qualquer
   credencial que tenha sido exposta. Nunca colar senha/token em chat ou commit.
 - Nunca expor token/payload/traceback ao usuário final (padrão já seguido).
+- **Arquivo de conversa nunca é servido pelo Nginx** — só pela view autenticada
+  (seção 4). Ao mexer em mídia, manter esse caminho: publicar a pasta de novo
+  reabre o vazamento entre empresas.
+- **Dado de cliente sempre filtrado por `company`**; o master não lê atendimento
+  (seção 16, "O que o master NÃO alcança"). Ao criar tela/endpoint novo, começar
+  pelo escopo de empresa, não deixá-lo para depois.
 
 ## 12. Ciclo de atendimento (assumir / encerrar)
 
@@ -1240,6 +1307,27 @@ no painel de X") com o botão **Sair do painel** (`action=leave`), para o master
 confundir de quem é o painel que está vendo. `user_can_access(user, key, in_company=)`
 e `nav_items_for(user, label, in_company=)` recebem esse estado; `require_feature` e
 `build_nav_items(user, label, request)` o calculam por `master_in_company(request)`.
+
+#### O que o master NÃO alcança (privacidade) — e o que ele vê no lugar
+
+Regra: **o master administra os clientes e não lê o atendimento deles** — nem o de
+uma empresa, nem o de outra, em nenhuma tela e por nenhuma URL.
+
+| O que | Como está fechado |
+|---|---|
+| Conversas e mensagens | `visible_conversations`/`can_see_conversation` devolvem vazio/False para o master (inclusive no modo suporte); os endpoints AJAX têm `deny_master_json` |
+| **Arquivos** (foto/áudio/vídeo/documento) | só saem por `message-media`, que usa `can_see_conversation` → **403 para o master**. O Nginx não publica mais `media/whatsapp/` (seção 4) |
+| Contatos e Dashboard | fora de `MASTER_SUPPORT_KEYS` |
+| **Nomes dos grupos** de WhatsApp | a aba **Grupos** das Permissões **não aparece** para o master, e os POSTs `groups`/`group-name`/`group-remove` devolvem **403** — quem libera grupo é o ADM da empresa |
+| Uma empresa ver a outra | toda consulta passa por `company`; `scoped()` sem empresa não devolve nada |
+
+**No lugar disso, ele tem a tela de Métricas** (seção 5.0.1): quantidade de mensagens
+enviadas/recebidas, atendentes, conversas por estado, saúde da conexão da W-API e
+quando foi a última mensagem — números e datas, nunca conteúdo.
+
+> **Consumo de tokens de IA continua da PLATAFORMA** (`OpenAiConfiguration`, tela
+> Inteligência (IA)), porque a API Key é única do master. A métrica por empresa que
+> chega perto disso é a contagem de **respostas automáticas** (`Message.is_ai`).
 
 #### Comandos de management por empresa
 

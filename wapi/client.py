@@ -11,6 +11,7 @@ from wapi.parser import normalize_recipient
 
 WAPI_MESSAGE_PREFIX = '/v1/message/'
 WAPI_GROUP_PREFIX = '/v1/group/'
+WAPI_INSTANCE_PREFIX = '/v1/instance/'
 
 # Mensagens amigaveis (nunca expor token, payload bruto ou traceback ao usuario).
 SEND_GENERIC_ERROR = (
@@ -253,6 +254,89 @@ def download_media(media_key, direct_path, media_type, mimetype, *, company):
     }
     ok, _status, body, _err = _wapi_post('download-media', payload, company)
     return body if ok else None
+
+
+@dataclass
+class WapiHealth:
+    """Saude da conexao do WhatsApp de UMA empresa (usado no painel do master).
+
+    E so o estado do canal — nunca conteudo de conversa.
+    """
+    configured: bool          # tem instancia + token cadastrados?
+    connected: bool | None    # True/False; None = nao deu para verificar agora
+    label: str                # texto curto para a tela
+    detail: str = ''          # explicacao amigavel (sem token, sem traceback)
+
+
+def check_connection(*, company):
+    """Consulta a W-API se a instancia DA EMPRESA esta conectada ao WhatsApp.
+
+    Primeiro tenta o endpoint de status da instancia; se essa rota nao existir no
+    plano/versao da conta (404), cai numa chamada conhecida (`get-all-groups`) so
+    para saber se a credencial responde. Nunca levanta excecao e nunca expoe token.
+    """
+    config = _company_config(company)
+    if not config.resolved_instance_id().strip() or not config.resolved_token().strip():
+        return WapiHealth(
+            configured=False, connected=False, label='Nao configurado',
+            detail='Cadastre o Instance ID e o Token na aba WhatsApp deste cliente.',
+        )
+
+    ok, status, body, _err = _wapi_get('status-instance', company, prefix=WAPI_INSTANCE_PREFIX)
+    if ok:
+        connected = _health_from_status_body(body)
+        if connected is None:
+            return WapiHealth(
+                configured=True, connected=None, label='Nao foi possivel verificar',
+                detail='A W-API respondeu, mas nao informou o estado da conexao.',
+            )
+        return WapiHealth(
+            configured=True, connected=connected,
+            label='Conectado' if connected else 'Desconectado',
+            detail='' if connected else 'Reconecte o WhatsApp no painel da W-API (ler o QR Code).',
+        )
+
+    # Rota de status indisponivel: usa uma chamada que sabemos existir como sonda.
+    if status in (404, 405):
+        probe_ok, _s, _b, _e = _wapi_get('get-all-groups', company, prefix=WAPI_GROUP_PREFIX)
+        if probe_ok:
+            return WapiHealth(
+                configured=True, connected=True, label='Conectado',
+                detail='Verificado pela consulta de grupos (a conta respondeu).',
+            )
+
+    if status in (401, 403):
+        return WapiHealth(
+            configured=True, connected=False, label='Credencial recusada',
+            detail='A W-API recusou o Instance ID/Token deste cliente.',
+        )
+    return WapiHealth(
+        configured=True, connected=None, label='Nao foi possivel verificar',
+        detail='A W-API nao respondeu agora. Tente de novo em alguns instantes.',
+    )
+
+
+def _health_from_status_body(body):
+    """Le o corpo do status-instance e diz se esta conectado (None = nao deu p/ saber).
+
+    A W-API ja devolveu esse estado com nomes diferentes conforme a versao, entao
+    aceitamos as formas conhecidas em vez de fixar uma so.
+    """
+    if not isinstance(body, dict):
+        return None
+    for key in ('connected', 'isConnected', 'loggedIn'):
+        value = body.get(key)
+        if isinstance(value, bool):
+            return value
+    for key in ('status', 'state', 'connectionStatus', 'instanceStatus'):
+        value = body.get(key)
+        if isinstance(value, str) and value.strip():
+            text = value.strip().lower()
+            if text in ('connected', 'open', 'online', 'authenticated', 'inchat', 'success'):
+                return True
+            if text in ('disconnected', 'close', 'closed', 'offline', 'unpaired', 'error', 'failed'):
+                return False
+    return None
 
 
 def get_all_groups(*, company):

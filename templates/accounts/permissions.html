@@ -37,7 +37,11 @@
         <button type="button" class="perm-tab {% if active_tab == 'people' %}is-active{% endif %}" data-tab="people">Perfis</button>
         <button type="button" class="perm-tab {% if active_tab == 'botoes' %}is-active{% endif %}" data-tab="botoes">Botões do perfil</button>
         <button type="button" class="perm-tab {% if active_tab == 'visualizacao' %}is-active{% endif %}" data-tab="visualizacao">Visualização de conversas</button>
+        {# A aba Grupos mostra os nomes dos grupos de WhatsApp do cliente (conteudo do
+           atendimento), entao nao aparece para o gestor master. #}
+        {% if show_groups_tab %}
         <button type="button" class="perm-tab {% if active_tab == 'grupos' %}is-active{% endif %}" data-tab="grupos">Grupos</button>
+        {% endif %}
       </nav>
 
       <!-- ============ ABA: PERFIS (papel de cada pessoa) ============ -->
@@ -279,6 +283,7 @@
       </section>
 
       <!-- ============ ABA: GRUPOS ============ -->
+      {% if show_groups_tab %}
       <section class="perm-panel {% if active_tab == 'grupos' %}is-active{% endif %}" data-panel="grupos">
         <form method="post" class="perm-card" data-autosave="Acessos aos grupos salvos.">
           {% csrf_token %}
@@ -344,6 +349,7 @@
           {% endfor %}
         </form>
       </section>
+      {% endif %}
 
     </div>
   </section>

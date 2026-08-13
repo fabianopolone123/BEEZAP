@@ -28,7 +28,9 @@ psycopg), o servidor precisa destas dependências de **sistema** (não vêm pelo
   ```
   > O `python manage.py check` avisa quando o ffmpeg está ausente
   > (**`beezap.W001`**) — assim o problema aparece no deploy, não só em produção.
-- **nginx** — proxy reverso; serve `/beezap/static/` e `/beezap/media/`.
+- **nginx** — proxy reverso; serve `/beezap/static/` e **apenas**
+  `/beezap/media/empresas/` (logos). A mídia das conversas **não** é servida pelo
+  Nginx — ver a seção de mídia mais abaixo.
 - **git** — deploy via `git pull`.
 
 Verificação rápida depois de instalar:
@@ -44,13 +46,47 @@ Para o app funcionar sob o prefixo `/beezap/` e para a mídia funcionar:
 ```
 FORCE_SCRIPT_NAME=/beezap      # Django gera todas as URLs com o prefixo
 STATIC_URL=/beezap/static/     # CSS/JS servidos pelo Nginx sob /beezap/static/
-MEDIA_URL=/beezap/media/       # arquivos de midia; a W-API baixa por esta URL publica
+MEDIA_URL=/beezap/media/       # caminho dos arquivos salvos (logos das empresas)
 ```
 
-Sem `MEDIA_URL=/beezap/media/`, o envio de mídia (imagem/áudio/vídeo/documento)
-falha porque a URL pública gerada fica inacessível para a W-API. As credenciais
-da W-API (Instance ID e Token) ficam salvas no banco pela tela de Configurações
-— não precisam estar no `.env`.
+As credenciais da W-API (Instance ID e Token) ficam salvas no banco pela tela de
+Configurações — não precisam estar no `.env`.
+
+## ⚠️ Mídia das conversas NÃO pode ser servida pelo Nginx
+
+As fotos, áudios, vídeos e documentos das conversas (`media/whatsapp/`) são
+**conteúdo dos clientes**. Servindo essa pasta direto pelo Nginx, o arquivo fica
+acessível a **qualquer um que descubra o caminho** — sem login, sem checagem de
+empresa. Era assim até aqui, e os arquivos recebidos ainda usavam nome sequencial
+(`wapi_<id>.jpg`), o que tornava a enumeração trivial.
+
+Hoje a mídia sai por duas rotas do próprio Django:
+
+- **`/beezap/midia/<id>/`** — exige login e aplica as regras da conversa (empresa +
+  alcance). É o que o chat usa. O **gestor master também é barrado** aqui.
+- **`/beezap/midia-publica/<token>/`** — link **assinado** e de **curta duração**
+  (15 min), usado só para a W-API (que roda na nuvem) baixar a mídia que enviamos.
+
+**No Nginx, o bloco `location /beezap/media/` deve ser trocado** por um que libere
+apenas os logos das empresas:
+
+```nginx
+# REMOVER:  location /beezap/media/ { alias /var/www/beezap/media/; }
+location /beezap/media/empresas/ {
+    alias /var/www/beezap/media/empresas/;
+    access_log off;
+}
+```
+
+Confira depois do deploy (o primeiro tem que dar **404**, o segundo **302/200**):
+
+```bash
+curl -o /dev/null -s -w "%{http_code}\n" https://fabianopolone.com.br/beezap/media/whatsapp/wapi_1.jpg
+curl -o /dev/null -s -w "%{http_code}\n" https://fabianopolone.com.br/beezap/midia/1/
+```
+
+> `client_max_body_size` continua valendo para o **upload**; o download agora passa
+> pelo gunicorn (`FileResponse`), então nada precisa mudar de tamanho.
 
 ## O problema que já aconteceu
 
