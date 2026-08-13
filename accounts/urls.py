@@ -8,6 +8,8 @@ from .views import (
     client_connection_check_view,
     client_metrics_view,
     clients_view,
+    company_data_view,
+    company_export_view,
     conversation_list_view,
     conversation_close_view,
     conversation_messages_view,
@@ -74,6 +76,9 @@ urlpatterns = [
     path('permissoes/', permissions_view, name='permissions'),
     path('trocar-senha-inicial/', change_initial_password_view, name='change-initial-password'),
     path('configuracoes/ia/', openai_settings_view, name='openai-settings'),
+    # Portabilidade: o CLIENTE leva os dados dele (o master nao exporta).
+    path('configuracoes/dados/', company_data_view, name='company-data'),
+    path('configuracoes/dados/exportar/', company_export_view, name='company-export'),
     path('configuracoes/atendimento/', atendimento_view, name='atendimento'),
     path('configuracoes/atendimento/modo/', atendimento_set_mode_view, name='atendimento-mode'),
     path('configuracoes/wapi/', wapi_settings_view, name='wapi-settings'),

@@ -27,6 +27,7 @@ Leia também: `CODEX_PADROES.md`, `GIT.md`, `HISTORICO.md`, `DEPLOY.md`,
 config/            settings.py (env-driven), urls.py, wsgi.py
 accounts/          app principal: models, views, urls, forms, admin, middleware,
                    backends, permissions.py, tenancy.py (multiempresa),
+                   export.py (ZIP de portabilidade do cliente),
                    context_processors.py (marca do cliente),
                    management/commands/, templates de accounts
 wapi/              MÓDULO (não é app instalado): client.py, parser.py, services.py, formatting.py
@@ -653,10 +654,9 @@ seed_demo_data [--no-clear]             # popula DEMO: 5 setores/atendentes + co
 
 ## 10. Pendências / próximas etapas
 
-- **MULTIEMPRESA — Parte 3 (portabilidade)**: botão **Exportar dados da empresa**
-  (ZIP com contatos/conversas/mensagens/setores/atendentes + mídias), para quando o
-  cliente deixar de usar o sistema; e encerrar/desativar cliente com segurança.
-  **Próxima etapa.** (As Partes 1 e 2 estão concluídas — ver seção 16.)
+- ~~**MULTIEMPRESA — Parte 3 (portabilidade)**~~ — **CONCLUÍDA**: aba **Meus dados**
+  (o **cliente** baixa o ZIP com contatos/conversas/mensagens/mídias) e encerramento
+  seguro do cliente. Ver seção 16.
 - **MULTIEMPRESA — Parte 4**: planos/limites por cliente e consumo de **tokens por
   empresa**. *(Os **indicadores por cliente já existem** — tela de Métricas, seção
   5.0.1. Falta o rateio de tokens, que hoje é só da plataforma, e os limites/planos.)*
@@ -1272,6 +1272,7 @@ Todas as consultas passam pela empresa de quem está logado (`request_company(re
 | Conversas | já vinha de `visible_conversations`, que agora filtra por empresa antes do Alcance |
 | Transferência | selects **e** o POST só aceitam setor/atendente da mesma empresa |
 | Configurações | credenciais (só master), textos do chatbot, modo, URL de webhook e eventos exibidos |
+| Meus dados (exportação) | o ZIP sai da empresa **de quem está logado** — o endpoint não aceita id de empresa |
 
 Detalhes que também mudaram: os **selects de setor de fallback** (IA e chatbot) só
 listam setores da empresa (`CompanyForm`-style `company=` no `__init__` dos forms); a
@@ -1320,6 +1321,7 @@ uma empresa, nem o de outra, em nenhuma tela e por nenhuma URL.
 | Contatos e Dashboard | fora de `MASTER_SUPPORT_KEYS` |
 | **Nomes dos grupos** de WhatsApp | a aba **Grupos** das Permissões **não aparece** para o master, e os POSTs `groups`/`group-name`/`group-remove` devolvem **403** — quem libera grupo é o ADM da empresa |
 | Uma empresa ver a outra | toda consulta passa por `company`; `scoped()` sem empresa não devolve nada |
+| **Exportação (ZIP)** | é do **cliente** (aba Meus dados). `_deny_master_export` dá **403** para o master, inclusive no modo suporte |
 
 **No lugar disso, ele tem a tela de Métricas** (seção 5.0.1): quantidade de mensagens
 enviadas/recebidas, atendentes, conversas por estado, saúde da conexão da W-API e
@@ -1357,12 +1359,43 @@ link_lid_contacts --apply              # resolve o contato dentro da empresa da 
 > multiempresa e o destino do webhook sem identificador. Não pode ser excluída nem
 > desativada.
 
-### Parte 3 — próxima etapa (portabilidade)
+### Parte 3 — portabilidade (CONCLUÍDA)
 
-- Botão **Exportar dados da empresa**: ZIP com contatos, conversas, mensagens, setores
-  e atendentes (JSON/CSV) + a pasta de mídias daquele cliente, para quando a empresa
-  deixar de usar o sistema.
-- Encerrar cliente com segurança (exportar → desativar → excluir), com aviso do que
-  será apagado.
-- Ainda em aberto (menor): o **envio de mídia local em base64** e o retry de mídia
-  seguem por conversa, então já respeitam a empresa; nada pendente ali.
+**Quem exporta é o CLIENTE, não o master.** A documentação original previa o master
+baixando o ZIP; isso foi revisto porque contraria a regra de que ele não acessa o
+atendimento — um ZIP com todas as conversas seria ler tudo de uma vez. O master
+apenas encerra o cliente com segurança.
+
+**Aba "Meus dados"** (`configuracoes/dados/`, `company_data_view`, nome `company-data`;
++ `company-export` para o download). Fica em **Configurações**, ao lado de Atendimento,
+para o **ADM da empresa**. O download é POST em `company_export_view`.
+
+- **Bloqueios (backend, não só a aba escondida)**: `require_feature('settings')`,
+  `_deny_master_export` (**403 para o master, inclusive no modo suporte**) e
+  `block_readonly` (o perfil `leitor` não exporta). A empresa vem **de quem está
+  logado** — o endpoint não aceita id de empresa, então não existe "exportar a do
+  vizinho" por URL forjada.
+- **`accounts/export.py`** monta o ZIP: `LEIA-ME.txt`, `empresa.json`, `setores.csv`,
+  `atendentes.csv`, `usuarios.csv` (**sem senha nem hash**), `contatos.csv`,
+  `conversas.csv`, `mensagens.csv` e a pasta `midias/`. CSV em **UTF-8 com BOM e
+  separador `;`** (abre direto no Excel pt-BR). `mensagens.csv` liga-se a
+  `conversas.csv` pela coluna `conversa_id`, e a coluna `arquivo` aponta para o
+  arquivo dentro de `midias/` (renomeado para `<id_da_mensagem>-<nome_original>`,
+  já que em disco o nome é um uuid).
+- **Escala**: o ZIP é escrito num **arquivo temporário em disco** (não em memória) e
+  as mensagens são percorridas com `iterator(chunk_size=500)` — anos de histórico não
+  podem derrubar o gunicorn. Mídia que sumiu do disco é **pulada**, nunca derruba a
+  exportação inteira.
+
+**Encerrar cliente com segurança** (tela Clientes): a exclusão agora exige, no
+backend, que a empresa esteja **desativada** ("desative antes, assim o atendimento
+para primeiro e o cliente tem tempo de exportar") **e** que o master **digite o nome
+exato** da empresa (`confirm_name`, comparado sem diferenciar maiúsculas). A empresa
+padrão continua inexcluível. Ordem recomendada: **cliente exporta → desativar →
+excluir**.
+
+A exclusão também **apaga os arquivos de mídia do disco**
+(`_delete_company_media_files`): o `delete()` em cascata limpa o banco, mas o Django
+**não** remove o arquivo — sem isso, as fotos e documentos do cliente ficariam órfãos
+no servidor para sempre, sem ninguém conseguir ver nem apagar pela interface. A
+mensagem de sucesso informa quantos arquivos saíram.

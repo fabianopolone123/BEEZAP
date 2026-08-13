@@ -19,6 +19,15 @@ active_subtab, reception_mode) e, na area Atendimento, o `mode_form`.
     <a href="{% url 'atendimento' %}"
        class="settings-tab {% if settings_tabs.active_tab == 'atendimento' %}active{% endif %}">Atendimento</a>
   </nav>
+{% else %}
+  {# O cliente tem Atendimento (o chatbot e o modo) e Meus dados (portabilidade).
+     "Meus dados" nao aparece para o master: quem exporta e o dono dos dados. #}
+  <nav class="settings-tabs" aria-label="Configurações">
+    <a href="{% url 'atendimento' %}"
+       class="settings-tab {% if settings_tabs.active_tab == 'atendimento' %}active{% endif %}">Atendimento</a>
+    <a href="{% url 'company-data' %}"
+       class="settings-tab {% if settings_tabs.active_tab == 'dados' %}active{% endif %}">Meus dados</a>
+  </nav>
 {% endif %}
 
 {% if settings_tabs.active_tab == 'atendimento' %}

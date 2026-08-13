@@ -2855,10 +2855,12 @@ class ClientsScreenTests(TestCase):
         self.assertTrue(company.is_active)
 
     def test_other_company_can_be_deleted(self):
+        """Excluir exige as travas do encerramento seguro: desativada + nome digitado
+        (ver SafeCompanyDeletionTests)."""
         from accounts.models import Company
-        company = Company.objects.create(name='Cliente Y', slug='cliente-y')
+        company = Company.objects.create(name='Cliente Y', slug='cliente-y', is_active=False)
         self.client.post(reverse('clients'), {
-            'action': 'delete', 'company_id': company.pk,
+            'action': 'delete', 'company_id': company.pk, 'confirm_name': 'Cliente Y',
         })
         self.assertFalse(Company.objects.filter(pk=company.pk).exists())
 
@@ -4056,3 +4058,254 @@ class ClientConnectionCheckTests(TestCase):
             health = check_connection(company=self.company)
         self.assertTrue(health.connected)
         self.assertEqual(health.label, 'Conectado')
+
+
+class CompanyExportTests(TestCase):
+    """Portabilidade: o CLIENTE leva os dados dele num ZIP.
+
+    Quem exporta e o Administrador da propria empresa. O gestor master nao —
+    um ZIP com todas as conversas seria ler o atendimento de uma vez so, o
+    contrario da regra do projeto.
+    """
+
+    def setUp(self):
+        from django.core.files.base import ContentFile
+        from accounts.models import Company, Contact, Conversation, Message, Sector
+        self.company = Company.objects.create(name='Exporta SA', slug='exporta-sa')
+        self.outra = Company.objects.create(name='Vizinha SA', slug='vizinha-sa')
+        self.adm = User.objects.create_user(
+            email='adm@exporta.com', password='x', role=User.Role.ADM, company=self.company
+        )
+        self.adm_outra = User.objects.create_user(
+            email='adm@vizinha.com', password='x', role=User.Role.ADM, company=self.outra
+        )
+        self.master = User.objects.create_user(
+            email='master@exporta.com', password='x', role=User.Role.MASTER
+        )
+        Sector.objects.create(company=self.company, name='Cobranca')
+
+        contato = Contact.objects.create(
+            company=self.company, phone='5516900000001', name='Cliente Exporta'
+        )
+        self.conv = Conversation.objects.create(
+            company=self.company, contact=contato, external_id=contato.phone
+        )
+        Message.objects.create(
+            conversation=self.conv, direction='in', message_type='text',
+            text='mensagem que precisa ir junto',
+        )
+        self.com_midia = Message.objects.create(
+            conversation=self.conv, direction='out', message_type='image',
+            media_mimetype='image/jpeg', text='foto enviada',
+        )
+        self.com_midia.media_file.save('a1b2c3.jpg', ContentFile(b'bytes-da-foto'), save=True)
+
+        # Dado da OUTRA empresa: nao pode aparecer no ZIP desta.
+        c2 = Contact.objects.create(company=self.outra, phone='5516900000002', name='Segredo Vizinho')
+        conv2 = Conversation.objects.create(
+            company=self.outra, contact=c2, external_id=c2.phone
+        )
+        Message.objects.create(
+            conversation=conv2, direction='in', message_type='text', text='conversa da vizinha',
+        )
+
+        self.page_url = reverse('company-data')
+        self.export_url = reverse('company-export')
+
+    def tearDown(self):
+        self.com_midia.media_file.delete(save=False)
+
+    def _zip_from_response(self, response):
+        import io
+        import zipfile
+        raw = b''.join(response.streaming_content)
+        return zipfile.ZipFile(io.BytesIO(raw))
+
+    # ----- Quem pode -----
+
+    def test_company_admin_sees_the_page(self):
+        self.client.force_login(self.adm)
+        r = self.client.get(self.page_url)
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, 'Baixar uma cópia dos seus dados')
+
+    def test_master_cannot_open_the_page(self):
+        self.client.force_login(self.master)
+        self.assertEqual(self.client.get(self.page_url).status_code, 403)
+
+    def test_master_cannot_download_even_in_support_mode(self):
+        from accounts.tenancy import ACTIVE_COMPANY_SESSION_KEY
+        self.client.force_login(self.master)
+        session = self.client.session
+        session[ACTIVE_COMPANY_SESSION_KEY] = self.company.pk
+        session.save()
+        self.assertEqual(self.client.post(self.export_url).status_code, 403)
+
+    def test_reader_profile_cannot_download(self):
+        leitor = User.objects.create_user(
+            email='leitor@exporta.com', password='x', role=User.Role.LEITOR, company=self.company
+        )
+        self.client.force_login(leitor)
+        self.assertEqual(self.client.post(self.export_url).status_code, 403)
+
+    def test_export_needs_login(self):
+        self.assertEqual(self.client.post(self.export_url).status_code, 302)
+
+    # ----- O conteudo do ZIP -----
+
+    def test_zip_has_all_the_files(self):
+        self.client.force_login(self.adm)
+        bundle = self._zip_from_response(self.client.post(self.export_url))
+        nomes = bundle.namelist()
+        for esperado in ('LEIA-ME.txt', 'empresa.json', 'setores.csv', 'atendentes.csv',
+                         'usuarios.csv', 'contatos.csv', 'conversas.csv', 'mensagens.csv'):
+            self.assertIn(esperado, nomes)
+
+    def test_zip_carries_the_conversation_history(self):
+        self.client.force_login(self.adm)
+        bundle = self._zip_from_response(self.client.post(self.export_url))
+        mensagens = bundle.read('mensagens.csv').decode('utf-8-sig')
+        self.assertIn('mensagem que precisa ir junto', mensagens)
+        self.assertIn('Cliente Exporta', bundle.read('contatos.csv').decode('utf-8-sig'))
+
+    def test_zip_carries_the_media_files(self):
+        self.client.force_login(self.adm)
+        bundle = self._zip_from_response(self.client.post(self.export_url))
+        midias = [n for n in bundle.namelist() if n.startswith('midias/')]
+        self.assertEqual(len(midias), 1)
+        self.assertEqual(bundle.read(midias[0]), b'bytes-da-foto')
+        # A linha da mensagem aponta para o arquivo dentro do ZIP.
+        self.assertIn(midias[0], bundle.read('mensagens.csv').decode('utf-8-sig'))
+
+    def test_zip_never_contains_another_company_data(self):
+        self.client.force_login(self.adm)
+        bundle = self._zip_from_response(self.client.post(self.export_url))
+        tudo = ' '.join(
+            bundle.read(nome).decode('utf-8-sig', 'ignore')
+            for nome in bundle.namelist() if not nome.startswith('midias/')
+        )
+        self.assertNotIn('Segredo Vizinho', tudo)
+        self.assertNotIn('conversa da vizinha', tudo)
+        self.assertNotIn('adm@vizinha.com', tudo)
+
+    def test_zip_never_contains_passwords(self):
+        self.client.force_login(self.adm)
+        bundle = self._zip_from_response(self.client.post(self.export_url))
+        usuarios = bundle.read('usuarios.csv').decode('utf-8-sig')
+        self.assertIn('adm@exporta.com', usuarios)
+        self.assertNotIn('pbkdf2', usuarios)
+        self.assertNotIn('senha', usuarios.split('\n')[0].lower())
+
+    def test_each_company_exports_only_its_own(self):
+        self.client.force_login(self.adm_outra)
+        bundle = self._zip_from_response(self.client.post(self.export_url))
+        contatos = bundle.read('contatos.csv').decode('utf-8-sig')
+        self.assertIn('Segredo Vizinho', contatos)
+        self.assertNotIn('Cliente Exporta', contatos)
+
+    def test_missing_file_on_disk_does_not_break_the_export(self):
+        """Midia perdida no disco nao pode derrubar a exportacao inteira."""
+        import os
+        caminho = self.com_midia.media_file.path
+        os.remove(caminho)
+        self.client.force_login(self.adm)
+        r = self.client.post(self.export_url)
+        self.assertEqual(r.status_code, 200)
+        bundle = self._zip_from_response(r)
+        self.assertIn('mensagens.csv', bundle.namelist())
+        self.assertEqual([n for n in bundle.namelist() if n.startswith('midias/')], [])
+
+    def test_downloaded_file_is_a_named_zip(self):
+        self.client.force_login(self.adm)
+        r = self.client.post(self.export_url)
+        self.assertEqual(r['Content-Type'], 'application/zip')
+        self.assertIn('exporta-sa', r['Content-Disposition'])
+        self.assertIn('.zip', r['Content-Disposition'])
+
+
+class SafeCompanyDeletionTests(TestCase):
+    """Excluir cliente e irreversivel: exige desativar antes e digitar o nome."""
+
+    def setUp(self):
+        from accounts.models import Company
+        self.company = Company.objects.create(name='Encerrar SA', slug='encerrar-sa')
+        self.master = User.objects.create_user(
+            email='master@encerrar.com', password='x', role=User.Role.MASTER
+        )
+        self.client.force_login(self.master)
+        self.url = reverse('clients')
+
+    def _delete(self, **extra):
+        payload = {'action': 'delete', 'company_id': self.company.pk}
+        payload.update(extra)
+        return self.client.post(self.url, payload, follow=True)
+
+    def test_active_company_is_not_deleted(self):
+        from accounts.models import Company
+        r = self._delete(confirm_name='Encerrar SA')
+        self.assertTrue(Company.objects.filter(pk=self.company.pk).exists())
+        self.assertContains(r, 'Desative')
+
+    def test_wrong_name_does_not_delete(self):
+        from accounts.models import Company
+        self.company.is_active = False
+        self.company.save(update_fields=['is_active'])
+        r = self._delete(confirm_name='outro nome')
+        self.assertTrue(Company.objects.filter(pk=self.company.pk).exists())
+        self.assertContains(r, 'Nada foi apagado')
+
+    def test_deactivated_and_confirmed_is_deleted(self):
+        from accounts.models import Company
+        self.company.is_active = False
+        self.company.save(update_fields=['is_active'])
+        self._delete(confirm_name='encerrar sa')   # confere sem diferenciar maiuscula
+        self.assertFalse(Company.objects.filter(pk=self.company.pk).exists())
+
+    def test_default_company_is_never_deleted(self):
+        from accounts.models import Company
+        padrao = Company.get_default()
+        self.client.post(self.url, {
+            'action': 'delete', 'company_id': padrao.pk, 'confirm_name': padrao.display_name,
+        })
+        self.assertTrue(Company.objects.filter(pk=padrao.pk).exists())
+
+
+class DeletedCompanyLeavesNoFilesTests(TestCase):
+    """Excluir a empresa tem de levar os ARQUIVOS junto.
+
+    O `delete()` em cascata limpa o banco, mas o Django nao apaga o arquivo em
+    disco: sem isso, fotos e documentos do cliente ficariam no servidor para
+    sempre, sem ninguem conseguir ver nem remover pela interface.
+    """
+
+    def setUp(self):
+        from django.core.files.base import ContentFile
+        from accounts.models import Company, Contact, Conversation, Message
+        self.company = Company.objects.create(name='Sai Fora SA', slug='sai-fora')
+        self.master = User.objects.create_user(
+            email='master@saifora.com', password='x', role=User.Role.MASTER
+        )
+        contato = Contact.objects.create(company=self.company, phone='5516911110000')
+        conv = Conversation.objects.create(
+            company=self.company, contact=contato, external_id=contato.phone
+        )
+        self.message = Message.objects.create(
+            conversation=conv, direction='in', message_type='image', media_mimetype='image/jpeg',
+        )
+        self.message.media_file.save('sumir.jpg', ContentFile(b'foto'), save=True)
+        self.caminho = self.message.media_file.path
+
+    def test_media_files_are_removed_from_disk(self):
+        import os
+        from accounts.models import Company
+        self.assertTrue(os.path.exists(self.caminho))
+
+        self.company.is_active = False
+        self.company.save(update_fields=['is_active'])
+        self.client.force_login(self.master)
+        self.client.post(reverse('clients'), {
+            'action': 'delete', 'company_id': self.company.pk, 'confirm_name': 'Sai Fora SA',
+        })
+
+        self.assertFalse(Company.objects.filter(pk=self.company.pk).exists())
+        self.assertFalse(os.path.exists(self.caminho))

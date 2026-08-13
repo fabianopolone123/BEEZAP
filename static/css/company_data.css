@@ -1,0 +1,132 @@
+/* ===========================================================================
+   Aba MEUS DADOS (Configuracoes do cliente) — portabilidade / exportacao.
+
+   Escopo proprio (.company-data-page) para nao afetar outras telas. Tokens de cor
+   e botoes compartilhados vem de dashboard.css; as abas, de settings_tabs.css.
+   Tela curta e explicativa: o usuario precisa entender o que vai baixar antes de
+   clicar. Responsiva, sem rolagem horizontal.
+   =========================================================================== */
+
+.company-data-page {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-width: 0;
+}
+
+.data-card {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 18px;
+  padding: 22px 24px;
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+.data-card h2 {
+  margin: 0;
+  font-size: 1.1rem;
+  color: var(--text);
+}
+
+.data-card h3 {
+  margin: 0;
+  font-size: 0.92rem;
+  color: var(--text);
+}
+
+.data-lead {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+  line-height: 1.55;
+}
+
+/* ── Resumo do que sera exportado ─────────────────────────────────────────── */
+
+.data-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+}
+
+.data-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(45, 108, 223, 0.06);
+  border: 1px solid rgba(45, 108, 223, 0.14);
+}
+
+.data-stat span {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.data-stat strong {
+  font-size: 1.25rem;
+  color: var(--text);
+}
+
+/* ── Lista do conteudo do ZIP ─────────────────────────────────────────────── */
+
+.data-list {
+  margin: 0;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+
+.data-list strong {
+  color: var(--text);
+}
+
+/* ── Acao ─────────────────────────────────────────────────────────────────── */
+
+.data-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.data-form small {
+  color: var(--muted);
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
+
+.data-form button[disabled] {
+  opacity: 0.65;
+  cursor: default;
+}
+
+.data-warning {
+  margin: 0;
+  padding: 12px 16px;
+  border-radius: 14px;
+  background: rgba(247, 181, 0, 0.1);
+  border: 1px solid rgba(247, 181, 0, 0.28);
+  color: var(--text);
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+@media (max-width: 640px) {
+  .data-card {
+    padding: 18px 16px;
+  }
+
+  .data-summary {
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  }
+}

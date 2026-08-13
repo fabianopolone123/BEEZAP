@@ -1777,6 +1777,106 @@ def conversations_view(request):
     )
 
 
+@login_required
+def company_data_view(request):
+    """Aba MEUS DADOS (Configuracoes do cliente): portabilidade da empresa.
+
+    Explica o que vem no ZIP e oferece o download. Quem exporta e o cliente — os
+    dados sao dele. O gestor master NAO exporta: ele administra sem ler o
+    atendimento (docs/CONTEXTO.md secao 16), e um ZIP com todas as conversas seria
+    justamente ler tudo de uma vez.
+    """
+    forbidden = require_feature(request, 'settings')
+    if forbidden:
+        return forbidden
+    blocked = _deny_master_export(request)
+    if blocked:
+        return blocked
+
+    company = request_company(request)
+    from .models import Contact, Conversation, Message
+    return render(
+        request,
+        'accounts/company_data.html',
+        {
+            'nav_items': build_nav_items(request.user, 'Configurações', request),
+            'role_label': request.user.get_role_display(),
+            'user_initial': (request.user.first_name[:1] or request.user.email[:1]).upper(),
+            'settings_tabs': build_settings_tabs('dados', company=company),
+            'company': company,
+            'resumo': {
+                'contatos': Contact.objects.filter(company=company).count(),
+                'conversas': Conversation.objects.filter(company=company).count(),
+                'mensagens': Message.objects.filter(conversation__company=company).count(),
+                'arquivos': Message.objects.filter(conversation__company=company)
+                                   .exclude(media_file='').exclude(media_file__isnull=True).count(),
+            },
+        },
+    )
+
+
+@login_required
+@require_POST
+def company_export_view(request):
+    """Baixa o ZIP com os dados da empresa de quem esta logado.
+
+    Nunca recebe um id de empresa por parametro: a empresa vem de quem esta logado,
+    entao nao existe "exportar a empresa do vizinho" nem por URL forjada.
+    """
+    forbidden = require_feature(request, 'settings')
+    if forbidden:
+        return forbidden
+    blocked = _deny_master_export(request)
+    if blocked:
+        return blocked
+    readonly = block_readonly(request)
+    if readonly:
+        return readonly
+
+    from .export import build_company_export, export_filename
+    company = request_company(request)
+    if company is None:
+        return HttpResponseForbidden('Sem empresa vinculada.')
+    bundle = build_company_export(company)
+    return FileResponse(
+        bundle, as_attachment=True, filename=export_filename(company),
+        content_type='application/zip',
+    )
+
+
+def _delete_company_media_files(company):
+    """Apaga do disco as midias das conversas da empresa. Devolve quantas saiu.
+
+    Chamado antes de excluir a empresa: o `delete()` em cascata limpa o banco, mas
+    deixaria os arquivos orfaos no servidor — dado pessoal de cliente final que
+    ninguem mais consegue nem ver nem remover pela interface.
+    """
+    from .models import Message
+    removidos = 0
+    arquivos = (
+        Message.objects.filter(conversation__company=company)
+        .exclude(media_file='').exclude(media_file__isnull=True)
+    )
+    for message in arquivos.iterator(chunk_size=500):
+        try:
+            message.media_file.delete(save=False)
+            removidos += 1
+        except (FileNotFoundError, OSError, ValueError):
+            continue
+    return removidos
+
+
+def _deny_master_export(request):
+    """403 para o gestor master nas telas de dados do cliente (inclusive no suporte)."""
+    from .tenancy import is_master
+    if is_master(request.user):
+        return HttpResponseForbidden(
+            'A exportação é do cliente. O gestor master administra as empresas, '
+            'mas não acessa os dados de atendimento delas.'
+        )
+    return None
+
+
 def build_company_metrics(company):
     """Indicadores de UMA empresa cliente para o gestor master — SO NUMEROS.
 
@@ -1933,10 +2033,36 @@ def clients_view(request):
                 messages.error(request, 'Empresa não encontrada.')
             elif target.is_default:
                 messages.error(request, 'A empresa padrão não pode ser excluída.')
+            elif (request.POST.get('confirm_name') or '').strip().casefold() \
+                    != target.display_name.strip().casefold():
+                # Exclusao apaga conversas e midias e NAO tem volta. Digitar o nome
+                # e a trava contra o clique errado na empresa errada.
+                messages.error(
+                    request,
+                    'Para excluir, digite o nome exato da empresa na confirmação. '
+                    'Nada foi apagado.',
+                )
+                return redirect('clients')
+            elif target.is_active:
+                # Encerrar com seguranca tem ordem: o cliente exporta, o master
+                # desativa (o WhatsApp para de receber) e so entao exclui.
+                messages.error(
+                    request,
+                    f'Desative "{target.display_name}" antes de excluir. Assim o '
+                    'atendimento para primeiro e o cliente tem tempo de exportar os dados.',
+                )
+                return redirect('clients')
             else:
                 name = target.display_name
+                # Apagar a empresa em cascata remove as linhas do banco, mas o Django
+                # NAO apaga o arquivo em disco: sem isto, as fotos e os documentos do
+                # cliente ficariam no servidor para sempre depois de ele sair.
+                removidos = _delete_company_media_files(target)
                 target.delete()
-                messages.success(request, f'A empresa "{name}" foi excluída.')
+                messages.success(
+                    request,
+                    f'A empresa "{name}" foi excluída ({removidos} arquivo(s) de mídia apagados).',
+                )
             return redirect('clients')
 
         if action == 'toggle-active':

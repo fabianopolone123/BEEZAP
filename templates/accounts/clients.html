@@ -163,11 +163,15 @@ com ?editar=<id>, o que mantem o modal preenchido mesmo com erro de validacao.
                     <input type="hidden" name="company_id" value="{{ c.id }}">
                     <button type="submit" class="secondary-button">{% if c.is_active %}Desativar{% else %}Reativar{% endif %}</button>
                   </form>
+                  {# Excluir apaga conversas e midias e NAO tem volta. Por isso a
+                     ordem obrigatoria: cliente exporta -> desativar -> excluir, e
+                     ainda e preciso digitar o nome da empresa (checado no backend). #}
                   <form method="post" class="client-inline-form"
-                        onsubmit="return confirm('Excluir a empresa {{ c.display_name|escapejs }}? Todos os dados dela (contatos, conversas, mensagens e usuários) serão apagados. Exporte antes se precisar guardar.');">
+                        onsubmit="return confirmarExclusao(this, '{{ c.display_name|escapejs }}');">
                     {% csrf_token %}
                     <input type="hidden" name="action" value="delete">
                     <input type="hidden" name="company_id" value="{{ c.id }}">
+                    <input type="hidden" name="confirm_name" value="">
                     <button type="submit" class="danger-link">Excluir</button>
                   </form>
                 {% endif %}
@@ -307,6 +311,21 @@ com ?editar=<id>, o que mantem o modal preenchido mesmo com erro de validacao.
 </div>
 
 <script>
+  // Exclusao de cliente: pede o NOME da empresa digitado. O backend confere de novo
+  // (e tambem exige que a empresa esteja desativada), entao isto e so a primeira
+  // barreira — a de evitar o clique errado na pressa.
+  function confirmarExclusao(form, nome) {
+    var digitado = window.prompt(
+      'Excluir "' + nome + '" apaga DEFINITIVAMENTE contatos, conversas, mensagens, ' +
+      'arquivos e usuários dela. Isso não tem volta.\n\n' +
+      'Peça ao cliente para exportar os dados antes (Configurações › Meus dados).\n\n' +
+      'Para confirmar, digite o nome da empresa:'
+    );
+    if (digitado === null) { return false; }
+    form.querySelector('input[name="confirm_name"]').value = digitado;
+    return true;
+  }
+
   (function () {
     var modal = document.querySelector('[data-modal-root]');
     if (!modal) return;
