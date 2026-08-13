@@ -535,10 +535,18 @@ OPENAI_TIMEOUT=30
 
 ## 8. Fluxo de trabalho obrigatório (ver `CODEX_PADROES.md` e `GIT.md`)
 
+> **REGRA FIXA — NENHUMA ALTERAÇÃO FICA SEM `commit` + `push`.** Toda mudança
+> (código, CSS, template ou documentação) é fechada no mesmo passo: atualizar a
+> documentação, commitar e **enviar ao GitHub na hora**. Não acumular alterações
+> locais para "commitar depois" — o repositório remoto é sempre o estado real do
+> projeto. Se o `check` falhar, corrigir antes: não se commita com o check quebrado.
+
 1. Fazer a alteração.
 2. `python manage.py check` (e `makemigrations`/`migrate` se mexer em model).
-3. Atualizar **apenas o final** de `docs/HISTORICO.md`.
-4. Commit atômico (`feat:`/`fix:`/`docs:`/`style:`/`chore:`) → `git push`.
+3. Atualizar **apenas o final** de `docs/HISTORICO.md` **e** a documentação afetada
+   (este `CONTEXTO.md` e os demais) — a documentação reflete sempre o estado atual.
+4. Commit atômico (`feat:`/`fix:`/`docs:`/`style:`/`chore:`, mensagem em PT-BR) →
+   **`git push` imediato** (código + docs no mesmo commit).
 5. Não commitar `.env`, `db.sqlite3`, `venv/`, tokens.
 
 ## 9. Comandos de diagnóstico úteis (no VPS)
