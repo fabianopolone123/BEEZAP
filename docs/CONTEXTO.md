@@ -42,7 +42,7 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
 > `wapi/` é um módulo Python comum (importa `accounts.models`); **não** está em
 > `INSTALLED_APPS`, por isso os models ficam em `accounts/models.py`.
 
-## 3. Modelos (`accounts/models.py`) — migração atual: `0031`
+## 3. Modelos (`accounts/models.py`) — migração atual: `0032`
 
 > **MULTIEMPRESA:** quase todo model abaixo tem um campo **`company`** (a empresa
 > cliente dona do registro) e as unicidades passaram a ser **por empresa**. Os
@@ -471,7 +471,7 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
 - **Estáticos**: como o Nginx serve `static/` (a fonte) direto, **um `git pull`
   já publica CSS/JS** — sem `collectstatic`/`cp`. O admin do Django vem de
   `staticfiles/admin/` (rodar `collectstatic` uma vez). Cache-busting: `?v=N` nos
-  links de CSS em `conversations.html` (hoje `conversations.css?v=20`) — **incrementar
+  links de CSS em `conversations.html` (hoje `conversations.css?v=27`) — **incrementar
   ao editar o CSS**. O JS fica inline no template (publica com o `git pull`).
 - **Histórico do bug de estáticos**: o `settings.py` do servidor já foi editado à
   mão com `STATICFILES_DIRS=[]`, o que impedia o `collectstatic` de publicar o
@@ -666,7 +666,7 @@ seed_demo_data [--no-clear]             # popula DEMO: 5 setores/atendentes + co
   não só a divisória. Ver seção 15.
 - **Front**: `buildMessageEl` renderiza `kind='system'` como uma **pílula centralizada**
   (`.conv-divider`); a pílula mostra o texto + **data e hora** (ex.: "Atendimento
-  encerrado · 14/07/2026 18:44"). CSS em `conversations.css?v=21`.
+  encerrado · 14/07/2026 18:44"). CSS em `conversations.css?v=27`.
 - **Chats já picotados** (do comportamento antigo de fork) são unificados pelo comando
   `merge_contact_conversations` (ver seção 9 / comandos de management).
 
@@ -702,7 +702,7 @@ seed_demo_data [--no-clear]             # popula DEMO: 5 setores/atendentes + co
   (soma atômica com `F()`, segura para chamadas concorrentes). A tela mostra um card
   **"Consumo de tokens"** (total, entrada, saída, nº de chamadas, "contando desde" /
   "último uso") com botão **"Zerar contador"** (`form_type=reset-usage`). O teste de
-  conexão também conta (gasto mínimo). CSS `openai_settings.css?v=3`.
+  conexão também conta (gasto mínimo). CSS `openai_settings.css?v=7`.
 
 ### Atendente virtual (recepção/triagem) — `gpt/attendant.py`
 
@@ -896,7 +896,7 @@ esconder o botão também bloqueia a URL.
 - **Frontend:** `conversations_view`/`contacts_view` passam `read_only` ao template.
   Em Conversas, `.conv-body.is-readonly` esconde o **composer**, a caixa de
   **transferência** e os botões **Assumir/Encerrar**, e mostra uma barra
-  "👁️ Perfil somente leitura" (`conversations.css?v=23`). Em Contatos, somem
+  "👁️ Perfil somente leitura" (`conversations.css?v=27`). Em Contatos, somem
   **Novo contato** e as ações **Editar/Excluir**.
 - Quais **botões** o leitor vê continua vindo de "Botões do perfil" (o admin habilita).
   Ou seja: o admin escolhe **onde** o leitor entra; o perfil garante que ali ele
