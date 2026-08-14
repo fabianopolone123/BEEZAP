@@ -8,6 +8,7 @@ from .views import (
     client_connection_check_view,
     client_metrics_view,
     clients_view,
+    masters_view,
     company_data_view,
     company_export_view,
     conversation_list_view,
@@ -48,6 +49,8 @@ urlpatterns = [
     path('dashboard/', dashboard_view, name='dashboard'),
     # Gestao das empresas clientes (exclusiva do gestor master).
     path('clientes/', clients_view, name='clients'),
+    # Gestores da PLATAFORMA (os proprios masters) — um master cadastra outro.
+    path('gestores/', masters_view, name='masters'),
     # Metricas de um cliente (so o gestor master): numeros e saude do canal, nunca
     # conteudo de conversa. Ver docs/CONTEXTO.md secao 16.
     path('clientes/<int:company_id>/metricas/', client_metrics_view, name='client-metrics'),

@@ -1,0 +1,195 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% comment %}
+Tela GESTORES — exclusiva do GESTOR MASTER. Aqui um master cadastra OUTRO master
+(dono/administrador da plataforma, sem empresa) e cuida do acesso deles.
+
+Por que o WhatsApp e obrigatorio: o master nao pertence a empresa nenhuma e nao tem
+perfil de atendente, entao o telefone daqui e o UNICO caminho de recuperacao de senha
+dele (o codigo sai pela instancia da empresa padrao). Sem ele, senha perdida so pelo
+shell do servidor.
+
+As travas do backend (ver accounts/views.masters_view) sao repetidas na tela como
+aviso, nunca como unica protecao: nao se desativa nem se exclui a propria conta, nao
+se deixa a plataforma sem gestor ativo e excluir exige desativar antes.
+{% endcomment %}
+
+{% block title %}Gestores | BEEZap{% endblock %}
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/dashboard.css' %}?v=5">
+{# attendants.css traz os botoes compartilhados (primary/secondary/modal-close). #}
+<link rel="stylesheet" href="{% static 'css/attendants.css' %}">
+<link rel="stylesheet" href="{% static 'css/masters.css' %}?v=1">
+{% endblock %}
+
+{% block content %}
+<main class="dashboard-shell">
+  {% include "accounts/_sidebar.html" %}
+
+  <section class="dashboard-main">
+    <div class="masters-page">
+      <header class="topbar">
+        <div class="topbar-left">
+          <button class="icon-button" type="button" aria-label="Abrir menu">☰</button>
+          <div>
+            <p class="page-kicker">Gestão da plataforma</p>
+            <h1>Gestores</h1>
+          </div>
+        </div>
+
+        <div class="topbar-right">
+          <div class="profile-chip">
+            <div class="profile-avatar">{{ user_initial }}</div>
+            <div>
+              <strong>{{ request.user.get_full_name|default:request.user.email }}</strong>
+              <span>{{ role_label }}</span>
+            </div>
+          </div>
+          <a href="{% url 'logout' %}" class="logout-link">Sair</a>
+        </div>
+      </header>
+
+      <p class="masters-intro">
+        Quem aparece aqui administra a <strong>plataforma</strong>: cadastra empresas
+        clientes, cria o acesso delas e configura o WhatsApp de cada uma. Nenhum gestor
+        lê as conversas dos clientes.
+      </p>
+
+      <section class="masters-summary">
+        <article class="masters-stat">
+          <span>Gestores cadastrados</span>
+          <strong>{{ total_masters }}</strong>
+        </article>
+        <article class="masters-stat">
+          <span>Ativos</span>
+          <strong>{{ active_masters }}</strong>
+        </article>
+        <button type="button" class="primary-button" data-modal-open>Novo gestor</button>
+      </section>
+
+      <section class="masters-list">
+        {% for m in masters %}
+          <article class="master-card {% if not m.is_active %}is-inactive{% endif %}">
+            <div class="master-id">
+              <div class="master-avatar">{{ m.name|first|upper }}</div>
+              <div>
+                <strong>{{ m.name }}{% if m.is_self %} <span class="master-tag">você</span>{% endif %}</strong>
+                <span>{{ m.email }}</span>
+              </div>
+            </div>
+
+            <dl class="master-data">
+              <div><dt>WhatsApp</dt><dd>{{ m.formatted_phone }}</dd></div>
+              <div><dt>Último acesso</dt><dd>{{ m.last_login|default:"nunca entrou" }}</dd></div>
+              <div>
+                <dt>Situação</dt>
+                <dd>
+                  {% if m.is_active %}<span class="master-badge is-on">Ativo</span>
+                  {% else %}<span class="master-badge">Inativo</span>{% endif %}
+                  {% if m.must_change_password %}<span class="master-badge is-warn">Troca a senha no próximo acesso</span>{% endif %}
+                </dd>
+              </div>
+            </dl>
+
+            <details class="master-tools">
+              <summary>Acesso</summary>
+
+              <form method="post" class="master-tool-form">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="save-phone">
+                <input type="hidden" name="master_id" value="{{ m.id }}">
+                <label for="phone-{{ m.id }}">WhatsApp de recuperação</label>
+                <input type="text" id="phone-{{ m.id }}" name="phone" maxlength="20"
+                       value="{{ m.phone }}" placeholder="5511999999999">
+                <button type="submit" class="secondary-button">Salvar WhatsApp</button>
+              </form>
+
+              <form method="post" class="master-tool-form">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="reset-password">
+                <input type="hidden" name="master_id" value="{{ m.id }}">
+                <label for="pass-{{ m.id }}">Nova senha inicial</label>
+                <input type="password" id="pass-{{ m.id }}" name="password" minlength="8"
+                       autocomplete="new-password" placeholder="Mínimo de 8 caracteres">
+                <button type="submit" class="secondary-button">Redefinir senha</button>
+                <span class="master-hint">A pessoa é obrigada a trocar no próximo acesso.</span>
+              </form>
+            </details>
+
+            <div class="master-actions">
+              {% if not m.is_self %}
+                <form method="post" class="master-inline-form">
+                  {% csrf_token %}
+                  <input type="hidden" name="action" value="toggle-active">
+                  <input type="hidden" name="master_id" value="{{ m.id }}">
+                  <button type="submit" class="secondary-button">{% if m.is_active %}Desativar{% else %}Reativar{% endif %}</button>
+                </form>
+                {% if not m.is_active %}
+                  <form method="post" class="master-inline-form"
+                        onsubmit="return confirm('Excluir o gestor {{ m.name|escapejs }}? Não tem volta.');">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="delete">
+                    <input type="hidden" name="master_id" value="{{ m.id }}">
+                    <button type="submit" class="danger-link">Excluir</button>
+                  </form>
+                {% endif %}
+              {% else %}
+                <span class="master-hint">Você não desativa nem exclui a sua própria conta.</span>
+              {% endif %}
+            </div>
+          </article>
+        {% empty %}
+          <article class="masters-empty">
+            <strong>Nenhum gestor cadastrado.</strong>
+            <span>Use "Novo gestor" para cadastrar o primeiro.</span>
+          </article>
+        {% endfor %}
+      </section>
+    </div>
+  </section>
+</main>
+
+<div class="masters-modal {% if show_modal %}is-open{% endif %}" data-modal-root>
+  <div class="masters-modal-backdrop" data-modal-close></div>
+  <div class="masters-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="master-modal-title">
+    <header class="masters-modal-head">
+      <h2 id="master-modal-title">Novo gestor</h2>
+      <button type="button" class="modal-close" data-modal-close aria-label="Fechar">✕</button>
+    </header>
+
+    <form method="post" class="masters-form">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="create">
+      {% for field in form %}
+        <div class="masters-field {% if field.errors %}has-error{% endif %}">
+          <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+          {{ field }}
+          {% if field.help_text %}<span class="masters-field-hint">{{ field.help_text }}</span>{% endif %}
+          {% for erro in field.errors %}<span class="masters-field-error">{{ erro }}</span>{% endfor %}
+        </div>
+      {% endfor %}
+      <div class="masters-form-actions">
+        <button type="button" class="secondary-button" data-modal-close>Cancelar</button>
+        <button type="submit" class="primary-button">Criar gestor</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+  (function () {
+    const root = document.querySelector('[data-modal-root]');
+    if (!root) return;
+    document.querySelectorAll('[data-modal-open]').forEach(function (b) {
+      b.addEventListener('click', function () { root.classList.add('is-open'); });
+    });
+    document.querySelectorAll('[data-modal-close]').forEach(function (b) {
+      b.addEventListener('click', function () { root.classList.remove('is-open'); });
+    });
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') root.classList.remove('is-open');
+    });
+  })();
+</script>
+{% endblock %}

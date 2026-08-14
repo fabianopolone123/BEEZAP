@@ -174,6 +174,16 @@ class User(AbstractUser):
         Company, null=True, blank=True, on_delete=models.CASCADE,
         related_name='users', verbose_name='Empresa',
     )
+    # RECUPERACAO DE SENHA de quem NAO tem perfil de atendente — na pratica o gestor
+    # master, que nao pertence a nenhuma empresa e por isso nunca teve `Attendant`
+    # (era dai que saia o telefone). Sem este campo ele so recuperaria a senha pelo
+    # shell do servidor. Para os demais perfis o telefone continua vindo do Attendant.
+    recovery_phone = models.CharField(
+        'WhatsApp para recuperar a senha', max_length=20, blank=True,
+    )
+    # Troca obrigatoria no primeiro acesso para quem nao tem Attendant (o master).
+    # O `InitialPasswordChangeMiddleware` olha os dois lugares.
+    must_change_password = models.BooleanField(default=False)
 
     objects = UserManager()
 

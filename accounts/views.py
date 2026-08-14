@@ -28,6 +28,7 @@ from django.views.decorators.http import require_POST
 from .forms import (
     AttendantForm,
     CompanyAdminForm,
+    MasterUserForm,
     CompanyForm,
     InitialPasswordChangeForm,
     LoginForm,
@@ -308,10 +309,16 @@ def render_login(request, **context):
 
 
 def get_user_recovery_phone(user):
+    """WhatsApp que recebe o codigo de recuperacao.
+
+    Quem tem perfil de atendente usa o telefone de la; o GESTOR MASTER nao tem
+    empresa nem `Attendant`, entao usa o `recovery_phone` cadastrado na tela Gestores.
+    """
     try:
-        return Attendant.normalize_phone(user.attendant_profile.phone)
+        phone = user.attendant_profile.phone
     except Attendant.DoesNotExist:
-        return ''
+        phone = user.recovery_phone
+    return Attendant.normalize_phone(phone)
 
 
 def clear_password_recovery_session(request):
@@ -1495,21 +1502,24 @@ def attendants_view(request):
 
 @login_required
 def change_initial_password_view(request):
+    # O gestor master nao tem `Attendant`: a marca dele fica no proprio User.
     try:
         attendant = request.user.attendant_profile
     except Attendant.DoesNotExist:
-        return redirect('dashboard')
+        attendant = None
 
-    if not attendant.must_change_password:
+    if not (request.user.must_change_password or (attendant and attendant.must_change_password)):
         return redirect('dashboard')
 
     form = InitialPasswordChangeForm(request.POST or None, user=request.user)
     if request.method == 'POST':
         if form.is_valid():
             request.user.set_password(form.cleaned_data['new_password'])
-            request.user.save(update_fields=['password'])
-            attendant.must_change_password = False
-            attendant.save(update_fields=['must_change_password', 'updated_at'])
+            request.user.must_change_password = False
+            request.user.save(update_fields=['password', 'must_change_password'])
+            if attendant is not None:
+                attendant.must_change_password = False
+                attendant.save(update_fields=['must_change_password', 'updated_at'])
             update_session_auth_hash(request, request.user)
             messages.success(request, 'Senha alterada com sucesso.')
             return redirect('dashboard')
@@ -2211,6 +2221,163 @@ def clients_view(request):
             'user_initial': (request.user.first_name[:1] or request.user.email[:1]).upper(),
         },
     )
+
+
+@login_required
+def masters_view(request):
+    """Tela GESTORES (exclusiva do gestor master): quem administra a PLATAFORMA.
+
+    Ate aqui o master so nascia pelo shell do servidor (`create_user(role=MASTER)`),
+    o que deixava o dono da plataforma sem sucessor e sem substituto em ferias. Agora
+    um master cadastra outro, com senha inicial e WhatsApp — o telefone e obrigatorio
+    porque e o unico caminho de recuperacao de senha de quem nao tem empresa.
+
+    Travas (todas no backend, nao so na tela):
+      - **nunca sobrar zero master ativo**: a plataforma ficaria sem dono e sem
+        ninguem para cadastrar cliente ou credencial;
+      - **ninguem se desativa nem se exclui**, para nao se trancar fora;
+      - **excluir exige estar desativado antes** (mesma ordem da tela Clientes).
+    """
+    forbidden = require_master(request)
+    if forbidden:
+        return forbidden
+
+    form = None
+    masters = User.objects.filter(role=User.Role.MASTER)
+
+    if request.method == 'POST':
+        action = (request.POST.get('action') or '').strip()
+        target_id = (request.POST.get('master_id') or '').strip()
+        target = masters.filter(pk=target_id).first() if target_id else None
+        is_self = target is not None and target.pk == request.user.pk
+
+        if action == 'create':
+            form = MasterUserForm(request.POST)
+            if form.is_valid():
+                first_name, last_name = split_name_parts(form.cleaned_data['name'])
+                # company=None e o que coloca a pessoa ACIMA das empresas (ver
+                # accounts/tenancy.py); master nao tem perfil de atendente.
+                User.objects.create_user(
+                    email=form.cleaned_data['email'],
+                    password=form.cleaned_data['password'],
+                    role=User.Role.MASTER,
+                    first_name=first_name,
+                    last_name=last_name,
+                    recovery_phone=form.cleaned_data['phone'],
+                    must_change_password=True,
+                )
+                messages.success(
+                    request,
+                    f'Gestor "{form.cleaned_data["name"]}" criado. Ele troca a senha no primeiro acesso.',
+                )
+                return redirect('masters')
+            messages.error(request, 'Não foi possível criar o gestor. Verifique os dados.')
+
+        elif target is None:
+            messages.error(request, 'Gestor não encontrado.')
+            return redirect('masters')
+
+        elif action == 'toggle-active':
+            if is_self:
+                messages.error(request, 'Você não pode desativar a sua própria conta.')
+            elif target.is_active and _active_masters_besides(target) == 0:
+                messages.error(
+                    request,
+                    'Este é o único gestor ativo. Crie outro antes de desativar este — '
+                    'sem gestor ativo ninguém administra a plataforma.',
+                )
+            else:
+                target.is_active = not target.is_active
+                target.save(update_fields=['is_active'])
+                estado = 'reativado' if target.is_active else 'desativado'
+                messages.success(request, f'Gestor "{target.get_full_name() or target.email}" {estado}.')
+            return redirect('masters')
+
+        elif action == 'reset-password':
+            nova = (request.POST.get('password') or '').strip()
+            if len(nova) < 8:
+                messages.error(request, 'A senha inicial precisa de pelo menos 8 caracteres.')
+            else:
+                target.set_password(nova)
+                # Senha definida por outra pessoa e sempre provisoria.
+                target.must_change_password = True
+                target.save(update_fields=['password', 'must_change_password'])
+                messages.success(
+                    request,
+                    f'Senha de "{target.get_full_name() or target.email}" redefinida. '
+                    'Ele troca no próximo acesso.',
+                )
+            return redirect('masters')
+
+        elif action == 'save-phone':
+            phone = Attendant.normalize_phone(request.POST.get('phone'))
+            if len(phone) < 10:
+                messages.error(request, 'Informe o WhatsApp com DDD (ex.: 5511999999999).')
+            else:
+                target.recovery_phone = phone
+                target.save(update_fields=['recovery_phone'])
+                messages.success(request, 'WhatsApp de recuperação atualizado.')
+            return redirect('masters')
+
+        elif action == 'delete':
+            if is_self:
+                messages.error(request, 'Você não pode excluir a sua própria conta.')
+            elif target.is_active:
+                messages.error(
+                    request,
+                    'Desative o gestor antes de excluir — assim ninguém perde o acesso por engano.',
+                )
+            else:
+                nome = target.get_full_name() or target.email
+                target.delete()
+                messages.success(request, f'Gestor "{nome}" excluído.')
+            return redirect('masters')
+
+    masters_ctx = [
+        {
+            'id': m.id,
+            'name': m.get_full_name() or m.email,
+            'email': m.email,
+            'phone': m.recovery_phone,
+            'formatted_phone': _format_recovery_phone(m.recovery_phone),
+            'is_active': m.is_active,
+            'is_self': m.pk == request.user.pk,
+            'must_change_password': m.must_change_password,
+            'last_login': timezone.localtime(m.last_login).strftime('%d/%m/%Y %H:%M') if m.last_login else '',
+        }
+        for m in masters.order_by('email')
+    ]
+
+    return render(
+        request,
+        'accounts/masters.html',
+        {
+            'masters': masters_ctx,
+            'form': form or MasterUserForm(),
+            'show_modal': form is not None,
+            'total_masters': len(masters_ctx),
+            'active_masters': sum(1 for m in masters_ctx if m['is_active']),
+            'nav_items': build_nav_items(request.user, 'Gestores', request),
+            'role_label': request.user.get_role_display(),
+            'user_initial': (request.user.first_name[:1] or request.user.email[:1]).upper(),
+        },
+    )
+
+
+def _active_masters_besides(user):
+    """Quantos OUTROS gestores master ativos existem (a trava do 'ultimo master')."""
+    return User.objects.filter(
+        role=User.Role.MASTER, is_active=True,
+    ).exclude(pk=user.pk).count()
+
+
+def _format_recovery_phone(digits):
+    digits = digits or ''
+    if len(digits) == 13:  # 55 + DDD + 9 digitos
+        return f'+{digits[:2]} ({digits[2:4]}) {digits[4:9]}-{digits[9:]}'
+    if len(digits) == 11:
+        return f'({digits[:2]}) {digits[2:7]}-{digits[7:]}'
+    return digits or '-'
 
 
 @login_required

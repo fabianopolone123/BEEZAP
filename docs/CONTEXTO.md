@@ -43,7 +43,7 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
 > `wapi/` é um módulo Python comum (importa `accounts.models`); **não** está em
 > `INSTALLED_APPS`, por isso os models ficam em `accounts/models.py`.
 
-## 3. Modelos (`accounts/models.py`) — migração atual: `0032`
+## 3. Modelos (`accounts/models.py`) — migração atual: `0033`
 
 > **MULTIEMPRESA:** quase todo model abaixo tem um campo **`company`** (a empresa
 > cliente dona do registro) e as unicidades passaram a ser **por empresa**. Os
@@ -55,6 +55,10 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
 - **User** (AbstractUser, login por e-mail; `role`:
   `master`/`adm`/`usuario`/`leitor`). **`company`** = empresa da pessoa; **nulo =
   gestor master** (dono da plataforma, fica acima das empresas e não lê conversas).
+  Dois campos existem **para quem não tem `Attendant`** (na prática, o master):
+  **`recovery_phone`** (WhatsApp da recuperação de senha) e
+  **`must_change_password`** (troca obrigatória no primeiro acesso; o
+  `InitialPasswordChangeMiddleware` olha **os dois lugares**, aqui e no atendente).
 - **Attendant** (perfil de atendente, vínculo com User, troca de senha inicial).
   **Admin como atendente:** todo usuário `adm` ganha **automaticamente** um
   `Attendant` (via sinal em `accounts/signals.py` + backfill na migração `0025`) e é
@@ -87,7 +91,10 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
 - **UserConversationView** (OneToOne com User): **exceção por usuário** da
   visualização de conversas, sobrepõe o setor. `view_scope` (nulo = herdar) e
   `view_full_history` (nulo = herdar). Ver seção 15.
-- **PasswordResetCode** (recuperação de senha por código no WhatsApp).
+- **PasswordResetCode** (recuperação de senha por código no WhatsApp). O telefone
+  vem do `Attendant` de quem pede; o **gestor master** não tem atendente, então usa
+  `User.recovery_phone` (tela Gestores) e o código sai pela instância da **empresa
+  padrão** — ver `create_and_send_password_recovery_code` e a seção 16.
 - **WapiConfiguration** (**uma por empresa**, `for_company(company)`): `instance_id`,
   `token`, `webhook_token`. Credenciais reais ficam **aqui (no banco)**, editadas na
   tela Configurações → WhatsApp/W-API. `resolved_*()` cai para env se vazio.
@@ -1151,16 +1158,41 @@ todo mundo está nela.
 
 ### Como criar o gestor master
 
-Não há tela de cadastro do master (é o dono da plataforma). Pelo shell:
+**O normal é pela tela Gestores** (seção abaixo): um master cadastra outro. O shell
+serve só para o **primeiro** master de uma instalação nova (ou para destravar quem
+perdeu o acesso sem WhatsApp cadastrado):
 
 ```bash
 venv/bin/python manage.py shell -c "
 from accounts.models import User
-User.objects.create_user(email='master@seudominio.com', password='TROQUE-ESTA-SENHA', role=User.Role.MASTER)
+User.objects.create_user(email='SEU-EMAIL', password='SUA-SENHA', role=User.Role.MASTER,
+                         recovery_phone='5511999999999')
 "
 ```
-> O master fica **sem empresa** (`company=None`) — é isso que o coloca acima das
-> empresas. Depois de logar, ele cai direto na tela **Clientes**.
+> Use o **seu** e-mail e uma senha forte de verdade — o exemplo acima já foi copiado
+> literalmente uma vez, criando um master `master@seudominio.com` com senha pública em
+> produção. O master fica **sem empresa** (`company=None`), que é o que o coloca acima
+> das empresas; depois de logar, cai direto na tela **Clientes**.
+
+### Tela Gestores (`templates/accounts/masters.html` + `masters.css`)
+
+`gestores/` (`masters_view`, nome `masters`), **exclusiva do master** (`require_master`
+→ 403 para qualquer perfil de cliente, inclusive por POST forjado). É o menu
+`MASTERS_ITEM`, ao lado de Clientes e Inteligência (IA).
+
+- **Novo gestor** (`action=create`, `MasterUserForm`): nome, e-mail, **senha inicial
+  (mínimo 8)** e **WhatsApp — obrigatório**. Cria `role=master`, `company=None`,
+  `recovery_phone` preenchido e `must_change_password=True`.
+- **Acesso** (por cartão): `save-phone` (troca o WhatsApp de recuperação) e
+  `reset-password` (nova senha inicial; volta a marcar troca obrigatória — senha
+  definida por outra pessoa é sempre provisória).
+- **Travas no backend**, não só na tela: ninguém **se** desativa ou **se** exclui;
+  **nunca sobra zero master ativo** (a plataforma ficaria sem dono); **excluir exige
+  desativar antes**, a mesma ordem da tela Clientes.
+
+> **Por que o WhatsApp é obrigatório aqui:** o master não tem empresa nem `Attendant`,
+> que é de onde saía o telefone de recuperação de todo mundo. Sem `recovery_phone`,
+> senha perdida só se resolve pelo shell do VPS.
 
 ### Isolamento completo (Parte 2 — CONCLUÍDA)
 
@@ -1239,8 +1271,8 @@ fallback** — sempre os da empresa daquela conversa.
 
 **Como isso aparece no menu:**
 
-- **Master, fora do painel de cliente**: `Clientes` + `Inteligência (IA)`
-  (`MASTER_ONLY_ITEMS` em `accounts/permissions.py`).
+- **Master, fora do painel de cliente**: `Clientes` + `Inteligência (IA)` +
+  `Gestores` (`MASTER_ONLY_ITEMS` em `accounts/permissions.py`).
 - **Master, dentro do painel de um cliente** (modo suporte): o acima + **`WhatsApp`**
   (`WHATSAPP_ITEM`, aponta direto para `wapi-settings`) — **e nada mais**. Setores,
   Atendentes, Permissões e Atendimento são do negócio do cliente e ficam com o **ADM

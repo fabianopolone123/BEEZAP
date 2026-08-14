@@ -50,9 +50,12 @@ PERMISSIONS_ITEM = {'label': 'Permissões', 'url_name': 'permissions'}
 # `Inteligência (IA)` = configuracao do GPT, que e UMA para toda a plataforma (a API
 # Key e do master, que paga a conta da OpenAI). Cada empresa so decide SE usa IA,
 # chatbot ou nada, no seletor de modo da tela Atendimento dela.
+# `Gestores` = quem administra a PLATAFORMA (os proprios masters). Um master cria
+# outro por ali, com senha inicial e WhatsApp de recuperacao.
 CLIENTS_ITEM = {'label': 'Clientes', 'url_name': 'clients'}
 AI_ITEM = {'label': 'Inteligência (IA)', 'url_name': 'openai-settings'}
-MASTER_ONLY_ITEMS = [CLIENTS_ITEM, AI_ITEM]
+MASTERS_ITEM = {'label': 'Gestores', 'url_name': 'masters'}
+MASTER_ONLY_ITEMS = [CLIENTS_ITEM, AI_ITEM, MASTERS_ITEM]
 
 # MODO SUPORTE: o que o master alcanca quando "entra no painel" de um cliente.
 #
@@ -137,7 +140,7 @@ def user_can_access(user, key):
     role = getattr(user, 'role', None)
     # Telas da PLATAFORMA (gestao de clientes e configuracao do GPT): so o master, e
     # nenhum perfil de cliente as acessa.
-    if key in ('clients', 'platform_ai'):
+    if key in ('clients', 'platform_ai', 'masters'):
         return role == 'master'
     # O master nao tem NENHUMA feature da empresa, nem dentro do painel do cliente
     # (modo suporte): a unica tela que ele alcanca la e a do WhatsApp, protegida por

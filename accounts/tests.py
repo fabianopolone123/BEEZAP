@@ -2721,7 +2721,7 @@ class MasterRoleTests(TestCase):
         """Fora do painel de um cliente, o master ve so as telas da PLATAFORMA."""
         from accounts.permissions import nav_items_for
         labels = [item['label'] for item in nav_items_for(self.master, '')]
-        self.assertEqual(labels, ['Clientes', 'Inteligência (IA)'])
+        self.assertEqual(labels, ['Clientes', 'Inteligência (IA)', 'Gestores'])
 
     def test_master_cannot_access_operational_screens(self):
         self.client.force_login(self.master)
@@ -3418,7 +3418,7 @@ class MasterSupportModeTests(TestCase):
     def test_master_menu_in_support_mode_is_only_platform_plus_whatsapp(self):
         from accounts.permissions import nav_items_for
         labels = [i['label'] for i in nav_items_for(self.master, '', in_company=True)]
-        self.assertEqual(labels, ['Clientes', 'Inteligência (IA)', 'WhatsApp'])
+        self.assertEqual(labels, ['Clientes', 'Inteligência (IA)', 'Gestores', 'WhatsApp'])
 
     def test_master_still_sees_no_conversation_in_support_mode(self):
         from accounts.models import Contact, Conversation
@@ -4312,3 +4312,198 @@ class DeletedCompanyLeavesNoFilesTests(TestCase):
 
         self.assertFalse(Company.objects.filter(pk=self.company.pk).exists())
         self.assertFalse(os.path.exists(self.caminho))
+
+
+class MasterAccountsScreenTests(TestCase):
+    """Tela GESTORES: um master cadastra outro master, sem precisar do shell do VPS."""
+
+    def setUp(self):
+        self.master = User.objects.create_user(
+            email='dono@beezap.com', password='x', role=User.Role.MASTER,
+            recovery_phone='5511999990000',
+        )
+        self.client.force_login(self.master)
+
+    def _create(self, **extra):
+        dados = {
+            'action': 'create',
+            'name': 'Socio Novo',
+            'email': 'socio@beezap.com',
+            'password': 'senhaforte1',
+            'phone': '5511988887777',
+        }
+        dados.update(extra)
+        return self.client.post(reverse('masters'), dados)
+
+    def test_master_creates_another_master(self):
+        self._create()
+        novo = User.objects.get(email='socio@beezap.com')
+        self.assertEqual(novo.role, User.Role.MASTER)
+        self.assertIsNone(novo.company)          # master fica ACIMA das empresas
+        self.assertEqual(novo.recovery_phone, '5511988887777')
+        self.assertTrue(novo.must_change_password)
+        self.assertTrue(novo.check_password('senhaforte1'))
+
+    def test_new_master_is_forced_to_change_the_initial_password(self):
+        self._create()
+        self.client.logout()
+        self.client.login(email='socio@beezap.com', password='senhaforte1')
+        r = self.client.get(reverse('clients'))
+        self.assertRedirects(r, reverse('change-initial-password'))
+
+        self.client.post(reverse('change-initial-password'), {
+            'new_password': 'outrasenha9', 'confirm_password': 'outrasenha9',
+        })
+        novo = User.objects.get(email='socio@beezap.com')
+        self.assertFalse(novo.must_change_password)
+        self.assertTrue(novo.check_password('outrasenha9'))
+        self.assertEqual(self.client.get(reverse('clients')).status_code, 200)
+
+    def test_whatsapp_is_required_because_it_is_the_only_recovery_path(self):
+        r = self._create(phone='')
+        self.assertFalse(User.objects.filter(email='socio@beezap.com').exists())
+        self.assertContains(r, 'WhatsApp')
+
+    def test_email_must_be_unique_in_the_whole_system(self):
+        from accounts.models import Company
+        empresa = Company.objects.create(name='Acme', slug='acme-master')
+        User.objects.create_user(email='ocupado@x.com', password='x', company=empresa)
+        self._create(email='ocupado@x.com')
+        self.assertEqual(User.objects.filter(email='ocupado@x.com').count(), 1)
+
+    def test_client_profiles_cannot_open_or_post(self):
+        """A tela e da plataforma: nenhum perfil de cliente entra, nem por POST."""
+        from accounts.models import Company
+        empresa = Company.objects.create(name='Acme', slug='acme-master-2')
+        adm = User.objects.create_user(
+            email='adm@acme.com', password='x', role=User.Role.ADM, company=empresa
+        )
+        self.client.force_login(adm)
+        self.assertEqual(self.client.get(reverse('masters')).status_code, 403)
+        self.assertEqual(self._create().status_code, 403)
+        self.assertFalse(User.objects.filter(email='socio@beezap.com').exists())
+
+    def test_cannot_deactivate_or_delete_yourself(self):
+        self.client.post(reverse('masters'), {
+            'action': 'toggle-active', 'master_id': self.master.pk,
+        })
+        self.master.refresh_from_db()
+        self.assertTrue(self.master.is_active)
+
+        self.client.post(reverse('masters'), {'action': 'delete', 'master_id': self.master.pk})
+        self.assertTrue(User.objects.filter(pk=self.master.pk).exists())
+
+    def test_platform_never_runs_out_of_active_masters(self):
+        """Com dois ativos da para desativar um; o ultimo ativo nunca cai."""
+        self._create()
+        novo = User.objects.get(email='socio@beezap.com')
+        self.client.post(reverse('masters'), {'action': 'toggle-active', 'master_id': novo.pk})
+        novo.refresh_from_db()
+        self.assertFalse(novo.is_active)
+
+        # Sobrou so o dono ativo. Reativando o segundo e entrando com ele (ja com a
+        # senha trocada, senao o middleware prende na tela de troca), a trava do
+        # "ultimo master ativo" tem que valer para ele tambem.
+        novo.is_active = True
+        novo.must_change_password = False
+        novo.save(update_fields=['is_active', 'must_change_password'])
+        self.client.force_login(novo)
+        self.client.post(reverse('masters'), {
+            'action': 'toggle-active', 'master_id': self.master.pk,
+        })
+        self.master.refresh_from_db()
+        self.assertFalse(self.master.is_active)   # ainda ha outro ativo (novo)
+
+        self.client.post(reverse('masters'), {'action': 'toggle-active', 'master_id': novo.pk})
+        novo.refresh_from_db()
+        self.assertTrue(novo.is_active)           # seria o ultimo: recusado
+
+    def test_delete_requires_deactivating_first(self):
+        self._create()
+        novo = User.objects.get(email='socio@beezap.com')
+        self.client.post(reverse('masters'), {'action': 'delete', 'master_id': novo.pk})
+        self.assertTrue(User.objects.filter(pk=novo.pk).exists())
+
+        self.client.post(reverse('masters'), {'action': 'toggle-active', 'master_id': novo.pk})
+        self.client.post(reverse('masters'), {'action': 'delete', 'master_id': novo.pk})
+        self.assertFalse(User.objects.filter(pk=novo.pk).exists())
+
+    def test_reset_password_marks_it_as_provisional(self):
+        self._create()
+        novo = User.objects.get(email='socio@beezap.com')
+        novo.must_change_password = False
+        novo.save(update_fields=['must_change_password'])
+
+        self.client.post(reverse('masters'), {
+            'action': 'reset-password', 'master_id': novo.pk, 'password': 'trocadaagora1',
+        })
+        novo.refresh_from_db()
+        self.assertTrue(novo.check_password('trocadaagora1'))
+        self.assertTrue(novo.must_change_password)
+
+    def test_short_reset_password_is_refused(self):
+        self._create()
+        novo = User.objects.get(email='socio@beezap.com')
+        self.client.post(reverse('masters'), {
+            'action': 'reset-password', 'master_id': novo.pk, 'password': '123',
+        })
+        novo.refresh_from_db()
+        self.assertTrue(novo.check_password('senhaforte1'))
+
+    def test_saving_the_recovery_whatsapp(self):
+        self._create()
+        novo = User.objects.get(email='socio@beezap.com')
+        self.client.post(reverse('masters'), {
+            'action': 'save-phone', 'master_id': novo.pk, 'phone': '55 (11) 96666-5555',
+        })
+        novo.refresh_from_db()
+        self.assertEqual(novo.recovery_phone, '5511966665555')
+
+    def test_menu_shows_gestores_for_master_only(self):
+        from accounts.permissions import nav_items_for
+        labels = [i['label'] for i in nav_items_for(self.master, '')]
+        self.assertEqual(labels, ['Clientes', 'Inteligência (IA)', 'Gestores'])
+
+
+class MasterPasswordRecoveryTests(TestCase):
+    """O master recupera a senha como todo mundo: codigo no WhatsApp dele.
+
+    Ele nao tem empresa nem perfil de atendente, entao o telefone vem do
+    `recovery_phone` (tela Gestores) e o envio sai pela instancia da EMPRESA PADRAO
+    — ver `create_and_send_password_recovery_code`.
+    """
+
+    def setUp(self):
+        self.master = User.objects.create_user(
+            email='dono@beezap.com', password='antiga123', role=User.Role.MASTER,
+            recovery_phone='5511977776666',
+        )
+
+    def test_recovery_uses_the_master_own_whatsapp(self):
+        from accounts.views import get_user_recovery_phone
+        self.assertEqual(get_user_recovery_phone(self.master), '5511977776666')
+
+    def test_code_is_sent_by_the_default_company_instance(self):
+        enviados = []
+
+        def _fake_send(phone, message, company):
+            enviados.append((phone, message, company))
+            return SimpleNamespace(success=True)
+
+        with patch('accounts.views.send_text_message', side_effect=_fake_send):
+            self.client.post(reverse('password-recovery-request'), {'email': 'dono@beezap.com'})
+
+        self.assertEqual(len(enviados), 1)
+        self.assertEqual(enviados[0][0], '5511977776666')
+        from accounts.models import Company
+        self.assertEqual(enviados[0][2], Company.get_default())
+        self.assertTrue(PasswordResetCode.objects.filter(user=self.master, used_at__isnull=True).exists())
+
+    def test_master_without_phone_gets_no_code(self):
+        """Sem WhatsApp cadastrado nao ha por onde mandar."""
+        self.master.recovery_phone = ''
+        self.master.save(update_fields=['recovery_phone'])
+        with patch('accounts.views.send_text_message') as enviar:
+            self.client.post(reverse('password-recovery-request'), {'email': 'dono@beezap.com'})
+        enviar.assert_not_called()
+        self.assertFalse(PasswordResetCode.objects.filter(user=self.master).exists())

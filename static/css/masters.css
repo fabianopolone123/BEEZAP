@@ -1,0 +1,379 @@
+/* ===========================================================================
+   Tela GESTORES (gestor master): quem administra a PLATAFORMA.
+
+   Escopo proprio (.masters-page / .masters-modal) para nao afetar outras telas.
+   Os tokens de cor e os botoes compartilhados vem de dashboard.css e
+   attendants.css (ver o <head> de masters.html).
+   Layout responsivo: cartoes que viram coluna unica no celular, sem rolagem
+   horizontal.
+   =========================================================================== */
+
+.masters-page {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-width: 0;
+}
+
+.masters-intro {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.92rem;
+  line-height: 1.5;
+}
+
+/* ── Resumo + botao de novo gestor ────────────────────────────────────────── */
+
+.masters-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  align-items: center;
+  gap: 14px;
+}
+
+.masters-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 16px;
+  padding: 16px 18px;
+  box-shadow: var(--shadow);
+}
+
+.masters-stat span {
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.masters-stat strong {
+  font-size: 1.7rem;
+  color: var(--text);
+  line-height: 1.1;
+}
+
+/* ── Lista de gestores ────────────────────────────────────────────────────── */
+
+.masters-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 14px;
+}
+
+.master-card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 18px;
+  padding: 18px;
+  box-shadow: var(--shadow);
+  min-width: 0;
+}
+
+/* Gestor desativado fica visivelmente apagado — nao entra mais no sistema. */
+.master-card.is-inactive {
+  opacity: 0.72;
+  border-style: dashed;
+}
+
+.master-id {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.master-avatar {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  flex: 0 0 44px;
+  border-radius: 14px;
+  background: var(--brand, #2f6bff);
+  color: #fff;
+  font-weight: 700;
+  font-size: 1.1rem;
+}
+
+.master-id strong {
+  display: block;
+  color: var(--text);
+  font-size: 1.02rem;
+  overflow-wrap: anywhere;
+}
+
+.master-id span {
+  color: var(--muted);
+  font-size: 0.85rem;
+  overflow-wrap: anywhere;
+}
+
+.master-tag {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--muted);
+  background: rgba(120, 130, 150, 0.14);
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+
+.master-data {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+
+.master-data div {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.master-data dt {
+  min-width: 108px;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.master-data dd {
+  margin: 0;
+  color: var(--text);
+  font-size: 0.9rem;
+  overflow-wrap: anywhere;
+}
+
+.master-badge {
+  display: inline-block;
+  font-size: 0.75rem;
+  font-weight: 600;
+  border-radius: 999px;
+  padding: 3px 10px;
+  background: rgba(120, 130, 150, 0.16);
+  color: var(--muted);
+}
+
+.master-badge.is-on {
+  background: rgba(34, 168, 105, 0.16);
+  color: #1c8a56;
+}
+
+/* Ambar = pendencia (senha ainda provisoria), no mesmo tom do aviso de suporte. */
+.master-badge.is-warn {
+  background: rgba(214, 158, 46, 0.18);
+  color: #9a6b12;
+}
+
+/* ── Ferramentas de acesso (WhatsApp e senha) ─────────────────────────────── */
+
+.master-tools {
+  border-top: 1px solid var(--card-border);
+  padding-top: 12px;
+}
+
+.master-tools summary {
+  cursor: pointer;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.master-tool-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.master-tool-form label {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.master-tool-form input {
+  width: 100%;
+  border: 1px solid var(--card-border);
+  border-radius: 12px;
+  padding: 10px 12px;
+  font: inherit;
+  color: var(--text);
+  background: #fff;
+}
+
+.master-tool-form button {
+  align-self: flex-start;
+}
+
+.master-hint {
+  font-size: 0.78rem;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.master-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  border-top: 1px solid var(--card-border);
+  padding-top: 12px;
+}
+
+.master-inline-form {
+  display: inline-flex;
+  margin: 0;
+}
+
+.danger-link {
+  border: none;
+  background: none;
+  color: #c0392b;
+  font: inherit;
+  cursor: pointer;
+  padding: 8px 10px;
+  border-radius: 10px;
+}
+
+.danger-link:hover {
+  background: rgba(192, 57, 43, 0.1);
+}
+
+.masters-empty {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: var(--card-bg);
+  border: 1px dashed var(--card-border);
+  border-radius: 18px;
+  padding: 24px;
+  color: var(--muted);
+}
+
+.masters-empty strong {
+  color: var(--text);
+}
+
+/* ── Modal de cadastro ────────────────────────────────────────────────────── */
+
+.masters-modal {
+  position: fixed;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  z-index: 1050;
+}
+
+.masters-modal.is-open {
+  display: flex;
+}
+
+.masters-modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(6, 20, 39, 0.55);
+}
+
+.masters-modal-dialog {
+  position: relative;
+  width: min(560px, 100%);
+  max-height: 88vh;
+  overflow-y: auto;
+  background: #fff;
+  border-radius: 20px;
+  padding: 22px;
+  box-shadow: 0 30px 70px rgba(4, 10, 22, 0.34);
+}
+
+.masters-modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.masters-modal-head h2 {
+  margin: 0;
+  font-size: 1.2rem;
+  color: var(--text);
+}
+
+.masters-form {
+  display: grid;
+  gap: 14px;
+}
+
+.masters-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.masters-field label {
+  font-size: 0.84rem;
+  color: var(--muted);
+}
+
+.masters-field input {
+  width: 100%;
+  border: 1px solid var(--card-border);
+  border-radius: 12px;
+  padding: 11px 13px;
+  font: inherit;
+  color: var(--text);
+  background: #fff;
+}
+
+.masters-field.has-error input {
+  border-color: #c0392b;
+}
+
+.masters-field-hint {
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.masters-field-error {
+  font-size: 0.8rem;
+  color: #c0392b;
+}
+
+.masters-form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+/* ── Responsivo ───────────────────────────────────────────────────────────── */
+
+@media (max-width: 900px) {
+  .masters-list {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 620px) {
+  .master-data div {
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .masters-modal {
+    padding: 12px;
+  }
+
+  .masters-modal-dialog {
+    padding: 18px;
+  }
+
+  .masters-form-actions button {
+    flex: 1 1 100%;
+  }
+}

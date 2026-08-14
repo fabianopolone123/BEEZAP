@@ -501,6 +501,54 @@ class CompanyAdminForm(forms.Form):
         return Attendant.normalize_phone(self.cleaned_data.get('phone'))
 
 
+class MasterUserForm(forms.Form):
+    """Novo GESTOR MASTER (dono da plataforma), criado por outro master.
+
+    Diferente do Administrador de uma empresa, o master nao pertence a empresa
+    nenhuma (`company=None`) e nao tem perfil de atendente. Por isso o WhatsApp e
+    OBRIGATORIO aqui: e o unico caminho de recuperacao de senha dele (o codigo sai
+    pela instancia da empresa padrao — ver `create_and_send_password_recovery_code`).
+    Sem telefone, uma senha perdida so se resolve pelo shell do servidor.
+    """
+
+    name = forms.CharField(
+        label='Nome',
+        max_length=150,
+        widget=forms.TextInput(attrs={'placeholder': 'Nome de quem vai gerir a plataforma', 'autocomplete': 'off'}),
+    )
+    email = forms.EmailField(
+        label='E-mail de acesso',
+        widget=forms.EmailInput(attrs={'placeholder': 'gestor@suaempresa.com', 'autocomplete': 'off'}),
+    )
+    password = forms.CharField(
+        label='Senha inicial',
+        min_length=8,
+        widget=forms.PasswordInput(attrs={'placeholder': 'Mínimo de 8 caracteres', 'autocomplete': 'new-password'}),
+        help_text='A pessoa é obrigada a trocar esta senha no primeiro acesso.',
+    )
+    phone = forms.CharField(
+        label='WhatsApp (recuperação de senha)',
+        max_length=20,
+        widget=forms.TextInput(attrs={'placeholder': '5511999999999', 'autocomplete': 'off'}),
+    )
+
+    def clean_email(self):
+        """O e-mail e a chave de login: unico em TODO o sistema."""
+        email = self.cleaned_data['email'].strip().lower()
+        if User.objects.filter(email=email).exists():
+            raise forms.ValidationError('Este e-mail já está em uso no sistema.')
+        return email
+
+    def clean_phone(self):
+        phone = Attendant.normalize_phone(self.cleaned_data.get('phone'))
+        if len(phone) < 10:
+            raise forms.ValidationError(
+                'Informe o WhatsApp com DDD (ex.: 5511999999999). É por ele que a '
+                'senha do gestor é recuperada.'
+            )
+        return phone
+
+
 class PasswordRecoveryRequestForm(forms.Form):
     email = forms.EmailField(
         label='E-mail',

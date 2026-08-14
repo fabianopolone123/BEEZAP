@@ -20,6 +20,10 @@ class InitialPasswordChangeMiddleware:
         return self.get_response(request)
 
     def _must_change_password(self, user):
+        # O gestor master nao tem perfil de atendente: a marca dele fica no proprio
+        # User (ver accounts/models.User.must_change_password e a tela Gestores).
+        if getattr(user, 'must_change_password', False):
+            return True
         try:
             return user.attendant_profile.must_change_password
         except Attendant.DoesNotExist:
