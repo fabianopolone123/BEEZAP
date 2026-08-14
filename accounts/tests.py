@@ -3334,10 +3334,12 @@ class MasterClientAccessTests(TestCase):
 
 
 class MasterSupportModeTests(TestCase):
-    """MODO SUPORTE: o master entra no painel do cliente para CONFIGURAR — e so isso.
+    """MODO SUPORTE: o master entra no painel do cliente SO para o WhatsApp.
 
-    Conversas e Contatos ficam de fora de proposito (dados pessoais dos clientes
-    finais da empresa). Ver accounts/permissions.MASTER_SUPPORT_KEYS.
+    A instancia/token da W-API e a unica parte tecnica que nao fica com o cliente.
+    Tudo o que e do negocio da empresa (setores, atendentes, permissoes, chatbot) e
+    do ADM dela, e Conversas/Contatos/Dashboard nunca estiveram abertos (dados
+    pessoais dos clientes finais). Ver accounts/permissions.WHATSAPP_ITEM.
     """
 
     def setUp(self):
@@ -3357,11 +3359,17 @@ class MasterSupportModeTests(TestCase):
         r = self._enter()
         self.assertRedirects(r, reverse('wapi-settings'))
 
-    def test_config_screens_open_in_support_mode(self):
+    def test_only_whatsapp_and_platform_ai_open_in_support_mode(self):
+        """No painel do cliente o master abre o WhatsApp dele e a IA da plataforma."""
         self._enter()
-        for route in ('wapi-settings', 'atendimento', 'openai-settings', 'sectors',
-                      'attendants', 'permissions'):
+        for route in ('wapi-settings', 'openai-settings'):
             self.assertEqual(self.client.get(reverse(route)).status_code, 200, route)
+
+    def test_client_business_screens_are_blocked_in_support_mode(self):
+        """Setores, atendentes, permissoes e atendimento sao do ADM do cliente."""
+        self._enter()
+        for route in ('sectors', 'attendants', 'permissions', 'atendimento'):
+            self.assertEqual(self.client.get(reverse(route)).status_code, 403, route)
 
     def test_conversations_and_contacts_stay_blocked(self):
         """Mesmo dentro do painel do cliente, o master nao le o atendimento dele."""
@@ -3385,12 +3393,13 @@ class MasterSupportModeTests(TestCase):
         r = self.client.get(reverse('wapi-settings'))
         self.assertContains(r, 'webhook/wapi/acme/')
 
-    def test_sector_created_in_support_mode_belongs_to_client(self):
+    def test_forged_post_does_not_create_sector_for_the_client(self):
+        """Esconder o botao nao bastaria: o POST tambem tem que ser recusado."""
         from accounts.models import Sector
         self._enter()
-        self.client.post(reverse('sectors'), {'name': 'Suporte Acme', 'description': ''})
-        sector = Sector.objects.get(name='Suporte Acme')
-        self.assertEqual(sector.company, self.acme)
+        r = self.client.post(reverse('sectors'), {'name': 'Suporte Acme', 'description': ''})
+        self.assertEqual(r.status_code, 403)
+        self.assertFalse(Sector.objects.filter(name='Suporte Acme').exists())
 
     def test_leaving_blocks_config_again(self):
         self._enter()
@@ -3406,16 +3415,10 @@ class MasterSupportModeTests(TestCase):
         self.assertContains(r, 'Você está no painel de Acme')
         self.assertContains(r, 'Modo suporte')
 
-    def test_master_menu_grows_in_support_mode(self):
+    def test_master_menu_in_support_mode_is_only_platform_plus_whatsapp(self):
         from accounts.permissions import nav_items_for
         labels = [i['label'] for i in nav_items_for(self.master, '', in_company=True)]
-        self.assertIn('Clientes', labels)
-        self.assertIn('Configurações', labels)
-        self.assertIn('Setores', labels)
-        self.assertIn('Permissões', labels)
-        self.assertNotIn('Conversas', labels)
-        self.assertNotIn('Contatos', labels)
-        self.assertNotIn('Dashboard', labels)
+        self.assertEqual(labels, ['Clientes', 'Inteligência (IA)', 'WhatsApp'])
 
     def test_master_still_sees_no_conversation_in_support_mode(self):
         from accounts.models import Contact, Conversation
@@ -3830,11 +3833,11 @@ class MasterDoesNotSeeGroupNamesTests(TestCase):
         self.assertContains(r, 'Obra Rua das Flores')
 
     def test_master_in_support_mode_does_not_see_group_names(self):
+        """A tela inteira ficou fora do alcance dele — nome de grupo nem chega perto."""
         self._enter_support_mode()
         r = self.client.get(reverse('permissions'))
-        self.assertEqual(r.status_code, 200)
-        self.assertNotContains(r, 'Obra Rua das Flores')
-        self.assertNotContains(r, 'Acesso aos grupos')
+        self.assertEqual(r.status_code, 403)
+        self.assertNotContains(r, 'Obra Rua das Flores', status_code=403)
 
     def test_master_cannot_rename_a_group_by_forged_post(self):
         from accounts.models import Conversation

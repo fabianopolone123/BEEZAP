@@ -194,8 +194,9 @@ def require_master_in_company(request):
 def master_in_company(request):
     """O gestor master esta no MODO SUPORTE (entrou no painel de um cliente)?
 
-    Nesse modo ele acessa as telas de CONFIGURACAO daquele cliente
-    (`MASTER_SUPPORT_KEYS`), nunca Conversas/Contatos. Ver accounts/tenancy.py.
+    Nesse modo ele alcanca SO a tela WhatsApp daquele cliente (credenciais da
+    W-API) — nada do negocio da empresa e nunca Conversas/Contatos. Ver
+    accounts/permissions.WHATSAPP_ITEM e accounts/tenancy.py.
     """
     from .tenancy import current_company, is_master
     return is_master(request.user) and current_company(request) is not None
@@ -229,7 +230,7 @@ def require_feature(request, key):
     """Retorna 403 se o usuario nao pode acessar a feature/botao `key` (o admin
     sempre pode). Retorna None quando o acesso e permitido."""
     from .permissions import user_can_access
-    if not user_can_access(request.user, key, in_company=master_in_company(request)):
+    if not user_can_access(request.user, key):
         return HttpResponseForbidden('Acesso restrito.')
     return None
 
@@ -940,8 +941,9 @@ def permissions_view(request):
     company = request_company(request)
     company_users = User.objects.filter(company=company)
     # A aba GRUPOS lista os grupos de WhatsApp do cliente pelo NOME — isso e conteudo
-    # do atendimento, nao configuracao de plataforma. O gestor master nao ve essa aba
-    # nem no modo suporte; quem libera grupo e o Administrador da empresa.
+    # do atendimento, nao configuracao de plataforma; quem libera grupo e o
+    # Administrador da empresa. Hoje o master ja nem chega aqui (esta tela inteira e
+    # do ADM — ver require_feature acima), mas a checagem fica como segunda barreira.
     show_groups_tab = not is_master(request.user)
 
     if request.method == 'POST':

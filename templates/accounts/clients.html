@@ -63,7 +63,7 @@ com ?editar=<id>, o que mantem o modal preenchido mesmo com erro de validacao.
         <section class="clients-support-bar">
           <div>
             <strong>Você está no painel de {{ active_company.display_name }}</strong>
-            <span>Dá para ajustar WhatsApp, IA, setores, atendentes e permissões desse cliente. As conversas dele continuam privadas.</span>
+            <span>Aqui você ajusta o WhatsApp (instância e token) desse cliente. Setores, atendentes, permissões e o atendimento são do Administrador dele; as conversas continuam privadas.</span>
           </div>
           <form method="post" class="client-inline-form">
             {% csrf_token %}
@@ -123,7 +123,8 @@ com ?editar=<id>, o que mantem o modal preenchido mesmo com erro de validacao.
                     <summary>Criar o acesso do cliente</summary>
                     <p class="client-access-hint">
                       Cadastre o Administrador da empresa. É ele quem depois cria os
-                      atendentes, os setores e as configurações do WhatsApp.
+                      atendentes, os setores e ajusta o atendimento; o WhatsApp
+                      (instância e token) fica com você, no painel do cliente.
                     </p>
                     <form method="post" class="client-access-form">
                       {% csrf_token %}

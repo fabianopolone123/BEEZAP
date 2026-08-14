@@ -11,8 +11,9 @@ O GESTOR MASTER (dono da plataforma, ver `accounts/tenancy.py`) e um caso
 separado: ele NAO opera o atendimento de ninguem. O menu dele tem as telas da
 PLATAFORMA — "Clientes" (cadastro das empresas) e "Inteligência (IA)" (a
 configuracao do GPT, que e uma so para todos os clientes) — e, quando ele entra no
-painel de um cliente (modo suporte), as telas de configuracao daquele cliente.
-Nenhuma feature de atendimento fica liberada para ele e ele nao enxerga conversa
+painel de um cliente (modo suporte), SO a tela "WhatsApp" daquela empresa
+(instancia e token da W-API). Nenhuma feature do negocio do cliente (setores,
+atendentes, permissoes, chatbot) fica liberada para ele e ele nao enxerga conversa
 nenhuma.
 
 O que e TECNICO nao fica com o cliente: as credenciais da W-API (instancia e token
@@ -53,16 +54,23 @@ CLIENTS_ITEM = {'label': 'Clientes', 'url_name': 'clients'}
 AI_ITEM = {'label': 'Inteligência (IA)', 'url_name': 'openai-settings'}
 MASTER_ONLY_ITEMS = [CLIENTS_ITEM, AI_ITEM]
 
-# MODO SUPORTE: o que o master pode acessar quando "entra no painel" de um cliente.
-# Sao apenas as telas de CONFIGURACAO — o master ajusta o WhatsApp (credenciais da
-# W-API daquele cliente), o chatbot, os setores, os atendentes e as permissoes dele.
-# (A tela de IA nao entra aqui: e da plataforma, nao do cliente.)
+# MODO SUPORTE: o que o master alcanca quando "entra no painel" de um cliente.
 #
-# `conversations` e `contacts` ficam DE FORA de proposito: sao os dados pessoais dos
-# clientes finais da empresa, e a regra do projeto e que o master administra sem ler
-# o atendimento de ninguem (ver accounts/tenancy.py). `dashboard` tambem fica fora
-# (indicadores do movimento do cliente).
-MASTER_SUPPORT_KEYS = {'settings', 'sectors', 'attendants', 'permissions'}
+# SO A TELA WHATSAPP (instancia e token da W-API daquela empresa) — a unica parte
+# TECNICA, com credencial, que nao pode ficar na mao do cliente. Junto com ela o
+# master mantem os botoes da PLATAFORMA (Clientes e Inteligencia (IA), que valem
+# para todos), e nada mais.
+#
+# Setores, Atendentes, Permissoes e Atendimento (chatbot + modo) sao o NEGOCIO da
+# empresa e ficam com o ADM dela; Conversas, Contatos e Dashboard nunca estiveram
+# abertos, porque sao os dados pessoais dos clientes finais. A regra do projeto e
+# que o master administra a plataforma sem operar (nem ler) o atendimento de
+# ninguem — ver accounts/tenancy.py.
+#
+# A tela WhatsApp NAO passa pela matriz de features: quem a protege e
+# `views.require_master_in_company` (ser master E estar dentro do painel). Por isso
+# nenhuma `key` de MENU_FEATURES fica liberada para o master.
+WHATSAPP_ITEM = {'label': 'WhatsApp', 'url_name': 'wapi-settings'}
 
 # Perfis que aparecem na tela para edicao (o admin e sempre acesso total).
 EDITABLE_ROLES = [
@@ -122,13 +130,8 @@ def allowed_keys_for(user):
     return role_allowed_keys(user.role, getattr(user, 'company', None))
 
 
-def user_can_access(user, key, in_company=False):
-    """O usuario pode acessar a feature/botao `key`?
-
-    `in_company` = o gestor master esta no MODO SUPORTE (entrou no painel de um
-    cliente). Nesse modo ele acessa apenas as telas de configuracao
-    (`MASTER_SUPPORT_KEYS`) — nunca Conversas/Contatos.
-    """
+def user_can_access(user, key):
+    """O usuario pode acessar a feature/botao `key`?"""
     if not getattr(user, 'is_authenticated', False):
         return False
     role = getattr(user, 'role', None)
@@ -136,8 +139,11 @@ def user_can_access(user, key, in_company=False):
     # nenhum perfil de cliente as acessa.
     if key in ('clients', 'platform_ai'):
         return role == 'master'
+    # O master nao tem NENHUMA feature da empresa, nem dentro do painel do cliente
+    # (modo suporte): a unica tela que ele alcanca la e a do WhatsApp, protegida por
+    # `views.require_master_in_company`. Ver WHATSAPP_ITEM.
     if role == 'master':
-        return in_company and key in MASTER_SUPPORT_KEYS
+        return False
     if key == 'permissions':
         return role == 'adm'
     if role == 'adm':
@@ -148,35 +154,22 @@ def user_can_access(user, key, in_company=False):
 def nav_items_for(user, active_label, in_company=False):
     """Itens do menu que o usuario pode ver, no formato esperado pelo template."""
     role = getattr(user, 'role', None)
-    # O master tem um menu proprio: a gestao das empresas clientes e, quando esta no
-    # painel de um cliente (modo suporte), as telas de configuracao dele.
+    # O master tem um menu proprio: as telas da PLATAFORMA (Clientes e a IA, que vale
+    # para todas as empresas) e, quando esta no painel de um cliente (modo suporte),
+    # apenas o WhatsApp daquela empresa. Nenhum botao do negocio do cliente.
     if role == 'master':
-        items = [
+        menu = list(MASTER_ONLY_ITEMS)
+        if in_company:
+            menu.append(WHATSAPP_ITEM)
+        return [
             {
                 'label': item['label'],
                 'url_name': item['url_name'],
                 'href': item['url_name'],
                 'active': item['label'] == active_label,
             }
-            for item in MASTER_ONLY_ITEMS
+            for item in menu
         ]
-        if in_company:
-            items += [
-                {
-                    'label': f['label'],
-                    'url_name': f['url_name'],
-                    'href': f['url_name'],
-                    'active': f['label'] == active_label,
-                }
-                for f in MENU_FEATURES if f['key'] in MASTER_SUPPORT_KEYS
-            ]
-            items.append({
-                'label': PERMISSIONS_ITEM['label'],
-                'url_name': PERMISSIONS_ITEM['url_name'],
-                'href': PERMISSIONS_ITEM['url_name'],
-                'active': PERMISSIONS_ITEM['label'] == active_label,
-            })
-        return items
     allowed = allowed_keys_for(user)
     is_adm = role == 'adm'
     items = []

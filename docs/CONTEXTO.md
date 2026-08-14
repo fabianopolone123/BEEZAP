@@ -1092,8 +1092,10 @@ Em `views.py`, `request_company(request)` é o atalho usado em todo ponto de cri
 
 - `CLIENTS_ITEM` = botão **Clientes**, **fora** da matriz de toggles (nenhum perfil de
   cliente pode receber esse botão).
-- `nav_items_for(master)` devolve **só** "Clientes"; `allowed_keys_for(master)` é
-  **vazio**; `user_can_access(master, <qualquer outra feature>)` = **False**.
+- `nav_items_for(master)` devolve as telas da plataforma ("Clientes" e "Inteligência
+  (IA)") e, no modo suporte, acrescenta **"WhatsApp"** (`WHATSAPP_ITEM`);
+  `allowed_keys_for(master)` é **vazio** e `user_can_access(master, <qualquer feature
+  da empresa>)` = **False**, também dentro do painel do cliente.
 - `first_landing_url_name(master)` = `clients` (e `dashboard_view` já redireciona
   quem não tem Dashboard).
 - `visible_conversations(master, ...)` = **vazio** e `can_see_conversation(master, ...)`
@@ -1239,8 +1241,10 @@ fallback** — sempre os da empresa daquela conversa.
 
 - **Master, fora do painel de cliente**: `Clientes` + `Inteligência (IA)`
   (`MASTER_ONLY_ITEMS` em `accounts/permissions.py`).
-- **Master, dentro do painel de um cliente** (modo suporte): o acima + `Configurações`
-  (com as abas **WhatsApp** e **Atendimento**), `Setores`, `Atendentes`, `Permissões`.
+- **Master, dentro do painel de um cliente** (modo suporte): o acima + **`WhatsApp`**
+  (`WHATSAPP_ITEM`, aponta direto para `wapi-settings`) — **e nada mais**. Setores,
+  Atendentes, Permissões e Atendimento são do negócio do cliente e ficam com o **ADM
+  dele**.
 - **Cliente (ADM)**: `Configurações` aponta para **`atendimento`** — não existe mais
   aba WhatsApp nem sub-aba IA para ele. A barra de abas (`_settings_tabs.html`) só
   renderiza a aba WhatsApp quando `brand.is_master`.
@@ -1294,20 +1298,29 @@ que já têm acesso mostram a lista de administradores no cartão.
 #### Modo suporte ("Entrar no painel do cliente")
 
 `action=enter` grava a empresa na sessão (`tenancy.set_active_company`) e leva o master
-para a tela WhatsApp/W-API daquele cliente. Nesse modo ele acessa **apenas as telas de
-configuração** — `MASTER_SUPPORT_KEYS = {'settings', 'sectors', 'attendants',
-'permissions'}`.
+para a tela WhatsApp/W-API daquele cliente. Nesse modo ele alcança **somente essa
+tela** (`WHATSAPP_ITEM` em `accounts/permissions.py`) — a instância e o token da W-API,
+a única parte **técnica**, com credencial, que não pode ficar na mão do cliente.
 
-**Conversas, Contatos e Dashboard ficam fora de propósito**: são os dados pessoais dos
+**Nenhuma feature da empresa fica liberada para o master**: `user_can_access` devolve
+`False` para toda `key` de `MENU_FEATURES` quando o perfil é `master` — Setores,
+Atendentes, Permissões e Atendimento (chatbot + modo de primeiro atendimento) são o
+**negócio do cliente** e ficam com o **ADM dele**. Quem protege a tela do WhatsApp não é
+a matriz de features e sim `views.require_master_in_company` (ser master **e** estar
+dentro do painel).
+
+**Conversas, Contatos e Dashboard** nunca estiveram abertos: são os dados pessoais dos
 clientes finais da empresa, e a regra do projeto é que o master administra sem ler o
 atendimento de ninguém. `visible_conversations` continua devolvendo **vazio** para o
 master, inclusive no modo suporte.
 
 A barra lateral e a tela Clientes mostram um **aviso âmbar** ("Modo suporte — você está
 no painel de X") com o botão **Sair do painel** (`action=leave`), para o master nunca
-confundir de quem é o painel que está vendo. `user_can_access(user, key, in_company=)`
-e `nav_items_for(user, label, in_company=)` recebem esse estado; `require_feature` e
-`build_nav_items(user, label, request)` o calculam por `master_in_company(request)`.
+confundir de quem é o painel que está vendo. `nav_items_for(user, label, in_company=)`
+recebe esse estado (é ele que acrescenta o botão WhatsApp), e
+`build_nav_items(user, label, request)` o calcula por `master_in_company(request)`.
+`user_can_access(user, key)` **não** recebe mais `in_company`: o estado deixou de mudar
+o que o master pode.
 
 #### O que o master NÃO alcança (privacidade) — e o que ele vê no lugar
 
@@ -1318,8 +1331,8 @@ uma empresa, nem o de outra, em nenhuma tela e por nenhuma URL.
 |---|---|
 | Conversas e mensagens | `visible_conversations`/`can_see_conversation` devolvem vazio/False para o master (inclusive no modo suporte); os endpoints AJAX têm `deny_master_json` |
 | **Arquivos** (foto/áudio/vídeo/documento) | só saem por `message-media`, que usa `can_see_conversation` → **403 para o master**. O Nginx não publica mais `media/whatsapp/` (seção 4) |
-| Contatos e Dashboard | fora de `MASTER_SUPPORT_KEYS` |
-| **Nomes dos grupos** de WhatsApp | a aba **Grupos** das Permissões **não aparece** para o master, e os POSTs `groups`/`group-name`/`group-remove` devolvem **403** — quem libera grupo é o ADM da empresa |
+| Contatos, Dashboard, Setores, Atendentes, Permissões e Atendimento | `user_can_access` devolve `False` para o master em **toda** feature da empresa — **403** inclusive no modo suporte e por POST forjado |
+| **Nomes dos grupos** de WhatsApp | ficam na tela Permissões, que é do ADM da empresa: o master leva **403** na tela inteira e nos POSTs `groups`/`group-name`/`group-remove` |
 | Uma empresa ver a outra | toda consulta passa por `company`; `scoped()` sem empresa não devolve nada |
 | **Exportação (ZIP)** | é do **cliente** (aba Meus dados). `_deny_master_export` dá **403** para o master, inclusive no modo suporte |
 
@@ -1348,9 +1361,13 @@ link_lid_contacts --apply              # resolve o contato dentro da empresa da 
 3. **Entrar no painel** → aba **WhatsApp**: colar o Instance ID e o Token da W-API
    **daquele** cliente e copiar a **URL de webhook exibida** (já vem com o
    identificador da empresa) para cadastrar no painel da W-API.
-4. Ainda no painel: **Setores** e, se quiser adiantar, a aba **Atendimento**.
-5. **Sair do painel**. O Administrador do cliente entra com a senha inicial, troca a
-   senha, cadastra os atendentes e ajusta o chatbot/modo de atendimento dele.
+4. **Sair do painel** — o trabalho do master acaba aqui. O Administrador do cliente
+   entra com a senha inicial, troca a senha e monta a operação dele: **setores**,
+   **atendentes**, **permissões** e o **chatbot/modo de atendimento**.
+
+> O master **não** cria setor nem atendente para o cliente: essas telas dão **403**
+> para ele, inclusive dentro do painel (ver "Modo suporte"). Se o cliente precisar de
+> ajuda, o caminho é orientá-lo — o que o master resolve sozinho é o WhatsApp.
 
 > A **API Key do GPT** não entra nesse passo-a-passo: é cadastrada **uma vez** no menu
 > do master (**Inteligência (IA)**) e vale para todos os clientes.
