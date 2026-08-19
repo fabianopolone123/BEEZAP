@@ -29,6 +29,7 @@ from .views import (
     message_media_view,
     openai_settings_view,
     permissions_view,
+    platform_metrics_view,
     password_recovery_request_view,
     password_recovery_resend_view,
     password_recovery_set_password_view,
@@ -51,6 +52,8 @@ urlpatterns = [
     path('clientes/', clients_view, name='clients'),
     # Gestores da PLATAFORMA (os proprios masters) — um master cadastra outro.
     path('gestores/', masters_view, name='masters'),
+    # Metricas de TODOS os clientes num lugar so (exclusiva do gestor master).
+    path('metricas/', platform_metrics_view, name='platform-metrics'),
     # Metricas de um cliente (so o gestor master): numeros e saude do canal, nunca
     # conteudo de conversa. Ver docs/CONTEXTO.md secao 16.
     path('clientes/<int:company_id>/metricas/', client_metrics_view, name='client-metrics'),

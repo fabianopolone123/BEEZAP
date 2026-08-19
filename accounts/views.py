@@ -17,7 +17,7 @@ from django.contrib.auth import authenticate, login, logout, update_session_auth
 from django.contrib.auth.decorators import login_required
 from django.core import signing
 from django.db import IntegrityError, transaction
-from django.db.models import Count, Q
+from django.db.models import Count, Max, Q, Sum
 from django.http import FileResponse, Http404, HttpResponseForbidden, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -45,6 +45,7 @@ from .forms import (
 from .models import (
     Attendant,
     Company,
+    CompanyAiUsage,
     Contact,
     Conversation,
     ConversationViewScope,
@@ -1899,8 +1900,8 @@ def build_company_metrics(company):
     o WhatsApp dele esta de pe.
     """
     from .models import (
-        Attendant, Contact, Conversation, MenuBotConfiguration, Message, Sector,
-        WapiConfiguration, WapiWebhookEvent,
+        Attendant, CompanyAiUsage, Contact, Conversation, MenuBotConfiguration,
+        Message, Sector, WapiConfiguration, WapiWebhookEvent,
     )
 
     now = timezone.now()
@@ -1922,6 +1923,15 @@ def build_company_metrics(company):
     users = User.objects.filter(company=company)
     wapi_config = WapiConfiguration.for_company(company)
     menu_config = MenuBotConfiguration.for_company(company)
+
+    # Consumo de IA DESTA empresa (medicao, sem limite nem bloqueio). A chave do GPT
+    # e uma so, da plataforma, entao e este contador por empresa/mes que diz quem
+    # gastou — ver CompanyAiUsage.
+    ia_mes = CompanyAiUsage.month_totals(company)
+    ia_mes_anterior = CompanyAiUsage.month_totals(
+        company, *CompanyAiUsage.previous_reference()
+    )
+    ia_acumulado = CompanyAiUsage.all_time_totals(company)
 
     return {
         'company': company,
@@ -1963,6 +1973,13 @@ def build_company_metrics(company):
             'eventos': WapiWebhookEvent.objects.filter(company=company).count(),
             'modo': menu_config.mode,
             'modo_label': menu_config.get_mode_display(),
+        },
+        'ia': {
+            # A API Key e o modelo sao da plataforma; aqui e so o CONSUMO da empresa.
+            'ativa': menu_config.mode == MenuBotConfiguration.MODE_AI,
+            'mes': ia_mes,
+            'mes_anterior': ia_mes_anterior,
+            'acumulado': ia_acumulado,
         },
     }
 
@@ -2012,6 +2029,182 @@ def client_connection_check_view(request, company_id):
         'label': health.label,
         'detail': health.detail,
     })
+
+
+def build_platform_metrics():
+    """Indicadores de TODOS os clientes juntos, para o gestor master — SO NUMEROS.
+
+    E a visao de cima: uma linha por empresa (canal, conversas, mensagens, respostas
+    automaticas e consumo de IA do mes) mais os totais da plataforma. Serve para
+    responder "quem esta usando o sistema e quanto" sem abrir cliente por cliente.
+
+    Mesma regra de privacidade da tela de Metricas do cliente (docs/CONTEXTO.md
+    secao 16): contagens e datas, nunca conteudo de conversa, contato ou arquivo, e
+    nunca credencial (Instance ID, token ou API Key).
+
+    As consultas sao AGREGADAS por empresa (uma consulta por assunto, nao uma por
+    cliente), entao a tela nao fica mais lenta conforme a carteira cresce.
+
+    A SAUDE do WhatsApp aqui e so "credencial cadastrada" + "ultimo evento
+    recebido": consultar a W-API de verdade e uma chamada externa POR EMPRESA e
+    continua atras do botao "Testar conexao" da tela de cada cliente.
+    """
+    now = timezone.now()
+    last_30 = now - timedelta(days=30)
+    ano, mes = CompanyAiUsage.reference(now)
+
+    companies = list(Company.objects.all())
+
+    def _por_empresa(queryset, chave='company'):
+        return {linha[chave]: linha for linha in queryset}
+
+    conversas = _por_empresa(
+        Conversation.objects.values('company').annotate(
+            total=Count('id'),
+            ativas=Count('id', filter=~Q(status='closed')),
+            aguardando=Count('id', filter=Q(status='pending')),
+        )
+    )
+    mensagens = _por_empresa(
+        Message.objects.exclude(message_type='system')
+        .values('conversation__company').annotate(
+            total=Count('id'),
+            ultimos_30d=Count('id', filter=Q(created_at__gte=last_30)),
+            automaticas=Count('id', filter=Q(direction='out', is_ai=True)),
+            ultima=Max('created_at'),
+        ),
+        chave='conversation__company',
+    )
+    eventos = _por_empresa(
+        WapiWebhookEvent.objects.values('company').annotate(ultimo=Max('received_at'))
+    )
+    usuarios = _por_empresa(
+        User.objects.filter(company__isnull=False).values('company').annotate(
+            ativos=Count('id', filter=Q(is_active=True)),
+        )
+    )
+    atendentes = _por_empresa(
+        Attendant.objects.values('company').annotate(total=Count('id'))
+    )
+    consumo_mes = {
+        linha.company_id: linha
+        for linha in CompanyAiUsage.objects.filter(year=ano, month=mes)
+    }
+    consumo_total = _por_empresa(
+        CompanyAiUsage.objects.values('company').annotate(
+            tokens=Sum('total_tokens'), chamadas=Sum('total_requests'),
+        )
+    )
+    # Uma linha por empresa nas duas tabelas de configuracao — cabe em memoria.
+    wapi_configs = {c.company_id: c for c in WapiConfiguration.objects.all()}
+    menu_configs = {c.company_id: c for c in MenuBotConfiguration.objects.all()}
+
+    linhas = []
+    for company in companies:
+        conv = conversas.get(company.id, {})
+        msg = mensagens.get(company.id, {})
+        uso_mes = consumo_mes.get(company.id)
+        uso_total = consumo_total.get(company.id, {})
+        wapi_config = wapi_configs.get(company.id)
+        menu_config = menu_configs.get(company.id)
+        ultima_msg = msg.get('ultima')
+        ultimo_evento = eventos.get(company.id, {}).get('ultimo')
+        linhas.append({
+            'company': company,
+            'canal_configurado': bool(
+                wapi_config
+                and wapi_config.resolved_instance_id().strip()
+                and wapi_config.resolved_token().strip()
+            ),
+            'modo': menu_config.mode if menu_config else MenuBotConfiguration.MODE_OFF,
+            'modo_label': menu_config.get_mode_display() if menu_config else 'Desligado',
+            'ultimo_evento': timezone.localtime(ultimo_evento) if ultimo_evento else None,
+            'conversas_total': conv.get('total', 0),
+            'conversas_ativas': conv.get('ativas', 0),
+            'conversas_aguardando': conv.get('aguardando', 0),
+            'mensagens_total': msg.get('total', 0),
+            'mensagens_30d': msg.get('ultimos_30d', 0),
+            'automaticas': msg.get('automaticas', 0),
+            'ultima_mensagem': timezone.localtime(ultima_msg) if ultima_msg else None,
+            'usuarios_ativos': usuarios.get(company.id, {}).get('ativos', 0),
+            'atendentes': atendentes.get(company.id, {}).get('total', 0),
+            'ia_tokens_mes': uso_mes.total_tokens if uso_mes else 0,
+            'ia_chamadas_mes': uso_mes.total_requests if uso_mes else 0,
+            'ia_ultimo_uso': (
+                timezone.localtime(uso_mes.last_used_at)
+                if uso_mes and uso_mes.last_used_at else None
+            ),
+            'ia_tokens_total': uso_total.get('tokens') or 0,
+            'ia_chamadas_total': uso_total.get('chamadas') or 0,
+        })
+
+    # Ordem: empresa ativa primeiro, depois quem mais consumiu IA no mes e quem tem
+    # mais movimento — assim o master bate o olho em quem esta pesando na conta.
+    linhas.sort(key=lambda linha: (
+        not linha['company'].is_active,
+        -linha['ia_tokens_mes'],
+        -linha['mensagens_30d'],
+        linha['company'].display_name.casefold(),
+    ))
+
+    plataforma = OpenAiConfiguration.get_solo()
+    return {
+        'mes_label': CompanyAiUsage.month_label(ano, mes),
+        'linhas': linhas,
+        'totais': {
+            'clientes': len(companies),
+            'clientes_ativos': sum(1 for c in companies if c.is_active),
+            'clientes_com_ia': sum(
+                1 for linha in linhas
+                if linha['modo'] == MenuBotConfiguration.MODE_AI and linha['company'].is_active
+            ),
+            'canais_configurados': sum(1 for linha in linhas if linha['canal_configurado']),
+            'conversas_ativas': sum(linha['conversas_ativas'] for linha in linhas),
+            'conversas_aguardando': sum(linha['conversas_aguardando'] for linha in linhas),
+            'mensagens_30d': sum(linha['mensagens_30d'] for linha in linhas),
+            'automaticas': sum(linha['automaticas'] for linha in linhas),
+            'ia_tokens_mes': sum(linha['ia_tokens_mes'] for linha in linhas),
+            'ia_chamadas_mes': sum(linha['ia_chamadas_mes'] for linha in linhas),
+            'ia_tokens_total': sum(linha['ia_tokens_total'] for linha in linhas),
+        },
+        # Contador da PLATAFORMA (a conta que o master paga). Pode ser MAIOR que a
+        # soma por empresa: ele inclui os testes de conexao (que nao tem empresa) e
+        # tudo o que foi gasto antes de existir a medicao por cliente.
+        'plataforma': {
+            'tem_chave': plataforma.has_api_key,
+            'modelo': plataforma.resolved_model(),
+            'tokens': plataforma.total_tokens,
+            'chamadas': plataforma.total_requests,
+            'desde': timezone.localtime(plataforma.usage_since) if plataforma.usage_since else None,
+            'ultimo_uso': timezone.localtime(plataforma.last_used_at) if plataforma.last_used_at else None,
+        },
+    }
+
+
+@login_required
+def platform_metrics_view(request):
+    """Tela METRICAS (exclusiva do gestor master): todos os clientes num lugar so.
+
+    Mostra, por empresa, o estado do canal de WhatsApp, o tamanho do atendimento e
+    o consumo de IA do mes — mais os totais da plataforma. Sem limite e sem
+    bloqueio: e medicao, para o master saber quem usa o sistema e quanto gasta.
+
+    Continua valendo a regra de que o master nao le o atendimento: aqui nao aparece
+    texto de mensagem, nome de contato, nome de grupo, arquivo nem credencial.
+    """
+    forbidden = require_master(request)
+    if forbidden:
+        return forbidden
+    return render(
+        request,
+        'accounts/platform_metrics.html',
+        {
+            'nav_items': build_nav_items(request.user, 'Métricas', request),
+            'role_label': request.user.get_role_display(),
+            'user_initial': (request.user.first_name[:1] or request.user.email[:1]).upper(),
+            'metrics': build_platform_metrics(),
+        },
+    )
 
 
 @login_required

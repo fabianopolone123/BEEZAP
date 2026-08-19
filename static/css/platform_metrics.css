@@ -1,0 +1,201 @@
+/* ===========================================================================
+   Tela METRICAS DOS CLIENTES (gestor master) — todos os clientes num lugar so.
+
+   Escopo proprio (.platform-metrics-page) para nao afetar outras telas. Os tokens
+   de cor, o painel (.panel/.table-panel/.table-wrap) e os botoes compartilhados vem
+   de dashboard.css e attendants.css (ver o <head> de platform_metrics.html).
+
+   Tela de leitura, so numeros: cartoes de resumo em cima e uma linha por empresa
+   embaixo. A tabela rola SO dentro do proprio painel (.table-wrap de dashboard.css),
+   entao a pagina nunca ganha rolagem horizontal.
+   =========================================================================== */
+
+.platform-metrics-page {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-width: 0;
+}
+
+/* ── Aviso de privacidade ─────────────────────────────────────────────────── */
+
+.platform-metrics-page .pm-privacy {
+  margin: 0;
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(45, 108, 223, 0.18);
+  background: rgba(45, 108, 223, 0.08);
+  color: var(--text);
+  font-size: 0.86rem;
+  line-height: 1.45;
+}
+
+/* ── Blocos de cartoes ────────────────────────────────────────────────────── */
+
+.platform-metrics-page .pm-block {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.platform-metrics-page .pm-block h3 {
+  margin: 0;
+  font-size: 0.95rem;
+  color: var(--muted);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.platform-metrics-page .pm-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.platform-metrics-page .pm-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 16px;
+  padding: 14px 16px;
+  box-shadow: var(--shadow);
+  min-width: 0;
+}
+
+.platform-metrics-page .pm-label {
+  font-size: 0.78rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.platform-metrics-page .pm-value {
+  font-size: 1.6rem;
+  line-height: 1.1;
+  color: var(--text);
+  word-break: break-word;
+}
+
+/* Estado: verde pronto, ambar pendente. */
+.platform-metrics-page .pm-value.is-ok { color: var(--primary-deep); }
+.platform-metrics-page .pm-value.is-pending { color: #b47c00; }
+
+.platform-metrics-page .pm-hint {
+  font-size: 0.8rem;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+/* Cartao explicativo (sem numero grande). */
+.platform-metrics-page .pm-card-note .pm-hint {
+  font-size: 0.82rem;
+}
+
+.platform-metrics-page .pm-link {
+  margin-top: 6px;
+  font-size: 0.82rem;
+  color: var(--blue);
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.platform-metrics-page .pm-link:hover { text-decoration: underline; }
+
+/* ── Tabela: uma empresa por linha ────────────────────────────────────────── */
+
+.platform-metrics-page .pm-table .panel-head {
+  align-items: baseline;
+}
+
+.platform-metrics-page .pm-order-hint {
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.platform-metrics-page .pm-table table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.86rem;
+}
+
+.platform-metrics-page .pm-table th {
+  text-align: left;
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 0.76rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  padding: 8px 12px;
+  white-space: nowrap;
+}
+
+.platform-metrics-page .pm-table td {
+  padding: 10px 12px;
+  border-top: 1px solid var(--card-border);
+  color: var(--text);
+  vertical-align: top;
+}
+
+.platform-metrics-page .pm-company {
+  display: block;
+  font-weight: 600;
+}
+
+.platform-metrics-page .pm-company-sub,
+.platform-metrics-page .pm-cell-sub {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.76rem;
+  color: var(--muted);
+}
+
+/* Empresa desativada fica discreta, mas continua legivel. */
+.platform-metrics-page .pm-row-off td { opacity: 0.66; }
+
+.platform-metrics-page .pm-actions { white-space: nowrap; }
+
+.platform-metrics-page .pm-actions .secondary-button {
+  padding: 6px 12px;
+  font-size: 0.8rem;
+}
+
+/* ── Selos ────────────────────────────────────────────────────────────────── */
+
+.platform-metrics-page .pm-badge {
+  display: inline-block;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.platform-metrics-page .pm-badge.is-on {
+  background: rgba(33, 194, 94, 0.16);
+  color: var(--primary-deep);
+}
+
+.platform-metrics-page .pm-badge.is-pending {
+  background: rgba(247, 181, 0, 0.18);
+  color: #8a5d00;
+}
+
+.platform-metrics-page .pm-badge.is-off {
+  background: rgba(239, 91, 91, 0.14);
+  color: #b23a3a;
+}
+
+/* ── Responsivo: nada de rolagem horizontal na pagina ─────────────────────── */
+
+@media (max-width: 700px) {
+  .platform-metrics-page .pm-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .platform-metrics-page .pm-value {
+    font-size: 1.4rem;
+  }
+}

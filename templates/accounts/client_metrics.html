@@ -14,7 +14,7 @@ ou arquivo. Quem precisar do conteudo e o Administrador da propria empresa.
 {% block extra_head %}
 <link rel="stylesheet" href="{% static 'css/dashboard.css' %}?v=5">
 <link rel="stylesheet" href="{% static 'css/attendants.css' %}">
-<link rel="stylesheet" href="{% static 'css/client_metrics.css' %}?v=1">
+<link rel="stylesheet" href="{% static 'css/client_metrics.css' %}?v=2">
 {% endblock %}
 
 {% block content %}
@@ -160,6 +160,46 @@ ou arquivo. Quem precisar do conteudo e o Administrador da propria empresa.
             <span class="metrics-label">Novas em 7 dias</span>
             <strong class="metrics-value">{{ metrics.conversas.novas_7d }}</strong>
             <span class="metrics-hint">{{ metrics.conversas.total }} no total · {{ metrics.conversas.grupos }} grupo(s).</span>
+          </article>
+        </div>
+      </section>
+
+      <!-- ============ INTELIGENCIA (IA) ============ -->
+      {% comment %}
+      Consumo de IA DESTA empresa. A API Key e o modelo sao da plataforma (o master
+      paga a conta), entao o contador por empresa/mes e o que diz quem gastou. Nao
+      existe limite nem bloqueio: e medicao. Ver CompanyAiUsage.
+      {% endcomment %}
+      <section class="metrics-block">
+        <h3>Inteligência (IA)</h3>
+        <div class="metrics-grid">
+          <article class="metrics-card">
+            <span class="metrics-label">Tokens em {{ metrics.ia.mes.rotulo }}</span>
+            <strong class="metrics-value">{{ metrics.ia.mes.tokens }}</strong>
+            <span class="metrics-hint">
+              {{ metrics.ia.mes.chamadas }} chamada(s) ·
+              {{ metrics.ia.mes.tokens_entrada }} de entrada e {{ metrics.ia.mes.tokens_saida }} de saída.
+            </span>
+          </article>
+          <article class="metrics-card">
+            <span class="metrics-label">Tokens em {{ metrics.ia.mes_anterior.rotulo }}</span>
+            <strong class="metrics-value">{{ metrics.ia.mes_anterior.tokens }}</strong>
+            <span class="metrics-hint">{{ metrics.ia.mes_anterior.chamadas }} chamada(s) no mês anterior.</span>
+          </article>
+          <article class="metrics-card">
+            <span class="metrics-label">Tokens acumulados</span>
+            <strong class="metrics-value">{{ metrics.ia.acumulado.tokens }}</strong>
+            <span class="metrics-hint">{{ metrics.ia.acumulado.chamadas }} chamada(s) desde o início da medição.</span>
+          </article>
+          <article class="metrics-card">
+            <span class="metrics-label">IA no primeiro atendimento</span>
+            <strong class="metrics-value {% if metrics.ia.ativa %}is-ok{% else %}is-pending{% endif %}">
+              {% if metrics.ia.ativa %}Ligada{% else %}Desligada{% endif %}
+            </strong>
+            <span class="metrics-hint">
+              {% if metrics.ia.mes.ultimo_uso %}Última resposta da IA em {{ metrics.ia.mes.ultimo_uso|date:"d/m/Y H:i" }}.
+              {% else %}Sem chamada da IA neste mês.{% endif %}
+            </span>
           </article>
         </div>
       </section>

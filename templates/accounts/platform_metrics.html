@@ -1,0 +1,192 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% comment %}
+Tela METRICAS (todos os clientes) — exclusiva do GESTOR MASTER.
+
+E o "um lugar so" para acompanhar a carteira: quanto cada empresa usa o sistema,
+como esta o canal de WhatsApp dela e quantos tokens de IA ela consumiu no mes.
+
+Regra de privacidade do projeto (docs/CONTEXTO.md secao 16): o master administra os
+clientes SEM ler o atendimento. Entao aqui so entram NUMEROS, DATAS e o estado do
+canal — nunca texto de mensagem, nome de contato, nome de grupo, arquivo ou
+credencial (Instance ID, token, API Key).
+
+NAO existe limite nem bloqueio de consumo: esta tela mede, nao trava.
+{% endcomment %}
+
+{% block title %}Métricas dos clientes | BEEZap{% endblock %}
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/dashboard.css' %}?v=5">
+<link rel="stylesheet" href="{% static 'css/attendants.css' %}">
+<link rel="stylesheet" href="{% static 'css/platform_metrics.css' %}?v=1">
+{% endblock %}
+
+{% block content %}
+<main class="dashboard-shell">
+  {% include "accounts/_sidebar.html" %}
+
+  <section class="dashboard-main">
+    <div class="platform-metrics-page">
+      <header class="topbar">
+        <div class="topbar-left">
+          <h1>Métricas dos clientes</h1>
+          <p>Uso de cada empresa e consumo de IA em {{ metrics.mes_label }}.</p>
+        </div>
+        <div class="topbar-right">
+          <a href="{% url 'clients' %}" class="secondary-button">Ir para Clientes</a>
+        </div>
+      </header>
+
+      <p class="pm-privacy">
+        🔒 Só quantidades e datas. O conteúdo das conversas, os contatos e os
+        arquivos das empresas continuam fora do alcance da gestão.
+      </p>
+
+      <!-- ============ RESUMO DA PLATAFORMA ============ -->
+      <section class="pm-block">
+        <h3>Resumo da plataforma</h3>
+        <div class="pm-grid">
+          <article class="pm-card">
+            <span class="pm-label">Clientes ativos</span>
+            <strong class="pm-value">{{ metrics.totais.clientes_ativos }}</strong>
+            <span class="pm-hint">{{ metrics.totais.clientes }} empresa(s) cadastrada(s).</span>
+          </article>
+          <article class="pm-card">
+            <span class="pm-label">Canais configurados</span>
+            <strong class="pm-value">{{ metrics.totais.canais_configurados }}</strong>
+            <span class="pm-hint">Com Instance ID e Token cadastrados.</span>
+          </article>
+          <article class="pm-card">
+            <span class="pm-label">Conversas ativas</span>
+            <strong class="pm-value">{{ metrics.totais.conversas_ativas }}</strong>
+            <span class="pm-hint">{{ metrics.totais.conversas_aguardando }} aguardando em alguma fila.</span>
+          </article>
+          <article class="pm-card">
+            <span class="pm-label">Mensagens em 30 dias</span>
+            <strong class="pm-value">{{ metrics.totais.mensagens_30d }}</strong>
+            <span class="pm-hint">{{ metrics.totais.automaticas }} resposta(s) automática(s) no total.</span>
+          </article>
+          <article class="pm-card">
+            <span class="pm-label">Tokens de IA no mês</span>
+            <strong class="pm-value">{{ metrics.totais.ia_tokens_mes }}</strong>
+            <span class="pm-hint">{{ metrics.totais.ia_chamadas_mes }} chamada(s) · {{ metrics.totais.clientes_com_ia }} cliente(s) com IA ligada.</span>
+          </article>
+          <article class="pm-card">
+            <span class="pm-label">Tokens por cliente (acumulado)</span>
+            <strong class="pm-value">{{ metrics.totais.ia_tokens_total }}</strong>
+            <span class="pm-hint">Somando todos os meses já medidos.</span>
+          </article>
+        </div>
+      </section>
+
+      <!-- ============ CONTA DA IA (PLATAFORMA) ============ -->
+      <section class="pm-block">
+        <h3>Conta da Inteligência (IA)</h3>
+        <div class="pm-grid">
+          <article class="pm-card">
+            <span class="pm-label">API Key</span>
+            <strong class="pm-value {% if metrics.plataforma.tem_chave %}is-ok{% else %}is-pending{% endif %}">
+              {% if metrics.plataforma.tem_chave %}Cadastrada{% else %}Pendente{% endif %}
+            </strong>
+            <span class="pm-hint">Modelo em uso: {{ metrics.plataforma.modelo }}.</span>
+          </article>
+          <article class="pm-card">
+            <span class="pm-label">Tokens da plataforma</span>
+            <strong class="pm-value">{{ metrics.plataforma.tokens }}</strong>
+            <span class="pm-hint">{{ metrics.plataforma.chamadas }} chamada(s) desde
+              {% if metrics.plataforma.desde %}{{ metrics.plataforma.desde|date:"d/m/Y" }}{% else %}o início{% endif %}.</span>
+          </article>
+          <article class="pm-card">
+            <span class="pm-label">Última chamada à IA</span>
+            <strong class="pm-value">
+              {% if metrics.plataforma.ultimo_uso %}{{ metrics.plataforma.ultimo_uso|date:"d/m/Y H:i" }}{% else %}—{% endif %}
+            </strong>
+            <span class="pm-hint">De qualquer cliente ou do teste de conexão.</span>
+          </article>
+          <article class="pm-card pm-card-note">
+            <span class="pm-label">Por que os números diferem</span>
+            <span class="pm-hint">
+              O total da plataforma inclui os testes de conexão (que não são de
+              nenhum cliente) e o que foi gasto antes de existir a medição por
+              empresa. A soma por cliente começa a contar da atualização em diante.
+            </span>
+            <a href="{% url 'openai-settings' %}" class="pm-link">Abrir Inteligência (IA)</a>
+          </article>
+        </div>
+      </section>
+
+      <!-- ============ UM CLIENTE POR LINHA ============ -->
+      <section class="panel table-panel pm-table">
+        <div class="panel-head">
+          <h2>Cliente por cliente</h2>
+          <span class="pm-order-hint">Ordenado por consumo de IA no mês</span>
+        </div>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Empresa</th>
+                <th>Canal</th>
+                <th>Primeiro atendimento</th>
+                <th>Conversas ativas</th>
+                <th>Mensagens 30d</th>
+                <th>Automáticas</th>
+                <th>Tokens no mês</th>
+                <th>Última mensagem</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for linha in metrics.linhas %}
+                <tr {% if not linha.company.is_active %}class="pm-row-off"{% endif %}>
+                  <td>
+                    <span class="pm-company">{{ linha.company.display_name }}</span>
+                    <span class="pm-company-sub">
+                      {{ linha.usuarios_ativos }} usuário(s) · {{ linha.atendentes }} atendente(s)
+                      {% if not linha.company.is_active %} · <span class="pm-badge is-off">Inativa</span>{% endif %}
+                    </span>
+                  </td>
+                  <td>
+                    <span class="pm-badge {% if linha.canal_configurado %}is-on{% else %}is-pending{% endif %}">
+                      {% if linha.canal_configurado %}Configurado{% else %}Pendente{% endif %}
+                    </span>
+                    <span class="pm-cell-sub">
+                      {% if linha.ultimo_evento %}evento em {{ linha.ultimo_evento|date:"d/m H:i" }}{% else %}sem evento{% endif %}
+                    </span>
+                  </td>
+                  <td>{{ linha.modo_label }}</td>
+                  <td>
+                    {{ linha.conversas_ativas }}
+                    <span class="pm-cell-sub">{{ linha.conversas_aguardando }} aguardando</span>
+                  </td>
+                  <td>
+                    {{ linha.mensagens_30d }}
+                    <span class="pm-cell-sub">{{ linha.mensagens_total }} no total</span>
+                  </td>
+                  <td>{{ linha.automaticas }}</td>
+                  <td>
+                    <strong>{{ linha.ia_tokens_mes }}</strong>
+                    <span class="pm-cell-sub">
+                      {{ linha.ia_chamadas_mes }} chamada(s) · {{ linha.ia_tokens_total }} acumulado
+                    </span>
+                  </td>
+                  <td>
+                    {% if linha.ultima_mensagem %}{{ linha.ultima_mensagem|date:"d/m/Y H:i" }}{% else %}—{% endif %}
+                  </td>
+                  <td class="pm-actions">
+                    <a href="{% url 'client-metrics' linha.company.id %}" class="secondary-button">Detalhes</a>
+                  </td>
+                </tr>
+              {% empty %}
+                <tr><td colspan="9">Nenhuma empresa cadastrada ainda.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+  </section>
+</main>
+{% endblock %}

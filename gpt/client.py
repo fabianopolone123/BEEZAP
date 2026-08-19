@@ -95,8 +95,8 @@ def _extract_usage(body):
     return (prompt, completion, total)
 
 
-def chat_completion(messages, *, model=None, temperature=0.3, max_tokens=None,
-                    response_format=None, timeout=None):
+def chat_completion(messages, *, company=None, model=None, temperature=0.3,
+                    max_tokens=None, response_format=None, timeout=None):
     """Envia uma conversa (lista de {role, content}) ao GPT e devolve GptResult.
 
     `response_format` (ex.: {'type': 'json_object'}) forca a saida em JSON valido.
@@ -106,6 +106,13 @@ def chat_completion(messages, *, model=None, temperature=0.3, max_tokens=None,
     A API Key, o modelo e o contador de tokens sao da PLATAFORMA (uma configuracao
     para todos os clientes — ver OpenAiConfiguration). Diferente da W-API, que tem
     instancia/token por empresa.
+
+    `company` e OPCIONAL e serve so para MEDIR: quando informada, o consumo desta
+    chamada tambem e somado no contador da empresa (CompanyAiUsage, por mes), que e
+    o que permite ver qual cliente esta gastando IA. Nao muda nada no envio — a
+    chave e o modelo continuam sendo os da plataforma — e nao existe limite nem
+    bloqueio por empresa. Chamadas da plataforma (ex.: o teste de conexao) ficam sem
+    empresa e contam so no total geral.
     """
     config = OpenAiConfiguration.get_solo()
     api_key = config.resolved_api_key()
@@ -154,6 +161,13 @@ def chat_completion(messages, *, model=None, temperature=0.3, max_tokens=None,
                     except Exception:
                         # O contador nunca pode derrubar a resposta do GPT.
                         gpt_logger.warning('Falha ao registrar consumo de tokens.', exc_info=False)
+                    if company is not None:
+                        try:
+                            # O MESMO consumo, quebrado por empresa e por mes (medicao).
+                            from accounts.models import CompanyAiUsage
+                            CompanyAiUsage.record(company, prompt_tokens, completion_tokens, total_tokens)
+                        except Exception:
+                            gpt_logger.warning('Falha ao registrar consumo de tokens da empresa.', exc_info=False)
                 result = GptResult(
                     success=True, text=text, model=used_model, status_code=response.status,
                     prompt_tokens=prompt_tokens, completion_tokens=completion_tokens,

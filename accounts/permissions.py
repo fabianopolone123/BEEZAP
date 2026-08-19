@@ -53,9 +53,12 @@ PERMISSIONS_ITEM = {'label': 'Permissões', 'url_name': 'permissions'}
 # `Gestores` = quem administra a PLATAFORMA (os proprios masters). Um master cria
 # outro por ali, com senha inicial e WhatsApp de recuperacao.
 CLIENTS_ITEM = {'label': 'Clientes', 'url_name': 'clients'}
+# `Metricas` = todos os clientes num lugar so (canal, atendimento e consumo de IA do
+# mes). So numeros e datas: o master mede o uso sem ler o atendimento de ninguem.
+PLATFORM_METRICS_ITEM = {'label': 'Métricas', 'url_name': 'platform-metrics'}
 AI_ITEM = {'label': 'Inteligência (IA)', 'url_name': 'openai-settings'}
 MASTERS_ITEM = {'label': 'Gestores', 'url_name': 'masters'}
-MASTER_ONLY_ITEMS = [CLIENTS_ITEM, AI_ITEM, MASTERS_ITEM]
+MASTER_ONLY_ITEMS = [CLIENTS_ITEM, PLATFORM_METRICS_ITEM, AI_ITEM, MASTERS_ITEM]
 
 # MODO SUPORTE: o que o master alcanca quando "entra no painel" de um cliente.
 #

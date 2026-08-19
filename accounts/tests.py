@@ -2721,7 +2721,7 @@ class MasterRoleTests(TestCase):
         """Fora do painel de um cliente, o master ve so as telas da PLATAFORMA."""
         from accounts.permissions import nav_items_for
         labels = [item['label'] for item in nav_items_for(self.master, '')]
-        self.assertEqual(labels, ['Clientes', 'Inteligência (IA)', 'Gestores'])
+        self.assertEqual(labels, ['Clientes', 'Métricas', 'Inteligência (IA)', 'Gestores'])
 
     def test_master_cannot_access_operational_screens(self):
         self.client.force_login(self.master)
@@ -3418,7 +3418,7 @@ class MasterSupportModeTests(TestCase):
     def test_master_menu_in_support_mode_is_only_platform_plus_whatsapp(self):
         from accounts.permissions import nav_items_for
         labels = [i['label'] for i in nav_items_for(self.master, '', in_company=True)]
-        self.assertEqual(labels, ['Clientes', 'Inteligência (IA)', 'Gestores', 'WhatsApp'])
+        self.assertEqual(labels, ['Clientes', 'Métricas', 'Inteligência (IA)', 'Gestores', 'WhatsApp'])
 
     def test_master_still_sees_no_conversation_in_support_mode(self):
         from accounts.models import Contact, Conversation
@@ -4462,7 +4462,7 @@ class MasterAccountsScreenTests(TestCase):
     def test_menu_shows_gestores_for_master_only(self):
         from accounts.permissions import nav_items_for
         labels = [i['label'] for i in nav_items_for(self.master, '')]
-        self.assertEqual(labels, ['Clientes', 'Inteligência (IA)', 'Gestores'])
+        self.assertEqual(labels, ['Clientes', 'Métricas', 'Inteligência (IA)', 'Gestores'])
 
 
 class MasterPasswordRecoveryTests(TestCase):
@@ -4507,3 +4507,327 @@ class MasterPasswordRecoveryTests(TestCase):
             self.client.post(reverse('password-recovery-request'), {'email': 'dono@beezap.com'})
         enviar.assert_not_called()
         self.assertFalse(PasswordResetCode.objects.filter(user=self.master).exists())
+
+
+class CompanyAiUsageModelTests(TestCase):
+    """Contador de IA por empresa e por mes (medicao, sem limite nem bloqueio)."""
+
+    def setUp(self):
+        from accounts.models import Company
+        self.acme = Company.objects.create(name='Acme', slug='acme')
+        self.beta = Company.objects.create(name='Beta', slug='beta')
+
+    def test_first_call_creates_the_month_and_sums(self):
+        from accounts.models import CompanyAiUsage
+        CompanyAiUsage.record(self.acme, 100, 40, 140)
+        ano, mes = CompanyAiUsage.reference()
+        linha = CompanyAiUsage.objects.get(company=self.acme, year=ano, month=mes)
+        self.assertEqual(linha.total_requests, 1)
+        self.assertEqual(linha.total_prompt_tokens, 100)
+        self.assertEqual(linha.total_completion_tokens, 40)
+        self.assertEqual(linha.total_tokens, 140)
+        self.assertIsNotNone(linha.first_used_at)
+        self.assertIsNotNone(linha.last_used_at)
+
+    def test_more_calls_reuse_the_same_month_row(self):
+        from accounts.models import CompanyAiUsage
+        CompanyAiUsage.record(self.acme, 10, 5, 15)
+        CompanyAiUsage.record(self.acme, 20, 10, 30)
+        self.assertEqual(CompanyAiUsage.objects.filter(company=self.acme).count(), 1)
+        totais = CompanyAiUsage.month_totals(self.acme)
+        self.assertEqual(totais['chamadas'], 2)
+        self.assertEqual(totais['tokens'], 45)
+
+    def test_total_is_calculated_when_the_api_does_not_send_it(self):
+        from accounts.models import CompanyAiUsage
+        CompanyAiUsage.record(self.acme, 7, 3)
+        self.assertEqual(CompanyAiUsage.month_totals(self.acme)['tokens'], 10)
+
+    def test_one_company_never_counts_on_another(self):
+        from accounts.models import CompanyAiUsage
+        CompanyAiUsage.record(self.acme, 100, 100, 200)
+        self.assertEqual(CompanyAiUsage.month_totals(self.acme)['tokens'], 200)
+        self.assertEqual(CompanyAiUsage.month_totals(self.beta)['tokens'], 0)
+
+    def test_month_without_use_comes_zeroed(self):
+        """A tela nao precisa tratar mes sem consumo — vem zero, nao None."""
+        from accounts.models import CompanyAiUsage
+        totais = CompanyAiUsage.month_totals(self.beta)
+        self.assertEqual(totais['tokens'], 0)
+        self.assertEqual(totais['chamadas'], 0)
+        self.assertIsNone(totais['ultimo_uso'])
+
+    def test_previous_month_crosses_the_year(self):
+        from accounts.models import CompanyAiUsage
+        self.assertEqual(CompanyAiUsage.previous_reference(2027, 1), (2026, 12))
+        self.assertEqual(CompanyAiUsage.previous_reference(2026, 8), (2026, 7))
+
+    def test_all_time_totals_add_up_the_months(self):
+        from accounts.models import CompanyAiUsage
+        ano, mes = CompanyAiUsage.reference()
+        ano_ant, mes_ant = CompanyAiUsage.previous_reference(ano, mes)
+        CompanyAiUsage.objects.create(
+            company=self.acme, year=ano_ant, month=mes_ant,
+            total_requests=3, total_tokens=300,
+        )
+        CompanyAiUsage.record(self.acme, 50, 50, 100)
+        acumulado = CompanyAiUsage.all_time_totals(self.acme)
+        self.assertEqual(acumulado['tokens'], 400)
+        self.assertEqual(acumulado['chamadas'], 4)
+        # O mes atual continua separado do acumulado.
+        self.assertEqual(CompanyAiUsage.month_totals(self.acme)['tokens'], 100)
+
+    def test_without_company_nothing_is_recorded(self):
+        """Chamada da plataforma (ex.: teste de conexao) conta so no total geral."""
+        from accounts.models import CompanyAiUsage
+        self.assertIsNone(CompanyAiUsage.record(None, 10, 10, 20))
+        self.assertEqual(CompanyAiUsage.objects.count(), 0)
+
+    def test_deleting_the_company_removes_its_usage(self):
+        from accounts.models import CompanyAiUsage
+        CompanyAiUsage.record(self.acme, 10, 10, 20)
+        self.acme.delete()
+        self.assertEqual(CompanyAiUsage.objects.count(), 0)
+
+
+class GptUsagePerCompanyTests(TestCase):
+    """A mesma chamada ao GPT conta na PLATAFORMA e na empresa que a gerou."""
+
+    def setUp(self):
+        from accounts.models import Company, OpenAiConfiguration
+        self.company = Company.objects.create(name='Acme', slug='acme')
+        config = OpenAiConfiguration.get_solo()
+        config.api_key = 'sk-teste'
+        config.save(update_fields=['api_key'])
+
+    def _fake_urlopen(self):
+        class _Resp:
+            status = 200
+
+            def read(self):
+                return (
+                    b'{"choices":[{"message":{"content":"ok"}}],'
+                    b'"usage":{"prompt_tokens":30,"completion_tokens":12,"total_tokens":42}}'
+                )
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+        def _urlopen(req, timeout=None):
+            return _Resp()
+
+        return _urlopen
+
+    def test_call_with_company_counts_in_both_counters(self):
+        from accounts.models import CompanyAiUsage, OpenAiConfiguration
+        from gpt import client as gpt_client
+        with patch.object(gpt_client.request, 'urlopen', self._fake_urlopen()):
+            result = gpt_client.chat_completion(
+                [{'role': 'user', 'content': 'oi'}], company=self.company
+            )
+        self.assertTrue(result.success)
+        self.assertEqual(OpenAiConfiguration.get_solo().total_tokens, 42)
+        self.assertEqual(CompanyAiUsage.month_totals(self.company)['tokens'], 42)
+        self.assertEqual(CompanyAiUsage.month_totals(self.company)['chamadas'], 1)
+
+    def test_call_without_company_counts_only_in_the_platform(self):
+        from accounts.models import CompanyAiUsage, OpenAiConfiguration
+        from gpt import client as gpt_client
+        with patch.object(gpt_client.request, 'urlopen', self._fake_urlopen()):
+            gpt_client.chat_completion([{'role': 'user', 'content': 'oi'}])
+        self.assertEqual(OpenAiConfiguration.get_solo().total_tokens, 42)
+        self.assertEqual(CompanyAiUsage.objects.count(), 0)
+
+    def test_the_virtual_attendant_reports_the_conversation_company(self):
+        """O disparo real da IA passa a empresa da conversa — e o que faz a medicao
+        por cliente existir de verdade (nao so na API do cliente do GPT)."""
+        from accounts.models import (
+            CompanyAiUsage, Contact, Conversation, MenuBotConfiguration, Message,
+        )
+        from gpt import attendant, client as gpt_client_module
+
+        config = MenuBotConfiguration.for_company(self.company)
+        config.mode = MenuBotConfiguration.MODE_AI
+        config.save(update_fields=['mode'])
+
+        contato = Contact.objects.create(company=self.company, phone='5516999990000')
+        conversa = Conversation.objects.create(
+            company=self.company, contact=contato, external_id=contato.phone, status='open',
+        )
+        Message.objects.create(
+            conversation=conversa, direction='in', message_type='text', text='ola',
+        )
+
+        with patch.object(gpt_client_module.request, 'urlopen', self._fake_urlopen()), \
+                patch('gpt.attendant._send_ai_reply'):
+            attendant.handle_incoming_for_ai(conversa.id)
+
+        self.assertEqual(CompanyAiUsage.month_totals(self.company)['tokens'], 42)
+
+
+class PlatformMetricsScreenTests(TestCase):
+    """Tela METRICAS (todos os clientes): numeros da carteira, sem conteudo."""
+
+    def setUp(self):
+        from accounts.models import (
+            Company, CompanyAiUsage, Contact, Conversation, MenuBotConfiguration,
+            Message, WapiWebhookEvent,
+        )
+        self.acme = Company.objects.create(name='Acme Cliente', slug='acme')
+        self.beta = Company.objects.create(name='Beta Cliente', slug='beta')
+        self.master = User.objects.create_user(
+            email='master@plataforma.com', password='x', role=User.Role.MASTER
+        )
+        self.adm = User.objects.create_user(
+            email='adm@acme.com', password='x', role=User.Role.ADM, company=self.acme
+        )
+
+        contato = Contact.objects.create(
+            company=self.acme, phone='5516988887777', name='Joana Segredo'
+        )
+        self.conversa = Conversation.objects.create(
+            company=self.acme, contact=contato, external_id=contato.phone, status='open',
+        )
+        Message.objects.create(
+            conversation=self.conversa, direction='in', message_type='text',
+            text='meu cartao e 1234',
+        )
+        Message.objects.create(
+            conversation=self.conversa, direction='out', message_type='text',
+            text='resposta da IA', is_ai=True,
+        )
+        Conversation.objects.create(
+            company=self.acme, chat_type='group',
+            external_id='120363000000000009@g.us', name='Grupo Confidencial',
+        )
+        Conversation.objects.create(
+            company=self.beta, chat_type='private', external_id='5516900000000',
+            status='pending',
+        )
+        WapiWebhookEvent.objects.create(company=self.acme, event_type='message')
+
+        CompanyAiUsage.record(self.acme, 300, 100, 400)
+        CompanyAiUsage.record(self.beta, 10, 5, 15)
+
+        config = MenuBotConfiguration.for_company(self.acme)
+        config.mode = MenuBotConfiguration.MODE_AI
+        config.save(update_fields=['mode'])
+
+        self.url = reverse('platform-metrics')
+
+    # ----- Quem entra -----
+
+    def test_master_opens_the_screen(self):
+        self.client.force_login(self.master)
+        r = self.client.get(self.url)
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, 'Métricas dos clientes')
+        self.assertContains(r, 'Acme Cliente')
+        self.assertContains(r, 'Beta Cliente')
+
+    def test_company_admin_cannot_open_the_screen(self):
+        self.client.force_login(self.adm)
+        self.assertEqual(self.client.get(self.url).status_code, 403)
+
+    def test_anonymous_is_sent_to_login(self):
+        self.assertEqual(self.client.get(self.url).status_code, 302)
+
+    def test_the_menu_of_the_master_has_the_screen(self):
+        from accounts.permissions import nav_items_for
+        labels = [i['label'] for i in nav_items_for(self.master, '')]
+        self.assertIn('Métricas', labels)
+
+    # ----- O que a tela NAO mostra -----
+
+    def test_screen_never_shows_conversation_content(self):
+        self.client.force_login(self.master)
+        r = self.client.get(self.url)
+        self.assertNotContains(r, 'meu cartao e 1234')
+        self.assertNotContains(r, 'Joana Segredo')
+        self.assertNotContains(r, 'Grupo Confidencial')
+        self.assertNotContains(r, '5516988887777')
+
+    def test_screen_never_shows_credentials(self):
+        from accounts.models import OpenAiConfiguration, WapiConfiguration
+        wapi = WapiConfiguration.for_company(self.acme)
+        wapi.instance_id = 'INSTANCIA-SECRETA'
+        wapi.token = 'TOKEN-SECRETO'
+        wapi.save()
+        ia = OpenAiConfiguration.get_solo()
+        ia.api_key = 'sk-SECRETA'
+        ia.save(update_fields=['api_key'])
+
+        self.client.force_login(self.master)
+        r = self.client.get(self.url)
+        self.assertNotContains(r, 'INSTANCIA-SECRETA')
+        self.assertNotContains(r, 'TOKEN-SECRETO')
+        self.assertNotContains(r, 'sk-SECRETA')
+        self.assertContains(r, 'Configurado')
+
+    # ----- Os numeros -----
+
+    def test_one_row_per_company_with_its_own_numbers(self):
+        from accounts.views import build_platform_metrics
+        m = build_platform_metrics()
+        linhas = {linha['company'].slug: linha for linha in m['linhas']}
+        # A "Empresa padrao" da migracao 0031 tambem e um cliente e entra na lista.
+        self.assertLessEqual({'acme', 'beta'}, set(linhas))
+        self.assertEqual(linhas['acme']['conversas_ativas'], 2)   # direta + grupo
+        self.assertEqual(linhas['acme']['mensagens_30d'], 2)
+        self.assertEqual(linhas['acme']['automaticas'], 1)
+        self.assertEqual(linhas['acme']['ia_tokens_mes'], 400)
+        self.assertEqual(linhas['acme']['modo'], 'ai')
+        self.assertEqual(linhas['beta']['conversas_aguardando'], 1)
+        self.assertEqual(linhas['beta']['mensagens_30d'], 0)
+        self.assertEqual(linhas['beta']['ia_tokens_mes'], 15)
+
+    def test_platform_totals_add_up_the_clients(self):
+        from accounts.views import build_platform_metrics
+        from accounts.models import Company
+        totais = build_platform_metrics()['totais']
+        # Inclui a "Empresa padrao" (criada na migracao 0031), que tambem e cliente.
+        self.assertEqual(totais['clientes'], Company.objects.count())
+        self.assertEqual(totais['clientes_ativos'], Company.objects.filter(is_active=True).count())
+        self.assertEqual(totais['ia_tokens_mes'], 415)
+        self.assertEqual(totais['ia_chamadas_mes'], 2)
+        self.assertEqual(totais['clientes_com_ia'], 1)
+        self.assertEqual(totais['conversas_ativas'], 3)
+
+    def test_biggest_ai_consumer_comes_first(self):
+        from accounts.views import build_platform_metrics
+        slugs = [linha['company'].slug for linha in build_platform_metrics()['linhas']]
+        self.assertEqual(slugs[0], 'acme')
+
+    def test_inactive_company_goes_to_the_end_but_still_appears(self):
+        from accounts.views import build_platform_metrics
+        self.acme.is_active = False
+        self.acme.save(update_fields=['is_active'])
+        slugs = [
+            linha['company'].slug for linha in build_platform_metrics()['linhas']
+            if linha['company'].slug in ('acme', 'beta')
+        ]
+        self.assertEqual(slugs, ['beta', 'acme'])
+
+    def test_system_dividers_do_not_count_as_messages(self):
+        from accounts.models import Message
+        from accounts.views import build_platform_metrics
+        Message.objects.create(
+            conversation=self.conversa, direction='out', message_type='system',
+            text='Atendimento encerrado',
+        )
+        linhas = {l['company'].slug: l for l in build_platform_metrics()['linhas']}
+        self.assertEqual(linhas['acme']['mensagens_30d'], 2)
+
+    def test_platform_counter_is_shown_apart_from_the_client_sum(self):
+        """O total da plataforma inclui teste de conexao e o que veio antes da
+        medicao por empresa — por isso aparece separado, nao somado."""
+        from accounts.models import OpenAiConfiguration
+        from accounts.views import build_platform_metrics
+        config = OpenAiConfiguration.get_solo()
+        config.record_usage(500, 500, 1000)
+        m = build_platform_metrics()
+        self.assertEqual(m['plataforma']['tokens'], 1000)
+        self.assertEqual(m['totais']['ia_tokens_mes'], 415)

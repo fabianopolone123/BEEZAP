@@ -43,7 +43,7 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
 > `wapi/` é um módulo Python comum (importa `accounts.models`); **não** está em
 > `INSTALLED_APPS`, por isso os models ficam em `accounts/models.py`.
 
-## 3. Modelos (`accounts/models.py`) — migração atual: `0033`
+## 3. Modelos (`accounts/models.py`) — migração atual: `0034`
 
 > **MULTIEMPRESA:** quase todo model abaixo tem um campo **`company`** (a empresa
 > cliente dona do registro) e as unicidades passaram a ser **por empresa**. Os
@@ -115,6 +115,19 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
   zera. Ver seções 13 e 16. **`enabled` ficou vestigial**: a ativação da IA vem do
   **modo mestre** `MenuBotConfiguration.mode == 'ai'` de **cada empresa** (ver seção
   14); `enabled` só reflete se **alguma** empresa ativa está usando a IA.
+- **CompanyAiUsage** (**uma linha por empresa e por MÊS**): consumo de IA daquela
+  empresa — `total_requests`, `total_prompt_tokens`, `total_completion_tokens`,
+  `total_tokens`, `first_used_at`, `last_used_at`, único por
+  (`company`, `year`, `month`). Existe porque a **API Key do GPT é uma só, da
+  plataforma**: o contador de `OpenAiConfiguration` diz *quanto* foi gasto, mas não
+  **quem** gastou. `record(company, prompt, completion, total)` soma uma chamada no
+  mês atual (atômico com `F()`, `get_or_create` para a linha do mês; **sem empresa
+  não grava nada**); `month_totals(company[, ano, mês])` devolve o mês **sempre
+  zerado quando não houve uso** (a tela não trata ausência), `previous_reference()`
+  dá o mês anterior (virando o ano) e `all_time_totals(company)` soma todos os meses.
+  Uma linha por mês (não uma por chamada) mantém o histórico sem a tabela crescer
+  com o volume de mensagens, e o "mês atual" reinicia sozinho na virada. **É medição:
+  não existe limite nem bloqueio por empresa.** Ver seções 5.0.2 e 13.
 - **MenuBotConfiguration** (**uma por empresa**, `for_company(company)`): config do **chatbot de menu**
   (atendimento automático **sem IA**) **e** o **MODO MESTRE** de primeiro atendimento
   `mode` (`off`/`menu`/`ai`) — fonte única da verdade de qual motor atua. Campos de
@@ -474,6 +487,10 @@ sai por duas rotas do Django:
     (IA/chatbot), mensagens com arquivo e **data/hora da última enviada e recebida**.
   - **Conversas**: ativas, aguardando, finalizadas, grupos e novas em 7 dias.
   - **Equipe**: atendentes, administradores, usuários ativos, setores e contatos.
+  - **Inteligência (IA)**: tokens do **mês atual**, do **mês anterior** e o
+    **acumulado**, com o número de chamadas, se a IA está ligada no primeiro
+    atendimento e a última resposta da IA. Vem de `CompanyAiUsage` (seção 3) — a
+    chave e o modelo do GPT continuam sendo da plataforma; aqui é só o **consumo**.
   - As divisórias (`message_type='system'`) **não** entram na contagem de mensagens.
 - **Saúde da conexão**: botão **Testar conexão** (`client-connection-check`, POST,
   só master) → `wapi.client.check_connection(company=...)`, que consulta
@@ -483,6 +500,38 @@ sai por duas rotas do Django:
   uma chamada externa por empresa a cada visita.
 - Há teste garantindo que a tela **não** exibe texto de mensagem, nome de contato,
   nome de grupo, telefone nem credencial.
+
+## 5.0.2. Tela Métricas dos clientes (`templates/accounts/platform_metrics.html` + `platform_metrics.css`)
+
+- Rota `metricas/` (`platform_metrics_view`, nome `platform-metrics`), **exclusiva do
+  gestor master** (`require_master`), item **Métricas** do menu dele
+  (`PLATFORM_METRICS_ITEM`, entre Clientes e Inteligência (IA)).
+- É o **um lugar só** para acompanhar a carteira: **todos os clientes lado a lado**
+  em vez de abrir empresa por empresa. Dados de `build_platform_metrics()` (em
+  `views.py`):
+  - **Resumo da plataforma**: clientes ativos, canais configurados, conversas ativas
+    e aguardando, mensagens em 30 dias, respostas automáticas, **tokens de IA no mês**
+    e o acumulado por cliente.
+  - **Conta da Inteligência (IA)**: se a API Key está cadastrada, o modelo em uso, o
+    total da **plataforma** (`OpenAiConfiguration`) e a última chamada. O total da
+    plataforma pode ser **maior que a soma por empresa** — inclui os **testes de
+    conexão** (que não têm empresa) e tudo o que foi gasto **antes de existir a
+    medição por cliente**; a tela explica isso num cartão, em vez de somar coisas
+    diferentes.
+  - **Cliente por cliente** (uma linha por empresa): canal (credencial cadastrada +
+    último evento de webhook), modo de primeiro atendimento, conversas ativas e
+    aguardando, mensagens em 30 dias e no total, respostas automáticas, **tokens no
+    mês** (com chamadas e acumulado), última mensagem e o botão **Detalhes** (leva à
+    tela da seção 5.0.1). Ordem: **empresa ativa primeiro**, depois **maior consumo
+    de IA no mês** e maior movimento — quem está pesando na conta aparece em cima.
+- **Consultas agregadas por empresa** (`values('company').annotate(...)`, uma consulta
+  por assunto): a tela não fica mais lenta conforme a carteira cresce.
+- **Saúde do canal aqui é só "credencial cadastrada" + "último evento"**: consultar a
+  W-API de verdade é uma chamada externa **por empresa** e continua atrás do botão
+  **Testar conexão** da tela de cada cliente (seção 5.0.1).
+- **Privacidade igual à da seção 5.0.1**: só números e datas — sem texto de mensagem,
+  contato, grupo, arquivo ou credencial (há teste garantindo). A tabela rola **dentro
+  do próprio painel** (`.table-wrap`), então a página não ganha rolagem horizontal.
 
 ## 5.1. Tela Contatos (`templates/accounts/contacts.html` + `contacts.css`)
 
@@ -664,9 +713,13 @@ seed_demo_data [--no-clear]             # popula DEMO: 5 setores/atendentes + co
 - ~~**MULTIEMPRESA — Parte 3 (portabilidade)**~~ — **CONCLUÍDA**: aba **Meus dados**
   (o **cliente** baixa o ZIP com contatos/conversas/mensagens/mídias) e encerramento
   seguro do cliente. Ver seção 16.
-- **MULTIEMPRESA — Parte 4**: planos/limites por cliente e consumo de **tokens por
-  empresa**. *(Os **indicadores por cliente já existem** — tela de Métricas, seção
-  5.0.1. Falta o rateio de tokens, que hoje é só da plataforma, e os limites/planos.)*
+- ~~**MULTIEMPRESA — Parte 4 (medição por cliente)**~~ — **CONCLUÍDA**: consumo de
+  **tokens por empresa e por mês** (`CompanyAiUsage`, seção 3), o bloco
+  **Inteligência (IA)** na tela de Métricas do cliente (seção 5.0.1) e a tela
+  **Métricas dos clientes** com a carteira inteira num lugar só (seção 5.0.2).
+- **Planos/limites por cliente**: **decidido não fazer por enquanto** (a pedido) — a
+  plataforma **mede** o consumo e **não trava** nada. Se um dia existir teto por
+  cliente, é `CompanyAiUsage` que já tem o consumo do ciclo mensal para ler.
 - **Nova conversa**: botão para iniciar um chat digitando número + mensagem (e abrir
   em Conversas). Combinado como próxima etapa.
 - **Fila de atendimento**: tela/fluxo da fila por setor. Próxima etapa.
@@ -771,6 +824,15 @@ seed_demo_data [--no-clear]             # popula DEMO: 5 setores/atendentes + co
   (ligar a IA) NÃO é mais um checkbox aqui** — vem do **seletor de modo** no topo da
   área Atendimento (ver seção 14). Card de **status** (API Key / modelo / ativa) +
   botão **Testar conexão** (`form_type=test` → `gpt.client.test_connection`).
+- **Consumo por empresa (medição)**: `chat_completion(..., company=<empresa>)` — o
+  parâmetro é **opcional** e serve só para **medir**: quando vem, o mesmo consumo
+  também é somado em `CompanyAiUsage` (por empresa e por mês, seção 3), que é o que
+  responde "qual cliente está usando IA e quanto". Não muda nada no envio (chave e
+  modelo continuam da plataforma) e **não existe limite nem bloqueio**. Quem passa a
+  empresa é `gpt/attendant.py` (`company=conversation.company`); chamadas da
+  plataforma, como o `test_connection()` da tela, ficam **sem empresa** e contam só no
+  total geral. Se o contador da empresa falhar, a resposta do GPT **não** é derrubada
+  (mesmo padrão do contador da plataforma). Ver a tela da seção 5.0.2.
 - **Contador de consumo**: o OpenAI devolve `usage` (prompt/completion/total tokens)
   em cada resposta; `chat_completion` extrai e chama `OpenAiConfiguration.record_usage`
   (soma atômica com `F()`, segura para chamadas concorrentes). A tela mostra um card
@@ -1099,8 +1161,9 @@ Em `views.py`, `request_company(request)` é o atalho usado em todo ponto de cri
 
 - `CLIENTS_ITEM` = botão **Clientes**, **fora** da matriz de toggles (nenhum perfil de
   cliente pode receber esse botão).
-- `nav_items_for(master)` devolve as telas da plataforma ("Clientes" e "Inteligência
-  (IA)") e, no modo suporte, acrescenta **"WhatsApp"** (`WHATSAPP_ITEM`);
+- `nav_items_for(master)` devolve as telas da plataforma ("Clientes", "Métricas",
+  "Inteligência (IA)" e "Gestores") e, no modo suporte, acrescenta **"WhatsApp"**
+  (`WHATSAPP_ITEM`);
   `allowed_keys_for(master)` é **vazio** e `user_can_access(master, <qualquer feature
   da empresa>)` = **False**, também dentro do painel do cliente.
 - `first_landing_url_name(master)` = `clients` (e `dashboard_view` já redireciona
@@ -1271,8 +1334,9 @@ fallback** — sempre os da empresa daquela conversa.
 
 **Como isso aparece no menu:**
 
-- **Master, fora do painel de cliente**: `Clientes` + `Inteligência (IA)` +
-  `Gestores` (`MASTER_ONLY_ITEMS` em `accounts/permissions.py`).
+- **Master, fora do painel de cliente**: `Clientes` + `Métricas` +
+  `Inteligência (IA)` + `Gestores` (`MASTER_ONLY_ITEMS` em
+  `accounts/permissions.py`).
 - **Master, dentro do painel de um cliente** (modo suporte): o acima + **`WhatsApp`**
   (`WHATSAPP_ITEM`, aponta direto para `wapi-settings`) — **e nada mais**. Setores,
   Atendentes, Permissões e Atendimento são do negócio do cliente e ficam com o **ADM
@@ -1368,13 +1432,16 @@ uma empresa, nem o de outra, em nenhuma tela e por nenhuma URL.
 | Uma empresa ver a outra | toda consulta passa por `company`; `scoped()` sem empresa não devolve nada |
 | **Exportação (ZIP)** | é do **cliente** (aba Meus dados). `_deny_master_export` dá **403** para o master, inclusive no modo suporte |
 
-**No lugar disso, ele tem a tela de Métricas** (seção 5.0.1): quantidade de mensagens
-enviadas/recebidas, atendentes, conversas por estado, saúde da conexão da W-API e
-quando foi a última mensagem — números e datas, nunca conteúdo.
+**No lugar disso, ele tem as telas de Métricas**: a de **um cliente** (seção 5.0.1)
+— mensagens enviadas/recebidas, atendentes, conversas por estado, saúde da conexão da
+W-API, consumo de IA e quando foi a última mensagem — e a de **todos os clientes**
+(seção 5.0.2), com a carteira inteira lado a lado. Números e datas, nunca conteúdo.
 
-> **Consumo de tokens de IA continua da PLATAFORMA** (`OpenAiConfiguration`, tela
-> Inteligência (IA)), porque a API Key é única do master. A métrica por empresa que
-> chega perto disso é a contagem de **respostas automáticas** (`Message.is_ai`).
+> **A API Key do GPT continua sendo UMA, da plataforma** (`OpenAiConfiguration`, tela
+> Inteligência (IA)) — o master paga a conta. O que passou a existir é a **medição por
+> empresa**: `CompanyAiUsage` guarda tokens e chamadas de cada cliente **por mês**
+> (seção 3), então o master vê quem consome IA sem deixar de ter o total da conta.
+> **Sem limite e sem bloqueio**: medir não trava o atendimento de ninguém.
 
 #### Comandos de management por empresa
 

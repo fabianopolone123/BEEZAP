@@ -417,7 +417,7 @@ def handle_incoming_for_ai(conversation_id):
 
     from gpt.client import chat_completion
     result = chat_completion(
-        messages, temperature=0.3, max_tokens=400,
+        messages, company=company, temperature=0.3, max_tokens=400,
         response_format={'type': 'json_object'},
     )
     if not result.success:

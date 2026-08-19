@@ -372,6 +372,149 @@ class OpenAiConfiguration(models.Model):
         return 'Configuracao OpenAI (GPT)'
 
 
+class CompanyAiUsage(models.Model):
+    """Consumo de IA (GPT) de UMA empresa cliente em UM mes — so contagem.
+
+    Por que existe: a API Key do GPT e UMA da plataforma (o gestor master paga a
+    conta em `OpenAiConfiguration`), entao o contador da plataforma nao diz QUEM
+    gastou. Esta tabela quebra o mesmo consumo por empresa e por mes, que e o que
+    responde "qual cliente esta usando IA e quanto".
+
+    Uma linha por empresa por mes (nao uma por chamada): o historico fica mes a mes
+    sem a tabela crescer com o volume de mensagens, e o "mes atual" reinicia sozinho
+    na virada, sem ninguem zerar nada a mao.
+
+    NAO existe limite nem bloqueio aqui — e medicao. Se um dia a plataforma tiver
+    plano/teto por cliente, e nesta tabela que o consumo do ciclo sera lido.
+
+    Privacidade: so numeros e datas. Nada de texto de mensagem, contato ou conversa
+    (a mesma regra da tela de Metricas — ver docs/CONTEXTO.md secao 16).
+    """
+
+    company = models.ForeignKey(
+        'Company', on_delete=models.CASCADE, related_name='ai_usage',
+        verbose_name='Empresa cliente',
+    )
+    # Mes de referencia (ano + mes de 1 a 12), no fuso local do projeto.
+    year = models.PositiveSmallIntegerField('Ano')
+    month = models.PositiveSmallIntegerField('Mês')
+    total_requests = models.PositiveBigIntegerField(default=0)
+    total_prompt_tokens = models.PositiveBigIntegerField(default=0)
+    total_completion_tokens = models.PositiveBigIntegerField(default=0)
+    total_tokens = models.PositiveBigIntegerField(default=0)
+    first_used_at = models.DateTimeField(null=True, blank=True)
+    last_used_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = 'Consumo de IA da empresa'
+        verbose_name_plural = 'Consumo de IA das empresas'
+        ordering = ('-year', '-month', 'company__name')
+        constraints = [
+            models.UniqueConstraint(
+                fields=['company', 'year', 'month'], name='unique_company_ai_usage_month'
+            ),
+        ]
+
+    MONTH_NAMES = [
+        'janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho',
+        'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro',
+    ]
+
+    @staticmethod
+    def reference(moment=None):
+        """(ano, mes) do momento informado (ou de agora), no fuso local."""
+        moment = timezone.localtime(moment or timezone.now())
+        return moment.year, moment.month
+
+    @classmethod
+    def record(cls, company, prompt_tokens=0, completion_tokens=0, total_tokens=0):
+        """Soma UMA chamada ao GPT no mes atual daquela empresa.
+
+        Atomico via F() (as chamadas da IA rodam em thread de background) e
+        tolerante a corrida na criacao da linha do mes (get_or_create). Sem empresa
+        nao grava nada — o consumo da plataforma continua em OpenAiConfiguration.
+        """
+        from django.db.models import F
+
+        if company is None:
+            return None
+        now = timezone.now()
+        year, month = cls.reference(now)
+        prompt_tokens = int(prompt_tokens or 0)
+        completion_tokens = int(completion_tokens or 0)
+        total_tokens = int(total_tokens or prompt_tokens + completion_tokens)
+        row, _created = cls.objects.get_or_create(
+            company=company, year=year, month=month,
+            defaults={'first_used_at': now},
+        )
+        rows = cls.objects.filter(pk=row.pk)
+        # first_used_at so na primeira chamada do mes (linha recem-criada tem nulo).
+        rows.filter(first_used_at__isnull=True).update(first_used_at=now)
+        rows.update(
+            total_requests=F('total_requests') + 1,
+            total_prompt_tokens=F('total_prompt_tokens') + prompt_tokens,
+            total_completion_tokens=F('total_completion_tokens') + completion_tokens,
+            total_tokens=F('total_tokens') + total_tokens,
+            last_used_at=now,
+        )
+        return row
+
+    @classmethod
+    def month_totals(cls, company, year=None, month=None):
+        """Consumo de um mes (o atual, por padrao). Sempre devolve numeros — mes sem
+        uso vem zerado, para a tela nao precisar tratar ausencia."""
+        if year is None or month is None:
+            year, month = cls.reference()
+        row = cls.objects.filter(company=company, year=year, month=month).first()
+        return {
+            'ano': year,
+            'mes': month,
+            'rotulo': cls.month_label(year, month),
+            'chamadas': row.total_requests if row else 0,
+            'tokens': row.total_tokens if row else 0,
+            'tokens_entrada': row.total_prompt_tokens if row else 0,
+            'tokens_saida': row.total_completion_tokens if row else 0,
+            'ultimo_uso': timezone.localtime(row.last_used_at) if row and row.last_used_at else None,
+        }
+
+    @classmethod
+    def previous_reference(cls, year=None, month=None):
+        """(ano, mes) do mes anterior ao informado (ou ao atual)."""
+        if year is None or month is None:
+            year, month = cls.reference()
+        if month == 1:
+            return year - 1, 12
+        return year, month - 1
+
+    @classmethod
+    def all_time_totals(cls, company):
+        """Consumo acumulado da empresa (soma de todos os meses)."""
+        from django.db.models import Sum
+
+        agg = cls.objects.filter(company=company).aggregate(
+            chamadas=Sum('total_requests'),
+            tokens=Sum('total_tokens'),
+            tokens_entrada=Sum('total_prompt_tokens'),
+            tokens_saida=Sum('total_completion_tokens'),
+        )
+        return {chave: (valor or 0) for chave, valor in agg.items()}
+
+    @classmethod
+    def month_label(cls, year, month):
+        try:
+            nome = cls.MONTH_NAMES[int(month) - 1]
+        except (IndexError, ValueError, TypeError):
+            return f'{month}/{year}'
+        return f'{nome} de {year}'
+
+    @property
+    def label(self):
+        return self.month_label(self.year, self.month)
+
+    def __str__(self):
+        return f'{self.company_id} — {self.label}: {self.total_tokens} tokens'
+
+
 class MenuBotConfiguration(models.Model):
     """Chatbot de menu (atendimento automatico SEM IA) + o MODO mestre de primeiro
     atendimento. Uma configuracao por EMPRESA cliente.
