@@ -652,6 +652,10 @@ OPENAI_TIMEOUT=30
 
 ## 8. Fluxo de trabalho obrigatório (ver `CODEX_PADROES.md` e `GIT.md`)
 
+> A mesma regra está no **`CLAUDE.md` na raiz** do projeto (carregado automaticamente
+> pelo agente em toda sessão) e no topo do **`README.md`** — de propósito, para ela não
+> depender de alguém abrir a documentação.
+
 > **REGRA FIXA — NENHUMA ALTERAÇÃO FICA SEM `commit` + `push`.** Toda mudança
 > (código, CSS, template ou documentação) é fechada no mesmo passo: atualizar a
 > documentação, commitar e **enviar ao GitHub na hora**. Não acumular alterações

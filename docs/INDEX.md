@@ -14,6 +14,18 @@ Arquivos oficiais:
   para a realidade atual sob `/beezap/`).
 - `WAPI_MEDIA_INTEGRATION.md`: emoji, mídia (imagem/áudio/vídeo/documento),
   sticker/gif/reação recebidos, download de mídia, LITE vs PRO.
+- `../CLAUDE.md` (raiz do projeto): instruções carregadas automaticamente pelo agente
+  em toda sessão — a regra fixa de commit/push/documentação, os padrões do projeto e
+  as armadilhas do ambiente. É um resumo operacional, não substitui o `CONTEXTO.md`.
+
+Regra fixa (vale para toda alteração):
+
+**Nenhuma alteração fica sem `commit` + `push` e sem documentação atualizada.** Toda
+mudança de código, CSS, template ou texto é fechada no mesmo passo: validar
+(`python manage.py check` e os testes quando mexer no backend), registrar no final de
+`HISTORICO.md`, atualizar a documentação afetada (principalmente `CONTEXTO.md`),
+commitar código + documentação juntos com mensagem em PT-BR e dar `push` na hora. O
+detalhamento está em `CODEX_PADROES.md` e `GIT.md`.
 
 Regra importante:
 
