@@ -6,10 +6,11 @@ setores, atendentes, contatos e conversas, e existe um **gestor master** acima d
 
 **Marca:** o produto se chama **BEEonBOARD** (antes BEEZap). O nome exibido sai de
 `PLATFORM_NAME` em `accounts/context_processors.py` e o logo é
-`static/images/logo-beeonboard.png`. **Não renomear os identificadores técnicos**, que
-seguem `beezap` porque o ambiente em produção depende deles: prefixo de URL `/beezap/`,
-serviço systemd `beezap`, pasta `/var/www/beezap`, loggers `beezap.*`, check
-`beezap.W001`, header `X-BEEZAP-WEBHOOK-TOKEN` e as chaves de `localStorage`.
+`static/images/logo-beeonboard.png`. O endereço é **`/beeonboard/`** (o antigo
+`/beezap/` redireciona). **Não renomear os identificadores técnicos**, que seguem
+`beezap` porque o ambiente em produção depende deles: serviço systemd `beezap`, pasta
+`/var/www/beezap`, loggers `beezap.*`, check `beezap.W001`, header
+`X-BEEZAP-WEBHOOK-TOKEN` e as chaves de `localStorage`.
 
 ## REGRA FIXA — toda alteração fecha com commit + push e documentação atualizada
 
@@ -42,7 +43,7 @@ W-API, API Key do GPT, senha).
 - `docs/CODEX_PADROES.md` — padrões de UI/CSS/notificação/commit.
 - `docs/GIT.md` — regras de Git.
 - `docs/HISTORICO.md` — o que já foi feito e por quê.
-- `docs/DEPLOY.md` — deploy no VPS sob o prefixo `/beezap/`.
+- `docs/DEPLOY.md` — deploy no VPS sob o prefixo `/beeonboard/`.
 - `docs/WAPI_MEDIA_INTEGRATION.md` — mídia e LITE vs PRO da W-API.
 
 ## Como este projeto trabalha
@@ -65,7 +66,7 @@ W-API, API Key do GPT, senha).
 - Local: venv em `./venv` — usar `.\venv\Scripts\python.exe manage.py ...`. Sem
   `.env` local (SQLite + `DEBUG=True` por padrão). **ffmpeg não instalado** aqui, então
   `manage.py check` sempre emite o aviso `beezap.W001` — é esperado, não é regressão.
-- Produção: VPS Linux em `https://fabianopolone.com.br/beezap/`, app em
+- Produção: VPS Linux em `https://fabianopolone.com.br/beeonboard/`, app em
   `/var/www/beezap`, deploy com `bash deploy/deploy.sh`. **Todo deploy reinicia o
   gunicorn e confirma que os PIDs reciclaram** (com `DEBUG=False` o template fica em
   cache na memória dos workers). Ver `docs/DEPLOY.md`.

@@ -89,16 +89,21 @@ urlpatterns = [
     path('configuracoes/atendimento/modo/', atendimento_set_mode_view, name='atendimento-mode'),
     path('configuracoes/wapi/', wapi_settings_view, name='wapi-settings'),
     path('configuracoes/wapi/eventos/', wapi_webhook_events_view, name='wapi-webhook-events'),
-    # Endpoint publico do webhook da W-API. Registrado tambem sob /beezap/ para
-    # funcionar quando o app e servido atras do prefixo /beezap/ no Nginx.
+    # Endpoint publico do webhook da W-API. Registrado tambem sob /beeonboard/
+    # para funcionar quando o app e servido atras do prefixo /beeonboard/ no Nginx
+    # sem que ele seja removido no proxy. As rotas com /beezap/ continuam valendo
+    # porque a URL antiga pode estar cadastrada no painel da W-API de algum cliente
+    # (POST nao segue o redirect do Nginx) — mantidas ate todos re-cadastrarem.
     #
     # MULTIEMPRESA: a rota COM identificador da empresa e a recomendada (cada cliente
     # cadastra na W-API a URL propria dele). A rota SEM identificador continua
     # valida: a empresa e descoberta pelo `instanceId` do payload e, se nada casar,
     # cai na empresa padrao — assim quem ja usa nao precisa reconfigurar nada.
     path('webhook/wapi/<slug:company_slug>/', wapi_webhook_view, name='wapi-webhook-company'),
+    path('beeonboard/webhook/wapi/<slug:company_slug>/', wapi_webhook_view, name='wapi-webhook-company-beeonboard'),
     path('beezap/webhook/wapi/<slug:company_slug>/', wapi_webhook_view, name='wapi-webhook-company-beezap'),
     path('webhook/wapi/', wapi_webhook_view, name='wapi-webhook'),
+    path('beeonboard/webhook/wapi/', wapi_webhook_view, name='wapi-webhook-beeonboard'),
     path('beezap/webhook/wapi/', wapi_webhook_view, name='wapi-webhook-beezap'),
     path('logout/', logout_view, name='logout'),
 ]

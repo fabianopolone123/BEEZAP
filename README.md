@@ -32,6 +32,6 @@ regra fica em [CLAUDE.md](CLAUDE.md), que o agente carrega em toda sessão.
 - [docs/CODEX_PADROES.md](docs/CODEX_PADROES.md) — padrões de UI/CSS/commit.
 - [docs/GIT.md](docs/GIT.md) — regras de Git, commit e push.
 - [docs/HISTORICO.md](docs/HISTORICO.md) — o que já foi feito e as decisões tomadas.
-- [docs/DEPLOY.md](docs/DEPLOY.md) — deploy no VPS sob o prefixo `/beezap/`.
+- [docs/DEPLOY.md](docs/DEPLOY.md) — deploy no VPS sob o prefixo `/beeonboard/`.
 - [docs/WAPI_MEDIA_INTEGRATION.md](docs/WAPI_MEDIA_INTEGRATION.md) — emoji, mídia e
   recursos LITE vs PRO da W-API.

@@ -83,9 +83,9 @@ ALLOWED_HOSTS = env_list('ALLOWED_HOSTS', ['localhost', '127.0.0.1', '[::1]'])
 CSRF_TRUSTED_ORIGINS = env_list('CSRF_TRUSTED_ORIGINS', [])
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
-# Prefixo de caminho quando o app e servido sob um sub-caminho (ex.: /beezap/).
+# Prefixo de caminho quando o app e servido sob um sub-caminho (ex.: /beeonboard/).
 # Com isso, reverse()/{% url %}/redirects geram URLs ja com o prefixo. O Nginx
-# do VPS remove o /beezap/ antes de repassar (proxy_pass .../), entao a resolucao
+# do VPS remove o /beeonboard/ antes de repassar (proxy_pass .../), entao a resolucao
 # usa o caminho sem prefixo. Local (sem a variavel) fica vazio e nada muda.
 FORCE_SCRIPT_NAME = os.getenv('FORCE_SCRIPT_NAME') or None
 
@@ -176,7 +176,7 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
-# STATIC_URL pode incluir o prefixo de deploy (ex.: /beezap/static/) via variavel
+# STATIC_URL pode incluir o prefixo de deploy (ex.: /beeonboard/static/) via variavel
 # de ambiente, para NAO precisar editar este arquivo no servidor. Local usa /static/.
 STATIC_URL = os.getenv('STATIC_URL', '/static/')
 
@@ -187,7 +187,7 @@ STATICFILES_DIRS = [BASE_DIR / 'static']
 
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 
-# Como STATIC_URL: pode incluir o prefixo de deploy (ex.: /beezap/media/) via env.
+# Como STATIC_URL: pode incluir o prefixo de deploy (ex.: /beeonboard/media/) via env.
 MEDIA_URL = os.getenv('MEDIA_URL', '/media/')
 MEDIA_ROOT = BASE_DIR / 'media'
 

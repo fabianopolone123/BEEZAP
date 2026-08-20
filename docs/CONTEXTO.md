@@ -15,19 +15,25 @@ Leia também: `CODEX_PADROES.md`, `GIT.md`, `HISTORICO.md`, `DEPLOY.md`,
   nome vem de **`PLATFORM_NAME` em `accounts/context_processors.py`** — trocar o nome
   exibido é mudar essa constante e os `{% block title %}` dos templates. Os arquivos
   originais da marca (e o logo antigo) ficam em `assets/branding/`.
-  **Os identificadores TÉCNICOS continuam `beezap` de propósito** — renomeá-los
-  quebraria o ambiente no ar: o prefixo de URL **`/beezap/`**, o serviço systemd
-  **`beezap`**, a pasta **`/var/www/beezap`**, os loggers `beezap.*`, o check
+  O **endereço** acompanhou a marca: o prefixo de URL passou de `/beezap/` para
+  **`/beeonboard/`** (o antigo redireciona 301, para bookmark não morrer). **Mas os
+  identificadores TÉCNICOS continuam `beezap` de propósito** — renomeá-los não é
+  necessário para trocar o endereço e só arriscaria o ambiente no ar: o serviço
+  systemd **`beezap`**, a pasta **`/var/www/beezap`**, os loggers `beezap.*`, o check
   `beezap.W001`, o header `X-BEEZAP-WEBHOOK-TOKEN`, as chaves de `localStorage`
-  (`beezap_sound`) e o repositório no GitHub.
+  (`beezap_sound`, que zerariam a preferência de som de quem já usa) e o repositório
+  no GitHub. **Atenção ao webhook:** POST não segue redirect, então a URL de webhook
+  de cada cliente tem que ser **re-cadastrada no painel da W-API** com o prefixo novo
+  — enquanto não for, mensagem recebida não chega. As rotas `beezap/webhook/wapi/…`
+  seguem registradas no Django justamente como rede de segurança até isso acontecer.
 - **MULTIEMPRESA (SaaS)**: a mesma instalação atende **várias empresas clientes**;
   cada uma tem os seus setores, atendentes, contatos, conversas e as suas próprias
   credenciais de W-API/GPT. Existe um **gestor master** que cadastra e administra os
   clientes na tela **Clientes**. **Ver a seção 16** — ela é a referência do assunto.
 - **Stack**: Django 5.2, Python 3.12, gunicorn, Nginx, SQLite (padrão) ou
   PostgreSQL (via `DATABASE_URL`).
-- **Hospedagem**: VPS Linux, servido sob o prefixo de caminho **`/beezap/`**
-  em `https://fabianopolone.com.br/beezap/`.
+- **Hospedagem**: VPS Linux, servido sob o prefixo de caminho **`/beeonboard/`**
+  em `https://fabianopolone.com.br/beeonboard/`.
 - **Idioma/UX**: interface em português, simples e didática; notificações via
   **toast** e **pop-up do desktop + som** nas Conversas; CSS por página; sem cursor
   piscando em elementos não editáveis.
@@ -336,14 +342,14 @@ sai por duas rotas do Django:
 - `media/empresas/` (logos das empresas) **continua público**: aparece na barra
   lateral e não tem nada de conversa.
 
-> **No deploy isso exige mudar o Nginx** (trocar `location /beezap/media/` por
-> `location /beezap/media/empresas/`). Ver `DEPLOY.md` — sem isso, a mídia continua
+> **No deploy isso exige mudar o Nginx** (trocar `location /beeonboard/media/` por
+> `location /beeonboard/media/empresas/`). Ver `DEPLOY.md` — sem isso, a mídia continua
 > aberta pelo caminho antigo mesmo com o código novo.
 
 ### Webhook (POR CLIENTE — ver seção 16)
 - View `wapi_webhook_view` (`@csrf_exempt`). Rotas: **`/webhook/wapi/<empresa>/`**
   (recomendada) e `/webhook/wapi/` (antiga, mantida) — cada uma também sob
-  `/beezap/`. A **empresa** é resolvida por `resolve_webhook_company`: identificador
+  `/beeonboard/`. A **empresa** é resolvida por `resolve_webhook_company`: identificador
   da URL → `instanceId` do payload → empresa padrão. **Empresa inativa ou
   identificador desconhecido devolve 404 e nada é criado.**
 - Aceita a chamada externa **sem token quando nenhum webhook_token está configurado**
@@ -470,7 +476,7 @@ sai por duas rotas do Django:
   mantidas) preservando as quebras. O histórico guarda a **mesma** versão enviada.
 - **Transferência** (setor/atendente) por selects na coluna de info.
 - **URLs AJAX** montadas a partir de `window.location.pathname` (até `/conversas/`)
-  para respeitar o prefixo `/beezap/` mesmo se o `{% url %}` vier sem prefixo.
+  para respeitar o prefixo `/beeonboard/` mesmo se o `{% url %}` vier sem prefixo.
 - Endpoints: `conversation-list` (`/conversas/lista/`), `conversation-messages`
   (aceita `?retry=1` para rebaixar mídias falhas), `conversation-send`,
   `conversation-send-media`, `conversation-transfer`, `conversation-take`
@@ -579,21 +585,21 @@ sai por duas rotas do Django:
 
 - App em `/var/www/beezap/`, serviço systemd **`beezap`**, gunicorn em
   **`127.0.0.1:8103`** (os exemplos em `deploy/` citam 8006, mas o serviço real
-  roda em 8103; o Nginx `/beezap/` faz proxy para 8103).
+  roda em 8103; o Nginx `/beeonboard/` faz proxy para 8103).
 - **Nginx**: config do domínio em `/etc/nginx/sites-available/site_idiomas`.
   Blocos do BEEonBOARD (proxy com `/` final **remove** o prefixo antes do Django):
   ```nginx
-  location /beezap/static/admin/ { alias /var/www/beezap/staticfiles/admin/; }
-  location /beezap/static/       { alias /var/www/beezap/static/; }   # serve a FONTE
-  location /beezap/media/empresas/ { alias /var/www/beezap/media/empresas/; }  # SO logos
-  location /beezap/              { proxy_pass http://127.0.0.1:8103/; ... }
+  location /beeonboard/static/admin/ { alias /var/www/beezap/staticfiles/admin/; }
+  location /beeonboard/static/       { alias /var/www/beezap/static/; }   # serve a FONTE
+  location /beeonboard/media/empresas/ { alias /var/www/beezap/media/empresas/; }  # SO logos
+  location /beeonboard/              { proxy_pass http://127.0.0.1:8103/; ... }
   ```
-  > **Não servir `/beezap/media/` inteiro.** A pasta `media/whatsapp/` guarda os
+  > **Não servir `/beeonboard/media/` inteiro.** A pasta `media/whatsapp/` guarda os
   > arquivos das conversas dos clientes; publicada pelo Nginx, ela fica acessível
   > sem login e sem checagem de empresa. A mídia sai pela view autenticada do Django
   > (ver seção 4, "Arquivos de mídia"). Se o servidor ainda tiver o bloco antigo,
   > **trocar no deploy** — o código novo sozinho não fecha esse caminho.
-- **Prefixo `/beezap/`**: resolvido no Django via **`FORCE_SCRIPT_NAME=/beezap`**
+- **Prefixo `/beeonboard/`**: resolvido no Django via **`FORCE_SCRIPT_NAME=/beeonboard`**
   (`.env`), que prefixa todos os `{% url %}`/redirects. `LOGIN_URL`/
   `LOGIN_REDIRECT_URL`/`LOGOUT_REDIRECT_URL` são **nomes de rota** (herdam o prefixo).
 - **Estáticos**: como o Nginx serve `static/` (a fonte) direto, **um `git pull`
@@ -647,9 +653,9 @@ DEBUG=False                       # já ativo no servidor (cacheia templates: re
 ALLOWED_HOSTS=fabianopolone.com.br,www.fabianopolone.com.br
 CSRF_TRUSTED_ORIGINS=https://fabianopolone.com.br
 DATABASE_URL=sqlite:////var/www/beezap/db.sqlite3
-FORCE_SCRIPT_NAME=/beezap
-STATIC_URL=/beezap/static/
-MEDIA_URL=/beezap/media/          # sem isto, envio de mídia falha (W-API não baixa a URL)
+FORCE_SCRIPT_NAME=/beeonboard
+STATIC_URL=/beeonboard/static/
+MEDIA_URL=/beeonboard/media/          # sem isto, envio de mídia falha (W-API não baixa a URL)
 WAPI_BASE_URL=https://api.w-api.app
 WAPI_MEDIA_MAX_MB=16
 # Instance ID / Token da W-API ficam no BANCO (tela de config), não precisam no .env
@@ -1096,7 +1102,7 @@ contatos, conversas, mensagens e as **suas próprias** credenciais de W-API e GP
 | Decisão | Escolha |
 |---|---|
 | Isolamento | **Banco único com vínculo de empresa** (todo registro aponta para a `Company` dona e as consultas filtram por ela). Funciona com o SQLite atual, um só deploy/migração |
-| Acesso | **Mesma URL** (`/beezap/`): o login já define a empresa. Sem DNS/subdomínio por cliente |
+| Acesso | **Mesma URL** (`/beeonboard/`): o login já define a empresa. Sem DNS/subdomínio por cliente |
 | Gestor master | **Perfil novo `master`** (acima do Administrador), com a tela **Clientes** |
 | Privacidade | O master **administra e exporta, mas NÃO lê as conversas** dos clientes (LGPD) |
 

@@ -3,7 +3,7 @@
 # (/var/www/beezap/static/), com o admin do Django vindo de staticfiles/admin/.
 # Depois disso, um simples `git pull` ja publica CSS/JS (sem collectstatic/cp).
 #
-# Seguro: cria backup, aplica so no bloco /beezap/static/, valida com `nginx -t`
+# Seguro: cria backup, aplica so no bloco /beeonboard/static/, valida com `nginx -t`
 # e restaura o backup se algo der errado.
 #
 # Uso: sudo bash deploy/patch_nginx_beezap.sh
@@ -23,35 +23,35 @@ path = sys.argv[1]
 src = open(path, encoding='utf-8').read()
 
 old = (
-    "    location /beezap/static/ {\n"
+    "    location /beeonboard/static/ {\n"
     "        alias /var/www/beezap/staticfiles/;\n"
     "        access_log off;\n"
     "        expires 7d;\n"
     "    }\n"
 )
 new = (
-    "    location /beezap/static/admin/ {\n"
+    "    location /beeonboard/static/admin/ {\n"
     "        alias /var/www/beezap/staticfiles/admin/;\n"
     "        access_log off;\n"
     "        expires 7d;\n"
     "    }\n"
     "\n"
-    "    location /beezap/static/ {\n"
+    "    location /beeonboard/static/ {\n"
     "        alias /var/www/beezap/static/;\n"
     "        access_log off;\n"
     "    }\n"
 )
 
-if "location /beezap/static/admin/" in src:
+if "location /beeonboard/static/admin/" in src:
     print("Ja parece ajustado (bloco admin presente). Nada a fazer.")
     sys.exit(0)
 if old not in src:
-    print("ERRO: nao encontrei o bloco /beezap/static/ exatamente como esperado.")
+    print("ERRO: nao encontrei o bloco /beeonboard/static/ exatamente como esperado.")
     print("Ajuste manualmente seguindo deploy/nginx_beezap.conf.example.")
     sys.exit(2)
 
 open(path, "w", encoding="utf-8").write(src.replace(old, new, 1))
-print("Bloco /beezap/static/ ajustado: app servido de static/, admin de staticfiles/admin/.")
+print("Bloco /beeonboard/static/ ajustado: app servido de static/, admin de staticfiles/admin/.")
 PY
 
 echo ">> Validando configuracao do Nginx (nginx -t)..."

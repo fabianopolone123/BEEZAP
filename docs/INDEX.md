@@ -9,9 +9,9 @@ Arquivos oficiais:
 - `GIT.md`: regras de Git, commit e push.
 - `HISTORICO.md`: registro do que já foi feito e decisões já tomadas.
 - `DEPLOY.md`: deploy no VPS, dependências de sistema (ffmpeg), variáveis `.env`
-  do prefixo `/beezap/` e como publicar/testar estáticos.
+  do prefixo `/beeonboard/` e como publicar/testar estáticos.
 - `DEPLOY_VPS.md`: guia inicial de homologação em VPS (histórico; ver `DEPLOY.md`
-  para a realidade atual sob `/beezap/`).
+  para a realidade atual sob `/beeonboard/`).
 - `WAPI_MEDIA_INTEGRATION.md`: emoji, mídia (imagem/áudio/vídeo/documento),
   sticker/gif/reação recebidos, download de mídia, LITE vs PRO.
 - `../CLAUDE.md` (raiz do projeto): instruções carregadas automaticamente pelo agente

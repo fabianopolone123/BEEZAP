@@ -88,8 +88,8 @@ composer fixo no rodapé e os filtros não foram afetados.
 
 ## 6. URLs públicas de mídia
 
-`MEDIA_URL` vem de variável de ambiente (`/beezap/media/` em produção), servido
-pelo Nginx em `location /beezap/media/ { alias /var/www/beezap/media/; }`.
+`MEDIA_URL` vem de variável de ambiente (`/beeonboard/media/` em produção), servido
+pelo Nginx em `location /beeonboard/media/ { alias /var/www/beezap/media/; }`.
 
 ## 7. Envio de mídia LITE pela conversa (composer)
 
@@ -105,7 +105,7 @@ Fluxo:
    - salva o arquivo em `MEDIA/whatsapp/outgoing/` com **nome único** (uuid — nunca
      usa o nome do usuário, evita traversal/sobrescrita);
    - monta a **URL pública** com `request.build_absolute_uri(media_file.url)`
-     (respeita o prefixo `/beezap/media/` via `MEDIA_URL`);
+     (respeita o prefixo `/beeonboard/media/` via `MEDIA_URL`);
    - decide o formato enviado à W-API com `_host_reachable_by_wapi`: a W-API roda
      **na nuvem** e só baixa a mídia se a URL for acessível de fora. Host público
      (produção) → envia a **URL**; `localhost` / IP privado / `.local` (ambiente

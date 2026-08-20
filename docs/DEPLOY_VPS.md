@@ -329,11 +329,11 @@ Atualizado em 2026-07-08.
 - Deploy padrao: sempre via Git + `bash deploy/deploy.sh` dentro de `/var/www/beezap`.
 - Servico Django/Gunicorn: `beezap`.
 - Porta interna real: `127.0.0.1:8103`.
-- URL publica: `https://fabianopolone.com.br/beezap/`.
+- URL publica: `https://fabianopolone.com.br/beeonboard/`.
 - Nginx do dominio: `/etc/nginx/sites-available/site_idiomas`.
-- Prefixo Django: `FORCE_SCRIPT_NAME=/beezap` no `.env`.
+- Prefixo Django: `FORCE_SCRIPT_NAME=/beeonboard` no `.env`.
 - Banco atual: SQLite em `/var/www/beezap/db.sqlite3`.
-- Static/media esperados no `.env`: `STATIC_URL=/beezap/static/` e `MEDIA_URL=/beezap/media/`.
+- Static/media esperados no `.env`: `STATIC_URL=/beeonboard/static/` e `MEDIA_URL=/beeonboard/media/`.
 - `ffmpeg` instalado e `manage.py check` sem avisos no VPS.
 - `DEBUG=True` ainda aparece como pendencia de seguranca se estiver assim no `.env`.
 

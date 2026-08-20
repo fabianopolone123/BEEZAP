@@ -7,7 +7,7 @@ garantir que alterações de **CSS/JS apareçam** em produção após o deploy.
 
 - Projeto em: `/var/www/beezap/`
 - Servido pelo **gunicorn** (systemd, serviço `beezap`) atrás do **Nginx**.
-- URL pública sob o prefixo **`/beezap/`** (ex.: `https://fabianopolone.com.br/beezap/`).
+- URL pública sob o prefixo **`/beeonboard/`** (ex.: `https://fabianopolone.com.br/beeonboard/`).
 - Config do Nginx do domínio: `/etc/nginx/sites-available/site_idiomas`.
 - Pastas de estáticos:
   - Fonte (no Git): `/var/www/beezap/static/` (ex.: `static/css/conversations.css`)
@@ -28,8 +28,8 @@ psycopg), o servidor precisa destas dependências de **sistema** (não vêm pelo
   ```
   > O `python manage.py check` avisa quando o ffmpeg está ausente
   > (**`beezap.W001`**) — assim o problema aparece no deploy, não só em produção.
-- **nginx** — proxy reverso; serve `/beezap/static/` e **apenas**
-  `/beezap/media/empresas/` (logos). A mídia das conversas **não** é servida pelo
+- **nginx** — proxy reverso; serve `/beeonboard/static/` e **apenas**
+  `/beeonboard/media/empresas/` (logos). A mídia das conversas **não** é servida pelo
   Nginx — ver a seção de mídia mais abaixo.
 - **git** — deploy via `git pull`.
 
@@ -41,12 +41,12 @@ cd /var/www/beezap && venv/bin/python manage.py check   # não deve listar beeza
 
 ## Variáveis de ambiente obrigatórias (`.env`)
 
-Para o app funcionar sob o prefixo `/beezap/` e para a mídia funcionar:
+Para o app funcionar sob o prefixo `/beeonboard/` e para a mídia funcionar:
 
 ```
 FORCE_SCRIPT_NAME=/beezap      # Django gera todas as URLs com o prefixo
-STATIC_URL=/beezap/static/     # CSS/JS servidos pelo Nginx sob /beezap/static/
-MEDIA_URL=/beezap/media/       # caminho dos arquivos salvos (logos das empresas)
+STATIC_URL=/beeonboard/static/     # CSS/JS servidos pelo Nginx sob /beeonboard/static/
+MEDIA_URL=/beeonboard/media/       # caminho dos arquivos salvos (logos das empresas)
 ```
 
 As credenciais da W-API (Instance ID e Token) ficam salvas no banco pela tela de
@@ -62,17 +62,17 @@ empresa. Era assim até aqui, e os arquivos recebidos ainda usavam nome sequenci
 
 Hoje a mídia sai por duas rotas do próprio Django:
 
-- **`/beezap/midia/<id>/`** — exige login e aplica as regras da conversa (empresa +
+- **`/beeonboard/midia/<id>/`** — exige login e aplica as regras da conversa (empresa +
   alcance). É o que o chat usa. O **gestor master também é barrado** aqui.
-- **`/beezap/midia-publica/<token>/`** — link **assinado** e de **curta duração**
+- **`/beeonboard/midia-publica/<token>/`** — link **assinado** e de **curta duração**
   (15 min), usado só para a W-API (que roda na nuvem) baixar a mídia que enviamos.
 
-**No Nginx, o bloco `location /beezap/media/` deve ser trocado** por um que libere
+**No Nginx, o bloco `location /beeonboard/media/` deve ser trocado** por um que libere
 apenas os logos das empresas:
 
 ```nginx
-# REMOVER:  location /beezap/media/ { alias /var/www/beezap/media/; }
-location /beezap/media/empresas/ {
+# REMOVER:  location /beeonboard/media/ { alias /var/www/beezap/media/; }
+location /beeonboard/media/empresas/ {
     alias /var/www/beezap/media/empresas/;
     access_log off;
 }
@@ -81,8 +81,8 @@ location /beezap/media/empresas/ {
 Confira depois do deploy (o primeiro tem que dar **404**, o segundo **302/200**):
 
 ```bash
-curl -o /dev/null -s -w "%{http_code}\n" https://fabianopolone.com.br/beezap/media/whatsapp/wapi_1.jpg
-curl -o /dev/null -s -w "%{http_code}\n" https://fabianopolone.com.br/beezap/midia/1/
+curl -o /dev/null -s -w "%{http_code}\n" https://fabianopolone.com.br/beeonboard/media/whatsapp/wapi_1.jpg
+curl -o /dev/null -s -w "%{http_code}\n" https://fabianopolone.com.br/beeonboard/midia/1/
 ```
 
 > `client_max_body_size` continua valendo para o **upload**; o download agora passa
@@ -107,13 +107,13 @@ cp -r /var/www/beezap/static/* /var/www/beezap/staticfiles/
 
 O `settings.py` do repositório agora:
 - Lê `STATIC_URL` de variável de ambiente (`os.getenv('STATIC_URL', '/static/')`),
-  então o prefixo `/beezap/static/` fica no `.env` e **ninguém precisa editar o
+  então o prefixo `/beeonboard/static/` fica no `.env` e **ninguém precisa editar o
   `settings.py` no servidor**.
 - Mantém `STATICFILES_DIRS = [BASE_DIR / 'static']` com aviso para nunca esvaziar.
 
 No `.env` de produção:
 ```
-STATIC_URL=/beezap/static/
+STATIC_URL=/beeonboard/static/
 ```
 
 ### Opção A (RECOMENDADA): Nginx serve a pasta-fonte `static/`
@@ -123,9 +123,9 @@ No `server { }` do domínio (`/etc/nginx/sites-available/site_idiomas`), deixar:
 
 ```nginx
 # admin do Django vem do collectstatic (mais especifico, vem antes):
-location /beezap/static/admin/ { alias /var/www/beezap/staticfiles/admin/; }
+location /beeonboard/static/admin/ { alias /var/www/beezap/staticfiles/admin/; }
 # CSS/JS/imagens do BEEonBOARD servidos direto da fonte:
-location /beezap/static/       { alias /var/www/beezap/static/; }
+location /beeonboard/static/       { alias /var/www/beezap/static/; }
 ```
 
 Aplicar:
@@ -213,7 +213,7 @@ Se o `settings.py` do servidor ainda estiver com edições manuais:
 ```bash
 cd /var/www/beezap
 git diff config/settings.py                         # ver o que foi editado
-grep -q '^STATIC_URL=' .env || echo 'STATIC_URL=/beezap/static/' >> .env
+grep -q '^STATIC_URL=' .env || echo 'STATIC_URL=/beeonboard/static/' >> .env
 git checkout -- config/settings.py                  # descartar edicao manual
 git pull                                            # pega a versao versionada
 venv/bin/python manage.py collectstatic --noinput

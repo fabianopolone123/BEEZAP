@@ -31,12 +31,12 @@ server {
 }
 
 # ==========================================================================
-# OPCAO B (RECOMENDADA no VPS atual) — BEEZAP sob o prefixo /beezap/
-# Ex.: https://fabianopolone.com.br/beezap/
+# OPCAO B (RECOMENDADA no VPS atual) — BEEZAP sob o prefixo /beeonboard/
+# Ex.: https://fabianopolone.com.br/beeonboard/
 #
 # Inserir estes blocos dentro do server { } do dominio ja existente
 # (no VPS atual: /etc/nginx/sites-available/site_idiomas) e definir no .env:
-#     STATIC_URL=/beezap/static/
+#     STATIC_URL=/beeonboard/static/
 #
 # Vantagem: o CSS/JS do BEEZAP e servido direto da pasta-fonte `static/`,
 # entao um simples `git pull` ja publica as alteracoes — sem `collectstatic`
@@ -44,36 +44,36 @@ server {
 # ==========================================================================
 
 # 1) Estaticos do Django admin: coletados uma vez pelo collectstatic.
-#    (Precisa ser ANTES do bloco /beezap/static/ — prefixo mais especifico.)
-location /beezap/static/admin/ {
+#    (Precisa ser ANTES do bloco /beeonboard/static/ — prefixo mais especifico.)
+location /beeonboard/static/admin/ {
     alias /var/www/beezap/staticfiles/admin/;
     access_log off;
     expires 7d;
 }
 
 # 2) Estaticos do proprio BEEZAP (css/js/images) servidos da pasta-fonte.
-location /beezap/static/ {
+location /beeonboard/static/ {
     alias /var/www/beezap/static/;
     access_log off;
 }
 
 # 3) MIDIA — cuidado aqui.
 #
-# NAO servir /beezap/media/ inteiro. A pasta `media/whatsapp/` guarda as fotos,
+# NAO servir /beeonboard/media/ inteiro. A pasta `media/whatsapp/` guarda as fotos,
 # audios, videos e documentos das conversas dos CLIENTES: servida direto pelo
 # Nginx, ela fica acessivel a qualquer um que descubra o caminho, sem login e sem
 # checagem de empresa. Essa midia sai pela view autenticada do Django
-# (`/beezap/midia/<id>/`), que aplica as regras da conversa, e a W-API baixa a
-# midia enviada por um link assinado e temporario (`/beezap/midia-publica/...`).
+# (`/beeonboard/midia/<id>/`), que aplica as regras da conversa, e a W-API baixa a
+# midia enviada por um link assinado e temporario (`/beeonboard/midia-publica/...`).
 #
 # Aqui fica publica apenas a pasta dos LOGOS das empresas, que aparecem na barra
 # lateral e nao tem nada de conversa.
-location /beezap/media/empresas/ {
+location /beeonboard/media/empresas/ {
     alias /var/www/beezap/media/empresas/;
     access_log off;
 }
 
-location /beezap/ {
+location /beeonboard/ {
     proxy_pass http://127.0.0.1:8006/;   # porta do gunicorn do BEEZAP (ver deploy/beezap.service.example)
     proxy_set_header Host $host;
     proxy_set_header X-Real-IP $remote_addr;

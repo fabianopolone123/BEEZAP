@@ -415,7 +415,7 @@ def build_wapi_webhook_url(request, company=None):
 
     MULTIEMPRESA: com empresa, devolve a URL PROPRIA dela
     (`.../webhook/wapi/<empresa>/`) — e assim que o sistema sabe de quem e cada
-    mensagem quando ha mais de um cliente. Com FORCE_SCRIPT_NAME=/beezap, o reverse
+    mensagem quando ha mais de um cliente. Com FORCE_SCRIPT_NAME=/beeonboard, o reverse
     ja inclui o prefixo.
     """
     if company is not None:
@@ -2875,7 +2875,7 @@ def _host_reachable_by_wapi(host):
 # Midia (arquivos das conversas) — acesso controlado
 #
 # Foto, audio, video e documento sao CONTEUDO DO CLIENTE. Por isso o Nginx nao
-# serve mais /beezap/media/whatsapp/ direto (ver docs/DEPLOY.md): o arquivo so sai
+# serve mais /beeonboard/media/whatsapp/ direto (ver docs/DEPLOY.md): o arquivo so sai
 # por `message_media_view`, que aplica as mesmas regras da conversa — empresa +
 # alcance. Uma empresa nao alcanca o arquivo da outra, e o gestor master tambem
 # nao, porque `can_see_conversation` e False para ele.
