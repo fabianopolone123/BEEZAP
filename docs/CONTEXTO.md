@@ -1239,8 +1239,9 @@ Em `views.py`, `request_company(request)` é o atalho usado em todo ponto de cri
   Clientes** e no **logo da tela de Métricas do cliente**, e `.sidebar-initials`
   ganhou um **anel interno claro** para o chip não desaparecer no azul-escuro da
   barra quando o destaque é muito escuro.
-  *(O jeito definitivo de a empresa ter a marca dela é o master cadastrar o **logo**
-  em Clientes → Editar; as iniciais são a retaguarda de quem não tem logo.)*
+  *(As iniciais são a retaguarda de quem não tem logo. O logo é cadastrado pelo
+  **próprio ADM da empresa** na aba **Marca** de Configurações — ver a subseção
+  "Aba Marca" adiante — e o master também pode fazê-lo em Clientes → Editar.)*
 
 ### Migração `0031_multiempresa`
 
@@ -1407,6 +1408,7 @@ Todas as consultas passam pela empresa de quem está logado (`request_company(re
 | Transferência | selects **e** o POST só aceitam setor/atendente da mesma empresa |
 | Configurações | credenciais (só master), textos do chatbot, modo, URL de webhook e eventos exibidos |
 | Meus dados (exportação) | o ZIP sai da empresa **de quem está logado** — o endpoint não aceita id de empresa |
+| Marca (logo e cor) | a empresa vem **de quem está logado**; o endpoint não aceita id de empresa |
 
 Detalhes que também mudaram: os **selects de setor de fallback** (IA e chatbot) só
 listam setores da empresa (`CompanyForm`-style `company=` no `__init__` dos forms); a
@@ -1508,6 +1510,31 @@ link_lid_contacts --apply              # resolve o contato dentro da empresa da 
 > A **empresa padrão** continua sendo a dona de tudo o que existia antes do
 > multiempresa e o destino do webhook sem identificador. Não pode ser excluída nem
 > desativada.
+
+### Aba Marca: o cliente cadastra o próprio logo
+
+`configuracoes/marca/` (`company_brand_view`, nome `company-brand`;
+`templates/accounts/company_brand.html` + `company_brand.css`), aba **Marca** em
+Configurações, do **ADM da empresa**.
+
+- Edita **só identidade visual**: `logo` e `accent_color` (form `CompanyBrandForm`).
+  Nome, CNPJ e identificador continuam com o master, na tela Clientes.
+- **Por que é do cliente:** logo e cor são a marca do negócio dele, não credencial.
+  Antes só o master alcançava isso, então **trocar de logo virava pedido de suporte**
+  — a mesma razão que já tinha deixado os textos do chatbot com o cliente.
+- A tela mostra uma **prévia com o fundo real da barra lateral** (o menu é escuro, e é
+  ali que o logo aparece), o botão **Remover logo** (volta para as iniciais) e as
+  recomendações de formato: PNG/SVG **transparente**, **quadrado**, até **2 MB**.
+- **Trocar ou remover apaga o arquivo antigo do disco** (`_remove_company_logo_file`):
+  o Django só troca o valor no banco, então sem isso cada troca deixaria um arquivo
+  órfão no servidor, sem ninguém conseguir alcançá-lo pela interface.
+- **Bloqueios (backend, não só a aba escondida):** `require_feature('settings')` — que
+  dá **403 para o gestor master**, inclusive por POST forjado — e `block_readonly`
+  (o perfil `leitor` vê e não salva). A empresa vem **de quem está logado**, então não
+  existe "trocar o logo do vizinho" por URL forjada.
+- A validação de logo/cor é compartilhada com a tela Clientes pelo
+  **`CompanyBrandFieldsMixin`** (`accounts/forms.py`) — uma regra só para os dois
+  formulários (extensões `png/jpg/jpeg/webp/svg`, 2 MB, cor `#rrggbb`).
 
 ### Parte 3 — portabilidade (CONCLUÍDA)
 

@@ -4883,3 +4883,151 @@ class CompanyInitialsContrastTests(TestCase):
         self.assertEqual(r.status_code, 200)
         # Iniciais "PT" (PPM Teste) com fundo preto e texto branco, na mesma tag.
         self.assertContains(r, 'background: #000000; color: #ffffff')
+
+
+class CompanyBrandScreenTests(TestCase):
+    """Aba MARCA: o proprio ADM cadastra o logo e a cor que aparecem no menu.
+
+    Antes isso era exclusivo do gestor master (tela Clientes), entao trocar de logo
+    virava pedido de suporte. Logo e cor sao identidade do negocio do cliente — nao
+    credencial —, por isso ficam com ele.
+    """
+
+    def setUp(self):
+        from accounts.models import Company
+        self.company = Company.objects.create(name='Marca SA', slug='marca-sa', accent_color='#000000')
+        self.outra = Company.objects.create(name='Outra SA', slug='outra-marca')
+        self.adm = User.objects.create_user(
+            email='adm@marca.com', password='x', role=User.Role.ADM, company=self.company
+        )
+        self.leitor = User.objects.create_user(
+            email='leitor@marca.com', password='x', role=User.Role.LEITOR, company=self.company
+        )
+        self.master = User.objects.create_user(
+            email='master@marca.com', password='x', role=User.Role.MASTER
+        )
+        self.url = reverse('company-brand')
+
+    def _png(self, nome='logo.png', tamanho=32):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        # Conteudo nao precisa ser PNG de verdade: o campo e FileField e a validacao
+        # olha extensao e tamanho (sem Pillow no projeto).
+        return SimpleUploadedFile(nome, b'x' * tamanho, content_type='image/png')
+
+    # ----- Quem entra -----
+
+    def test_company_admin_opens_the_screen(self):
+        self.client.force_login(self.adm)
+        r = self.client.get(self.url)
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, 'Marca da empresa')
+
+    def test_master_cannot_open_or_post(self):
+        """Negocio do cliente: o master leva 403 inclusive por POST forjado."""
+        self.client.force_login(self.master)
+        self.assertEqual(self.client.get(self.url).status_code, 403)
+        r = self.client.post(self.url, {'action': 'save', 'logo': self._png()})
+        self.assertEqual(r.status_code, 403)
+        self.company.refresh_from_db()
+        self.assertFalse(self.company.logo)
+
+    def test_read_only_profile_sees_but_does_not_save(self):
+        """O leitor so chega aqui se o admin liberar o botao Configuracoes para ele
+        (por padrao o perfil nao tem essa tela). Liberado, ele VE e nao ALTERA."""
+        from accounts.models import UserMenuPermission
+        UserMenuPermission.objects.create(
+            user=self.leitor, allowed_keys=['conversations', 'settings']
+        )
+        self.client.force_login(self.leitor)
+        self.assertEqual(self.client.get(self.url).status_code, 200)
+        r = self.client.post(self.url, {'action': 'save', 'logo': self._png()})
+        self.assertEqual(r.status_code, 403)
+        self.company.refresh_from_db()
+        self.assertFalse(self.company.logo)
+
+    def test_anonymous_is_sent_to_login(self):
+        self.assertEqual(self.client.get(self.url).status_code, 302)
+
+    # ----- Upload -----
+
+    def test_admin_uploads_the_logo_and_the_sidebar_uses_it(self):
+        self.client.force_login(self.adm)
+        r = self.client.post(self.url, {'action': 'save', 'accent_color': '#1f7a53',
+                                        'logo': self._png()})
+        self.assertEqual(r.status_code, 302)
+        self.company.refresh_from_db()
+        self.assertTrue(self.company.logo)
+        self.assertEqual(self.company.accent_color, '#1f7a53')
+        # A barra lateral de qualquer tela passa a mostrar o arquivo.
+        sidebar = self.client.get(reverse('conversations')).content.decode('utf-8', 'ignore')
+        self.assertIn(self.company.logo.url, sidebar)
+        self.company.logo.delete(save=False)
+
+    def test_upload_only_touches_the_own_company(self):
+        """A empresa vem de quem esta logado — nao ha id de empresa no endpoint."""
+        self.client.force_login(self.adm)
+        self.client.post(self.url, {'action': 'save', 'logo': self._png()})
+        self.outra.refresh_from_db()
+        self.assertFalse(self.outra.logo)
+        self.company.refresh_from_db()
+        self.company.logo.delete(save=False)
+
+    def test_wrong_extension_is_refused_with_a_clear_message(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        self.client.force_login(self.adm)
+        r = self.client.post(self.url, {
+            'action': 'save',
+            'logo': SimpleUploadedFile('logo.txt', b'x', content_type='text/plain'),
+        })
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, 'PNG, JPG, WEBP ou SVG')
+        self.company.refresh_from_db()
+        self.assertFalse(self.company.logo)
+
+    def test_file_over_the_size_limit_is_refused(self):
+        from accounts.forms import CompanyBrandForm
+        self.client.force_login(self.adm)
+        grande = self._png(tamanho=(CompanyBrandForm.LOGO_MAX_MB * 1024 * 1024) + 10)
+        r = self.client.post(self.url, {'action': 'save', 'logo': grande})
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, 'no máximo')
+        self.company.refresh_from_db()
+        self.assertFalse(self.company.logo)
+
+    def test_invalid_color_is_refused(self):
+        self.client.force_login(self.adm)
+        r = self.client.post(self.url, {'action': 'save', 'accent_color': 'azul'})
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, 'Escolha uma cor válida.')
+
+    # ----- Remocao -----
+
+    def test_removing_the_logo_brings_the_initials_back(self):
+        self.client.force_login(self.adm)
+        self.client.post(self.url, {'action': 'save', 'logo': self._png()})
+        self.company.refresh_from_db()
+        self.assertTrue(self.company.logo)
+
+        r = self.client.post(self.url, {'action': 'remove-logo'})
+        self.assertEqual(r.status_code, 302)
+        self.company.refresh_from_db()
+        self.assertFalse(self.company.logo)
+        # Sem logo, a barra lateral volta para as iniciais na cor de destaque.
+        sidebar = self.client.get(reverse('conversations')).content.decode('utf-8', 'ignore')
+        self.assertIn('sidebar-initials', sidebar)
+
+    def test_removing_when_there_is_no_logo_does_not_break(self):
+        self.client.force_login(self.adm)
+        r = self.client.post(self.url, {'action': 'remove-logo'}, follow=True)
+        self.assertEqual(r.status_code, 200)
+
+    # ----- A aba -----
+
+    def test_the_tab_appears_for_the_client_and_not_for_the_master(self):
+        self.client.force_login(self.adm)
+        pagina = self.client.get(reverse('atendimento')).content.decode('utf-8', 'ignore')
+        self.assertIn(self.url, pagina)
+
+        self.client.force_login(self.master)
+        # O master nem alcanca a area de Atendimento (403); a aba nao existe para ele.
+        self.assertEqual(self.client.get(reverse('atendimento')).status_code, 403)

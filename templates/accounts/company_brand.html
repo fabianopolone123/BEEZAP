@@ -1,0 +1,134 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% comment %}
+Aba MARCA (Configuracoes do cliente) — logo e cor da propria empresa.
+
+Quem mexe aqui e o ADMINISTRADOR da empresa: logo e cor sao identidade do negocio
+dele, nao credencial. O gestor master leva 403 (a aba nem aparece para ele), e o
+perfil `leitor` ve a tela mas nao salva.
+
+Nenhum dado cadastral (nome, CNPJ, identificador) entra nesta tela — isso continua
+com o master, na tela Clientes.
+{% endcomment %}
+
+{% block title %}Marca | BEEonBOARD{% endblock %}
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/dashboard.css' %}?v=6">
+<link rel="stylesheet" href="{% static 'css/settings_tabs.css' %}?v=2">
+<link rel="stylesheet" href="{% static 'css/company_brand.css' %}?v=1">
+{% endblock %}
+
+{% block content %}
+<main class="dashboard-shell">
+  {% include "accounts/_sidebar.html" %}
+
+  <section class="dashboard-main">
+    <div class="company-brand-page">
+      <header class="topbar">
+        <div class="topbar-left">
+          <button class="icon-button" type="button" aria-label="Abrir menu">☰</button>
+          <div>
+            <p class="page-kicker">Configurações › Marca</p>
+            <h1>Marca da empresa</h1>
+          </div>
+        </div>
+
+        <div class="topbar-right">
+          <div class="profile-chip">
+            <div class="profile-avatar">{{ user_initial }}</div>
+            <div>
+              <strong>{{ request.user.get_full_name|default:request.user.email }}</strong>
+              <span>{{ role_label }}</span>
+            </div>
+          </div>
+          <a href="{% url 'logout' %}" class="logout-link">Sair</a>
+        </div>
+      </header>
+
+      {% include "accounts/_settings_tabs.html" %}
+
+      <p class="brand-intro">
+        O logo aparece no <strong>topo do menu</strong>, ao lado do nome da empresa.
+        Sem logo, mostramos as <strong>iniciais</strong> sobre a cor de destaque.
+      </p>
+
+      <section class="brand-grid">
+        <!-- ============ COMO ESTÁ AGORA ============ -->
+        <article class="brand-card">
+          <h2>Como está agora</h2>
+
+          <div class="brand-preview" aria-label="Prévia do menu">
+            {% if company.logo_url %}
+              <img src="{{ company.logo_url }}" alt="Logo de {{ company.display_name }}" class="brand-preview-logo">
+            {% else %}
+              <span class="brand-preview-initials"
+                    style="background: {{ company.accent_color|default:'#1f7a53' }}; color: {{ company.accent_text_color }}"
+                    aria-hidden="true">{{ company.initials }}</span>
+            {% endif %}
+            <div class="brand-preview-text">
+              <strong>{{ company.display_name }}</strong>
+              <span>Central de atendimento</span>
+            </div>
+          </div>
+
+          {% if company.logo_url %}
+            <p class="brand-hint">Este é o logo cadastrado. Envie outro para substituir.</p>
+            {% if not read_only %}
+              <form method="post" action="{% url 'company-brand' %}" class="brand-remove-form"
+                    onsubmit="return confirm('Remover o logo? O menu volta a mostrar as iniciais da empresa.');">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="remove-logo">
+                <button type="submit" class="danger-button">Remover logo</button>
+              </form>
+            {% endif %}
+          {% else %}
+            <p class="brand-hint">
+              Ainda sem logo — o menu mostra as iniciais
+              <strong>{{ company.initials }}</strong> sobre a cor de destaque.
+            </p>
+          {% endif %}
+        </article>
+
+        <!-- ============ ENVIAR / TROCAR ============ -->
+        <article class="brand-card">
+          <h2>Enviar logo</h2>
+
+          {% if read_only %}
+            <p class="brand-readonly">👁️ Seu perfil é somente leitura: você vê a marca, mas não altera.</p>
+          {% else %}
+            <form method="post" action="{% url 'company-brand' %}" enctype="multipart/form-data" class="brand-form">
+              {% csrf_token %}
+              <input type="hidden" name="action" value="save">
+
+              <div class="brand-field">
+                {{ form.logo.label_tag }}
+                {{ form.logo }}
+                <span class="brand-field-hint">{{ form.logo.help_text }}</span>
+                {% if form.logo.errors %}<p class="brand-field-error">{{ form.logo.errors.0 }}</p>{% endif %}
+              </div>
+
+              <div class="brand-field brand-field-color">
+                {{ form.accent_color.label_tag }}
+                {{ form.accent_color }}
+                <span class="brand-field-hint">{{ form.accent_color.help_text }}</span>
+                {% if form.accent_color.errors %}<p class="brand-field-error">{{ form.accent_color.errors.0 }}</p>{% endif %}
+              </div>
+
+              <button type="submit" class="primary-button">Salvar marca</button>
+            </form>
+
+            <ul class="brand-tips">
+              <li><strong>Formato:</strong> PNG, JPG, WEBP ou SVG, até {{ logo_max_mb }} MB.</li>
+              <li><strong>Fundo transparente</strong> (PNG ou SVG) fica melhor: o menu é escuro.</li>
+              <li><strong>Quadrado</strong> funciona melhor que deitado — o espaço é pequeno,
+                  em volta de 46 pixels.</li>
+              <li>Depois de salvar, use <strong>Ctrl + F5</strong> se a imagem antiga insistir em aparecer.</li>
+            </ul>
+          {% endif %}
+        </article>
+      </section>
+    </div>
+  </section>
+</main>
+{% endblock %}

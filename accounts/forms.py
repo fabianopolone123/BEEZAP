@@ -330,18 +330,76 @@ class SectorForm(forms.ModelForm):
         return name
 
 
-class CompanyForm(forms.ModelForm):
+class CompanyBrandFieldsMixin:
+    """Validacao da identidade visual da empresa (logo e cor de destaque).
+
+    Fica separada porque DOIS formularios usam os mesmos campos: o `CompanyForm`
+    (tela Clientes, do gestor master) e o `CompanyBrandForm` (aba Marca, do
+    Administrador da propria empresa).
+
+    O campo do logo e `FileField` (nao `ImageField`) para nao exigir o pacote
+    Pillow — por isso a checagem de extensao e tamanho e feita aqui.
+    """
+
+    LOGO_EXTENSIONS = ('.png', '.jpg', '.jpeg', '.webp', '.svg')
+    LOGO_MAX_MB = 2
+
+    def clean_logo(self):
+        logo = self.cleaned_data.get('logo')
+        # Sem arquivo novo (ou mantendo o atual) nao ha o que validar.
+        if not logo or not hasattr(logo, 'name') or not hasattr(logo, 'size'):
+            return logo
+        name = (logo.name or '').lower()
+        if not name.endswith(self.LOGO_EXTENSIONS):
+            raise forms.ValidationError('O logo deve ser PNG, JPG, WEBP ou SVG.')
+        if logo.size > self.LOGO_MAX_MB * 1024 * 1024:
+            raise forms.ValidationError(f'O logo deve ter no máximo {self.LOGO_MAX_MB} MB.')
+        return logo
+
+    def clean_accent_color(self):
+        color = (self.cleaned_data.get('accent_color') or '').strip()
+        if not color:
+            return ''
+        if not re.fullmatch(r'#[0-9a-fA-F]{6}', color):
+            raise forms.ValidationError('Escolha uma cor válida.')
+        return color.lower()
+
+
+class CompanyBrandForm(CompanyBrandFieldsMixin, forms.ModelForm):
+    """Aba MARCA (Configuracoes do cliente): o proprio ADM cadastra o logo e a cor
+    que aparecem no topo da barra lateral da empresa dele.
+
+    Antes, so o gestor master conseguia mexer nisso (tela Clientes), o que fazia
+    cada troca de logo virar pedido de suporte. Aqui NAO entra nenhum dado
+    cadastral nem credencial: apenas identidade visual.
+    """
+
+    class Meta:
+        model = Company
+        fields = ['logo', 'accent_color']
+        labels = {
+            'logo': 'Logo da empresa',
+            'accent_color': 'Cor de destaque',
+        }
+        help_texts = {
+            'logo': 'PNG, JPG, WEBP ou SVG, até 2 MB. Aparece no topo do menu.',
+            'accent_color': 'Usada no lugar do logo, atrás das iniciais, quando não há logo.',
+        }
+        widgets = {
+            'accent_color': forms.TextInput(attrs={'type': 'color'}),
+        }
+
+
+class CompanyForm(CompanyBrandFieldsMixin, forms.ModelForm):
     """Cadastro da EMPRESA CLIENTE (tela Clientes, perfil master).
 
     Guarda os dados da empresa e a identidade visual (logo e cor de destaque) que
     aparecem na barra lateral do cliente. O `slug` (identificador curto) e gerado
     automaticamente a partir do nome quando nao e informado.
-    """
 
-    # Extensoes e tamanho aceitos no logo. FileField (nao ImageField) para nao
-    # exigir o pacote Pillow — a validacao fica aqui.
-    LOGO_EXTENSIONS = ('.png', '.jpg', '.jpeg', '.webp', '.svg')
-    LOGO_MAX_MB = 2
+    A validacao do logo e da cor vem do `CompanyBrandFieldsMixin` — a mesma que o
+    cliente usa na aba Marca.
+    """
 
     class Meta:
         model = Company
@@ -413,26 +471,6 @@ class CompanyForm(forms.ModelForm):
 
     def clean_state(self):
         return (self.cleaned_data.get('state') or '').strip().upper()
-
-    def clean_accent_color(self):
-        color = (self.cleaned_data.get('accent_color') or '').strip()
-        if not color:
-            return ''
-        if not re.fullmatch(r'#[0-9a-fA-F]{6}', color):
-            raise forms.ValidationError('Escolha uma cor válida.')
-        return color.lower()
-
-    def clean_logo(self):
-        logo = self.cleaned_data.get('logo')
-        # Sem arquivo novo (ou mantendo o atual) nao ha o que validar.
-        if not logo or not hasattr(logo, 'name') or not hasattr(logo, 'size'):
-            return logo
-        name = (logo.name or '').lower()
-        if not name.endswith(self.LOGO_EXTENSIONS):
-            raise forms.ValidationError('O logo deve ser PNG, JPG, WEBP ou SVG.')
-        if logo.size > self.LOGO_MAX_MB * 1024 * 1024:
-            raise forms.ValidationError(f'O logo deve ter no máximo {self.LOGO_MAX_MB} MB.')
-        return logo
 
     def clean_slug(self):
         """Identificador curto: gerado pelo nome quando vazio e unico no sistema."""

@@ -9,6 +9,7 @@ from .views import (
     client_metrics_view,
     clients_view,
     masters_view,
+    company_brand_view,
     company_data_view,
     company_export_view,
     conversation_list_view,
@@ -83,6 +84,8 @@ urlpatterns = [
     path('trocar-senha-inicial/', change_initial_password_view, name='change-initial-password'),
     path('configuracoes/ia/', openai_settings_view, name='openai-settings'),
     # Portabilidade: o CLIENTE leva os dados dele (o master nao exporta).
+    # Marca da empresa (logo e cor): o proprio ADM cadastra o que aparece no menu.
+    path('configuracoes/marca/', company_brand_view, name='company-brand'),
     path('configuracoes/dados/', company_data_view, name='company-data'),
     path('configuracoes/dados/exportar/', company_export_view, name='company-export'),
     path('configuracoes/atendimento/', atendimento_view, name='atendimento'),

@@ -28,6 +28,7 @@ from django.views.decorators.http import require_POST
 from .forms import (
     AttendantForm,
     CompanyAdminForm,
+    CompanyBrandForm,
     MasterUserForm,
     CompanyForm,
     InitialPasswordChangeForm,
@@ -95,6 +96,7 @@ PASSWORD_RECOVERY_VERIFIED_ID_KEY = 'password_recovery_verified_id'
 PASSWORD_RECOVERY_GENERIC_MESSAGE = 'Se os dados estiverem corretos, enviaremos um codigo para o WhatsApp cadastrado.'
 
 wapi_webhook_logger = logging.getLogger('beezap.wapi.webhook')
+brand_logger = logging.getLogger('beezap.marca')
 
 
 def _fmt_int(value):
@@ -1786,6 +1788,91 @@ def conversations_view(request):
             'type_tabs': type_tabs,
             'waiting_count': counts.get('aguardando', 0),
             'read_only': read_only,
+        },
+    )
+
+
+def _remove_company_logo_file(company):
+    """Apaga o ARQUIVO do logo do disco (o `delete()` do campo nao e chamado quando
+    so trocamos o valor no banco).
+
+    Sem isto, cada troca de logo deixaria o arquivo antigo orfao no servidor para
+    sempre — ninguem mais o alcanca pela interface. Nunca derruba a requisicao: se o
+    arquivo ja nao existe, seguimos em frente.
+    """
+    logo = getattr(company, 'logo', None)
+    if not logo:
+        return
+    try:
+        logo.delete(save=False)
+    except Exception:
+        brand_logger.warning('Nao foi possivel apagar o arquivo do logo da empresa %s.', company.pk)
+
+
+@login_required
+def company_brand_view(request):
+    """Aba MARCA (Configuracoes do cliente): o ADM cadastra o LOGO e a COR da
+    propria empresa — o que aparece no topo do menu.
+
+    Por que e do cliente: logo e cor sao identidade do negocio dele, nao
+    credencial. Antes so o gestor master alcancava isso (tela Clientes), entao
+    trocar de logo virava pedido de suporte. Nenhum dado cadastral (nome, CNPJ,
+    identificador) entra aqui — isso continua com o master.
+
+    O gestor master leva 403: `require_feature('settings')` devolve False para
+    qualquer feature da empresa (docs/CONTEXTO.md secao 16). O perfil `leitor` nao
+    salva (bloqueio no POST).
+    """
+    from .permissions import is_read_only as _is_read_only
+
+    forbidden = require_feature(request, 'settings')
+    if forbidden:
+        return forbidden
+
+    company = request_company(request)
+    form = CompanyBrandForm(instance=company)
+
+    if request.method == 'POST':
+        blocked = block_readonly(request)
+        if blocked:
+            return blocked
+
+        action = (request.POST.get('action') or 'save').strip()
+
+        if action == 'remove-logo':
+            if company.logo:
+                _remove_company_logo_file(company)
+                company.logo = None
+                company.save(update_fields=['logo'])
+                messages.success(request, 'Logo removido. Voltamos a mostrar as iniciais da empresa.')
+            else:
+                messages.info(request, 'Esta empresa ainda não tem logo cadastrado.')
+            return redirect('company-brand')
+
+        anterior = company.logo.name if company.logo else ''
+        form = CompanyBrandForm(request.POST, request.FILES, instance=company)
+        if form.is_valid():
+            # Arquivo NOVO chegando: apaga o antigo do disco antes de trocar o valor.
+            novo_arquivo = request.FILES.get('logo')
+            if novo_arquivo and anterior:
+                _remove_company_logo_file(Company.objects.get(pk=company.pk))
+            form.save()
+            messages.success(request, 'Marca atualizada. O menu já mostra a mudança.')
+            return redirect('company-brand')
+        messages.error(request, 'Confira os campos destacados.')
+
+    return render(
+        request,
+        'accounts/company_brand.html',
+        {
+            'nav_items': build_nav_items(request.user, 'Configurações', request),
+            'role_label': request.user.get_role_display(),
+            'user_initial': (request.user.first_name[:1] or request.user.email[:1]).upper(),
+            'settings_tabs': build_settings_tabs('marca', company=company),
+            'company': company,
+            'form': form,
+            'read_only': _is_read_only(request.user),
+            'logo_max_mb': CompanyBrandForm.LOGO_MAX_MB,
         },
     )
 
