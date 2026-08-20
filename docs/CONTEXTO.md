@@ -1227,7 +1227,20 @@ Em `views.py`, `request_company(request)` é o atalho usado em todo ponto de cri
   vê a marca do BEEonBOARD com o rótulo "Gestão de clientes".
 - A barra lateral estava **copiada em 8 templates**; virou o include
   **`templates/accounts/_sidebar.html`** (única fonte). `.sidebar-initials` em
-  `dashboard.css?v=5`.
+  `dashboard.css?v=6`.
+- **Contraste das iniciais**: a cor do texto **não** é fixa no CSS — vem de
+  `Company.accent_text_color`, que usa `readable_text_color()` (em
+  `accounts/models.py`) para escolher entre texto claro e escuro pelo **maior
+  contraste real** (razão WCAG) contra a cor de destaque cadastrada. Motivo: o master
+  escolhe a cor livremente e um cliente cadastrado com **`#000000`** ficava com as
+  iniciais **pretas sobre preto** (invisíveis) na barra lateral. Um limiar fixo de
+  luminância não resolvia: verde claro recebia texto branco, que lê pior que o
+  escuro. A mesma cor calculada é aplicada nas iniciais do **cartão da tela
+  Clientes** e no **logo da tela de Métricas do cliente**, e `.sidebar-initials`
+  ganhou um **anel interno claro** para o chip não desaparecer no azul-escuro da
+  barra quando o destaque é muito escuro.
+  *(O jeito definitivo de a empresa ter a marca dela é o master cadastrar o **logo**
+  em Clientes → Editar; as iniciais são a retaguarda de quem não tem logo.)*
 
 ### Migração `0031_multiempresa`
 

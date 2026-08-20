@@ -14,7 +14,7 @@ com ?editar=<id>, o que mantem o modal preenchido mesmo com erro de validacao.
 
 {% block title %}Clientes | BEEonBOARD{% endblock %}
 {% block extra_head %}
-<link rel="stylesheet" href="{% static 'css/dashboard.css' %}?v=5">
+<link rel="stylesheet" href="{% static 'css/dashboard.css' %}?v=6">
 {# attendants.css traz os botoes compartilhados (primary/secondary/modal-close). #}
 <link rel="stylesheet" href="{% static 'css/attendants.css' %}">
 <link rel="stylesheet" href="{% static 'css/clients.css' %}?v=2">
@@ -89,7 +89,7 @@ com ?editar=<id>, o que mantem o modal preenchido mesmo com erro de validacao.
                 {% if c.logo_url %}
                   <img src="{{ c.logo_url }}" alt="Logo de {{ c.display_name }}" class="client-logo">
                 {% else %}
-                  <span class="client-initials" {% if c.accent_color %}style="background: {{ c.accent_color }}"{% endif %} aria-hidden="true">{{ c.initials }}</span>
+                  <span class="client-initials" {% if c.accent_color %}style="background: {{ c.accent_color }}; color: {{ c.accent_text_color }}"{% endif %} aria-hidden="true">{{ c.initials }}</span>
                 {% endif %}
                 <div class="client-headline">
                   <strong class="client-name">{{ c.display_name }}</strong>

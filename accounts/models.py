@@ -15,6 +15,52 @@ class ConversationViewScope(models.TextChoices):
     ALL = 'all', 'Conversas de todos os setores'
 
 
+# Cor de destaque usada quando a empresa nao cadastrou nenhuma.
+DEFAULT_ACCENT_COLOR = '#1f7a53'
+
+
+def readable_text_color(background, dark='#0b1f3d', light='#ffffff'):
+    """Cor de TEXTO legivel sobre `background` (hex `#rgb` ou `#rrggbb`).
+
+    Existe porque o gestor master escolhe livremente a cor de destaque da empresa e
+    ela vai como fundo das INICIAIS (barra lateral, cartao do cliente, metricas).
+    Com cor de texto fixa no CSS, uma empresa com destaque preto ficava com as
+    letras invisiveis — foi o que aconteceu de verdade com um cliente cadastrado
+    com `#000000`.
+
+    Usa a luminancia relativa (WCAG, canais linearizados): fundo claro recebe texto
+    escuro, fundo escuro recebe texto claro. Cor invalida ou vazia cai no texto
+    escuro, que e o padrao visual do sistema.
+    """
+    valor = (background or '').strip().lstrip('#')
+    if len(valor) == 3:
+        valor = ''.join(c * 2 for c in valor)
+    if len(valor) != 6:
+        return dark
+    try:
+        canais = [int(valor[i:i + 2], 16) / 255 for i in (0, 2, 4)]
+    except ValueError:
+        return dark
+    fundo = _relative_luminance(canais)
+    # Escolhe pelo CONTRASTE REAL (razao WCAG) entre as duas opcoes, em vez de um
+    # limiar magico: com limiar fixo, verde claro acabava recebendo texto branco,
+    # que le pior do que o texto escuro.
+    def contraste(cor_texto):
+        outro = (cor_texto or '').strip().lstrip('#')
+        canais_texto = [int(outro[i:i + 2], 16) / 255 for i in (0, 2, 4)]
+        texto = _relative_luminance(canais_texto)
+        claro, escuro = max(texto, fundo), min(texto, fundo)
+        return (claro + 0.05) / (escuro + 0.05)
+
+    return dark if contraste(dark) >= contraste(light) else light
+
+
+def _relative_luminance(canais):
+    """Luminancia relativa (WCAG) de canais RGB já normalizados em 0..1."""
+    linear = [c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4 for c in canais]
+    return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2]
+
+
 class Company(models.Model):
     """EMPRESA CLIENTE (uma "instancia" do sistema).
 
@@ -87,6 +133,12 @@ class Company(models.Model):
         if len(parts) == 1:
             return parts[0][:2].upper()
         return (parts[0][:1] + parts[-1][:1]).upper()
+
+    @property
+    def accent_text_color(self):
+        """Cor de texto legivel sobre a cor de destaque da empresa (ver
+        `readable_text_color`). Usada nas INICIAIS, quando nao ha logo cadastrado."""
+        return readable_text_color(self.accent_color or DEFAULT_ACCENT_COLOR)
 
     @property
     def status_label(self):

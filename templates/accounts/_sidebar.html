@@ -13,7 +13,9 @@ Espera no contexto: `nav_items` (montado por build_nav_items) e `brand`.
     {% if brand.logo_url %}
       <img src="{{ brand.logo_url }}" alt="{{ brand.name }}" class="sidebar-logo">
     {% elif brand.initials %}
-      <span class="sidebar-initials" {% if brand.accent %}style="background: {{ brand.accent }}"{% endif %} aria-hidden="true">{{ brand.initials }}</span>
+      <span class="sidebar-initials"
+            {% if brand.accent %}style="background: {{ brand.accent }}; color: {{ brand.accent_text }}"{% endif %}
+            aria-hidden="true">{{ brand.initials }}</span>
     {% else %}
       <img src="{% static 'images/logo-beeonboard.png' %}" alt="BEEonBOARD" class="sidebar-logo">
     {% endif %}

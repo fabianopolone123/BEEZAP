@@ -38,6 +38,7 @@ def branding(request):
                 'logo_url': support_company.logo_url if support_company else '',
                 'initials': support_company.initials if support_company else '',
                 'accent': support_company.accent_color if support_company else '',
+                'accent_text': support_company.accent_text_color if support_company else '',
                 'is_master': True,
                 'support_company': support_company,
             }
@@ -53,6 +54,7 @@ def branding(request):
                 'logo_url': '',
                 'initials': '',
                 'accent': '',
+                'accent_text': '',
                 'is_master': False,
             }
         }
@@ -65,6 +67,7 @@ def branding(request):
             'logo_url': company.logo_url,
             'initials': company.initials,
             'accent': company.accent_color,
+            'accent_text': company.accent_text_color,
             'is_master': False,
         }
     }

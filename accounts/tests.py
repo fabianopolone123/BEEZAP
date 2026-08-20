@@ -4831,3 +4831,55 @@ class PlatformMetricsScreenTests(TestCase):
         m = build_platform_metrics()
         self.assertEqual(m['plataforma']['tokens'], 1000)
         self.assertEqual(m['totais']['ia_tokens_mes'], 415)
+
+
+class AccentTextColorTests(SimpleTestCase):
+    """Cor do texto das INICIAIS calculada pela cor de destaque da empresa.
+
+    Bug real que motivou isto: um cliente cadastrado com destaque `#000000` ficava
+    com as iniciais em preto sobre preto na barra lateral — invisiveis.
+    """
+
+    def test_dark_accent_gets_light_text(self):
+        from accounts.models import readable_text_color
+        self.assertEqual(readable_text_color('#000000'), '#ffffff')
+        self.assertEqual(readable_text_color('#111827'), '#ffffff')
+
+    def test_light_accent_gets_dark_text(self):
+        from accounts.models import readable_text_color
+        self.assertEqual(readable_text_color('#ffffff'), '#0b1f3d')
+        self.assertEqual(readable_text_color('#f7b500'), '#0b1f3d')
+
+    def test_choice_is_by_real_contrast_not_by_a_threshold(self):
+        """Verde claro le melhor com texto escuro — com limiar fixo vinha branco."""
+        from accounts.models import readable_text_color
+        self.assertEqual(readable_text_color('#21c25e'), '#0b1f3d')
+        self.assertEqual(readable_text_color('#1f7a53'), '#ffffff')
+
+    def test_short_form_and_invalid_values_do_not_break(self):
+        from accounts.models import readable_text_color
+        self.assertEqual(readable_text_color('#000'), '#ffffff')
+        for valor in ('', None, 'xyz', '#12', 'nao-e-cor'):
+            self.assertEqual(readable_text_color(valor), '#0b1f3d')
+
+
+class CompanyInitialsContrastTests(TestCase):
+    """A barra lateral leva a cor calculada junto do fundo (nao so no CSS)."""
+
+    def test_company_without_accent_falls_back_to_the_default_color(self):
+        from accounts.models import Company
+        company = Company.objects.create(name='Sem Cor', slug='sem-cor')
+        # Sem destaque cadastrado vale o padrao do sistema (verde escuro) -> texto claro.
+        self.assertEqual(company.accent_text_color, '#ffffff')
+
+    def test_sidebar_of_a_company_with_black_accent_shows_readable_initials(self):
+        from accounts.models import Company
+        company = Company.objects.create(name='PPM Teste', slug='ppm-teste', accent_color='#000000')
+        adm = User.objects.create_user(
+            email='adm@ppmteste.com', password='x', role=User.Role.ADM, company=company
+        )
+        self.client.force_login(adm)
+        r = self.client.get(reverse('conversations'))
+        self.assertEqual(r.status_code, 200)
+        # Iniciais "PT" (PPM Teste) com fundo preto e texto branco, na mesma tag.
+        self.assertContains(r, 'background: #000000; color: #ffffff')

@@ -91,7 +91,10 @@ a {
   font-size: 1.05rem;
   font-weight: 800;
   letter-spacing: 0.5px;
-  box-shadow: 0 8px 18px rgba(4, 10, 22, 0.24);
+  /* O anel interno mantem o chip visivel quando a cor de destaque da empresa e
+     escura (ex.: #000000) e se perderia no azul-escuro da barra lateral. A cor do
+     TEXTO vem inline, calculada por Company.accent_text_color. */
+  box-shadow: 0 8px 18px rgba(4, 10, 22, 0.24), inset 0 0 0 1px rgba(255, 255, 255, 0.18);
 }
 
 .sidebar-brand strong {
