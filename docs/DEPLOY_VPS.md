@@ -1,6 +1,6 @@
-# Deploy VPS BEEZAP
+# Deploy VPS BEEonBOARD
 
-Guia para colocar o BEEZAP em uma VPS Linux em modo homologacao/teste.
+Guia para colocar o BEEonBOARD em uma VPS Linux em modo homologacao/teste.
 
 Esta etapa nao e producao definitiva. O objetivo e ter uma URL publica segura para continuar o desenvolvimento e testar o webhook da W-API.
 
@@ -27,7 +27,7 @@ sudo ss -ltnp | grep 8006
 - Preferir `reload` em vez de `restart` quando apropriado.
 - Nao mexer em certificados de outros dominios.
 - Nao alterar firewall sem entender impacto nos outros projetos.
-- Usar pasta separada para o BEEZAP.
+- Usar pasta separada para o BEEonBOARD.
 - Usar venv separado.
 - Usar banco separado.
 - Usar usuario de banco separado.
@@ -65,7 +65,7 @@ Exemplo:
 ```bash
 sudo mkdir -p /var/www/beezap
 sudo chown -R $USER:$USER /var/www/beezap
-git clone https://github.com/fabianopolone123/BEEZAP.git /var/www/beezap
+git clone https://github.com/fabianopolone123/BEEonBOARD.git /var/www/beezap
 cd /var/www/beezap
 git checkout feature/wapi-mvp
 ```
@@ -137,7 +137,7 @@ DATABASE_URL=postgresql://beezap_user:troque-a-senha@127.0.0.1:5432/beezap_db
 
 ## 6. Migrar banco
 
-Rodar somente no banco do BEEZAP:
+Rodar somente no banco do BEEonBOARD:
 
 ```bash
 source /var/www/beezap/.venv/bin/activate
@@ -285,7 +285,7 @@ Nao usar o token da W-API como token do webhook.
 
 O atendente virtual (IA) e a integracao com Ollama foram **removidos** do sistema.
 Se o Ollama tiver sido instalado no VPS, pode ser parado/removido — ver os comandos
-no fim de `docs/DEPLOY.md`/`HISTORICO.md`. Nao ha mais dependencia de IA no BEEZAP.
+no fim de `docs/DEPLOY.md`/`HISTORICO.md`. Nao ha mais dependencia de IA no BEEonBOARD.
 
 ## 15. Checklist final
 
@@ -319,7 +319,7 @@ curl -I https://beezap.seudominio.com/
 curl -X POST https://beezap.seudominio.com/webhook/wapi/ -H "Content-Type: application/json" -d '{"event":"message.received"}'
 ```
 
-## 17. Estado atual do VPS BEEZAP (ambiente real)
+## 17. Estado atual do VPS BEEonBOARD (ambiente real)
 
 Atualizado em 2026-07-08.
 

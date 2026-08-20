@@ -1,4 +1,4 @@
-# Regras de Git do BEEZAP
+# Regras de Git do BEEonBOARD
 
 ## 1. Regra principal
 
@@ -91,7 +91,7 @@ Usar padrões:
 
 Exemplos:
 
-- `docs: criar plano inicial do BEEZAP`
+- `docs: criar plano inicial do BEEonBOARD`
 - `chore: configurar variaveis de ambiente`
 - `feat: criar modelos principais de atendimento`
 - `feat: criar endpoint webhook da W-API`

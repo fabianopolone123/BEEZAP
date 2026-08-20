@@ -1,4 +1,4 @@
-# Contexto do Projeto BEEZAP (handoff)
+# Contexto do Projeto BEEonBOARD (handoff)
 
 Documento único para retomar o projeto do zero (ex.: nova sessão do Claude/Codex).
 Leia também: `CODEX_PADROES.md`, `GIT.md`, `HISTORICO.md`, `DEPLOY.md`,
@@ -8,7 +8,18 @@ Leia também: `CODEX_PADROES.md`, `GIT.md`, `HISTORICO.md`, `DEPLOY.md`,
 
 ## 1. Visão geral
 
-- **BEEZAP**: sistema Django de atendimento/automação de WhatsApp via **W-API**.
+- **BEEonBOARD**: sistema Django de atendimento/automação de WhatsApp via **W-API**.
+- **Marca**: o sistema se chama **BEEonBOARD** (*conecta • organiza • potencializa*);
+  antes chamava-se BEEZap. O logo é `static/images/logo-beeonboard.png` (PNG com fundo
+  transparente, aparece na barra lateral, no login e na troca de senha inicial) e o
+  nome vem de **`PLATFORM_NAME` em `accounts/context_processors.py`** — trocar o nome
+  exibido é mudar essa constante e os `{% block title %}` dos templates. Os arquivos
+  originais da marca (e o logo antigo) ficam em `assets/branding/`.
+  **Os identificadores TÉCNICOS continuam `beezap` de propósito** — renomeá-los
+  quebraria o ambiente no ar: o prefixo de URL **`/beezap/`**, o serviço systemd
+  **`beezap`**, a pasta **`/var/www/beezap`**, os loggers `beezap.*`, o check
+  `beezap.W001`, o header `X-BEEZAP-WEBHOOK-TOKEN`, as chaves de `localStorage`
+  (`beezap_sound`) e o repositório no GitHub.
 - **MULTIEMPRESA (SaaS)**: a mesma instalação atende **várias empresas clientes**;
   cada uma tem os seus setores, atendentes, contatos, conversas e as suas próprias
   credenciais de W-API/GPT. Existe um **gestor master** que cadastra e administra os
@@ -570,7 +581,7 @@ sai por duas rotas do Django:
   **`127.0.0.1:8103`** (os exemplos em `deploy/` citam 8006, mas o serviço real
   roda em 8103; o Nginx `/beezap/` faz proxy para 8103).
 - **Nginx**: config do domínio em `/etc/nginx/sites-available/site_idiomas`.
-  Blocos do BEEZAP (proxy com `/` final **remove** o prefixo antes do Django):
+  Blocos do BEEonBOARD (proxy com `/` final **remove** o prefixo antes do Django):
   ```nginx
   location /beezap/static/admin/ { alias /var/www/beezap/staticfiles/admin/; }
   location /beezap/static/       { alias /var/www/beezap/static/; }   # serve a FONTE
@@ -1076,7 +1087,7 @@ esconder o botão também bloqueia a URL.
 
 ## 16. MULTIEMPRESA (SaaS): empresas clientes + gestor master
 
-O BEEZAP atende **várias empresas na mesma instalação**. Cada empresa cliente
+O BEEonBOARD atende **várias empresas na mesma instalação**. Cada empresa cliente
 (`Company`) é uma "instância" do sistema: tem os **seus** setores, atendentes,
 contatos, conversas, mensagens e as **suas próprias** credenciais de W-API e GPT.
 
@@ -1207,7 +1218,7 @@ Em `views.py`, `request_company(request)` é o atalho usado em todo ponto de cri
 - `accounts/context_processors.py` (**novo**, registrado em `settings.TEMPLATES`)
   fornece `brand` em **todas** as telas: logo e nome **da empresa** de quem está
   logado; sem logo, as **iniciais** da empresa na **cor de destaque** dela. O master
-  vê a marca do BEEZap com o rótulo "Gestão de clientes".
+  vê a marca do BEEonBOARD com o rótulo "Gestão de clientes".
 - A barra lateral estava **copiada em 8 templates**; virou o include
   **`templates/accounts/_sidebar.html`** (única fonte). `.sidebar-initials` em
   `dashboard.css?v=5`.

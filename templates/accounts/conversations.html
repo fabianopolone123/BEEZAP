@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% load static %}
 
-{% block title %}Conversas | BEEZap{% endblock %}
+{% block title %}Conversas | BEEonBOARD{% endblock %}
 
 {% block extra_head %}
 <link rel="stylesheet" href="{% static 'css/dashboard.css' %}?v=5">
@@ -39,7 +39,7 @@
          data-conv-base="{% url 'conversations' %}"
          data-csrf="{{ csrf_token }}"
          {% if read_only %}data-read-only="1"{% endif %}
-         data-logo="{% static 'images/logo-transparent.png' %}">
+         data-logo="{% static 'images/logo-beeonboard.png' %}">
 
       <!-- COLUNA ESQUERDA — Lista de conversas -->
       <div class="conv-list-col">
@@ -1683,12 +1683,12 @@
 
   /* ---------- Titulo da aba com contador (estilo WhatsApp Web) ---------- */
   function updateTitle(totalUnread) {
-    document.title = (totalUnread > 0 ? '(' + totalUnread + ') ' : '') + 'Conversas | BEEZap';
+    document.title = (totalUnread > 0 ? '(' + totalUnread + ') ' : '') + 'Conversas | BEEonBOARD';
   }
 
   /* ---------- Reacao a novas mensagens recebidas ---------- */
   // Janela "em foco" = aba visivel E com foco. Se o usuario esta em outro app
-  // ou outra janela (mesmo com a aba do BEEZAP visivel ao lado), consideramos
+  // ou outra janela (mesmo com a aba do BEEonBOARD visivel ao lado), consideramos
   // fora de foco e mostramos o pop-up do desktop — vale para grupo e direta.
   function windowFocused() {
     return !document.hidden && (document.hasFocus ? document.hasFocus() : true);

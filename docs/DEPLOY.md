@@ -1,6 +1,6 @@
-# Deploy e arquivos estáticos (CSS/JS) do BEEZAP
+# Deploy e arquivos estáticos (CSS/JS) do BEEonBOARD
 
-Este documento explica como publicar o BEEZAP no VPS e, principalmente, como
+Este documento explica como publicar o BEEonBOARD no VPS e, principalmente, como
 garantir que alterações de **CSS/JS apareçam** em produção após o deploy.
 
 ## Ambiente atual (produção)
@@ -124,7 +124,7 @@ No `server { }` do domínio (`/etc/nginx/sites-available/site_idiomas`), deixar:
 ```nginx
 # admin do Django vem do collectstatic (mais especifico, vem antes):
 location /beezap/static/admin/ { alias /var/www/beezap/staticfiles/admin/; }
-# CSS/JS/imagens do BEEZAP servidos direto da fonte:
+# CSS/JS/imagens do BEEonBOARD servidos direto da fonte:
 location /beezap/static/       { alias /var/www/beezap/static/; }
 ```
 

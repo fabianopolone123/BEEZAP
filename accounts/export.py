@@ -1,6 +1,6 @@
 """Exportacao dos dados de UMA empresa cliente (portabilidade).
 
-Por que existe: quando a empresa deixa de usar o BEEZAP, ela tem direito de levar o
+Por que existe: quando a empresa deixa de usar o BEEonBOARD, ela tem direito de levar o
 que e dela — contatos, historico de conversas e os arquivos trocados. Este modulo
 monta um ZIP com tudo isso em formato aberto (CSV/JSON), que abre no Excel ou em
 qualquer sistema.
@@ -26,7 +26,7 @@ from django.utils import timezone
 
 
 LEIA_ME = """EXPORTACAO DE DADOS - {empresa}
-Gerada em {data} pelo BEEZAP.
+Gerada em {data} pelo BEEonBOARD.
 
 O QUE TEM AQUI DENTRO
 ---------------------
@@ -73,9 +73,9 @@ def _local(value):
 
 
 def export_filename(company):
-    """Nome do arquivo baixado: beezap-<empresa>-<data>.zip."""
+    """Nome do arquivo baixado: beeonboard-<empresa>-<data>.zip."""
     slug = (company.slug or 'empresa').strip('-') or 'empresa'
-    return f'beezap-{slug}-{timezone.localdate().strftime("%Y-%m-%d")}.zip'
+    return f'beeonboard-{slug}-{timezone.localdate().strftime("%Y-%m-%d")}.zip'
 
 
 def build_company_export(company):

@@ -1,6 +1,6 @@
-# BEEZAP
+# BEEonBOARD
 
-Projeto Django para a plataforma BEEZap, com tela inicial de login e base organizada para evoluir por módulos.
+Projeto Django para a plataforma BEEonBOARD, com tela inicial de login e base organizada para evoluir por módulos.
 
 ## Regra fixa de trabalho (vale para toda alteração)
 

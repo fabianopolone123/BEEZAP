@@ -6,7 +6,7 @@ class AccountsConfig(AppConfig):
     name = 'accounts'
 
     def ready(self):
-        # Registra os system checks do BEEZAP (ex.: aviso de ffmpeg ausente).
+        # Registra os system checks do BEEonBOARD (ex.: aviso de ffmpeg ausente).
         from . import checks  # noqa: F401
         # Registra os sinais (ex.: provisiona o admin como atendente de todos os setores).
         from . import signals  # noqa: F401

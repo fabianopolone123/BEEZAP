@@ -1,8 +1,15 @@
-# BEEZAP — instruções para o agente
+# BEEonBOARD — instruções para o agente
 
 Sistema Django de atendimento/automação de WhatsApp via **W-API**, **multiempresa
 (SaaS)**: a mesma instalação atende várias empresas clientes, cada uma com os seus
 setores, atendentes, contatos e conversas, e existe um **gestor master** acima delas.
+
+**Marca:** o produto se chama **BEEonBOARD** (antes BEEZap). O nome exibido sai de
+`PLATFORM_NAME` em `accounts/context_processors.py` e o logo é
+`static/images/logo-beeonboard.png`. **Não renomear os identificadores técnicos**, que
+seguem `beezap` porque o ambiente em produção depende deles: prefixo de URL `/beezap/`,
+serviço systemd `beezap`, pasta `/var/www/beezap`, loggers `beezap.*`, check
+`beezap.W001`, header `X-BEEZAP-WEBHOOK-TOKEN` e as chaves de `localStorage`.
 
 ## REGRA FIXA — toda alteração fecha com commit + push e documentação atualizada
 

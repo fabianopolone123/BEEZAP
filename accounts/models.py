@@ -18,7 +18,7 @@ class ConversationViewScope(models.TextChoices):
 class Company(models.Model):
     """EMPRESA CLIENTE (uma "instancia" do sistema).
 
-    O BEEZAP e multiempresa: cada cliente tem os SEUS setores, atendentes,
+    O BEEonBOARD e multiempresa: cada cliente tem os SEUS setores, atendentes,
     contatos, conversas, mensagens e as SUAS proprias configuracoes de W-API e
     GPT. Todo dado operacional aponta para a empresa dona (campo `company`), e o
     sistema so mostra a cada pessoa os dados da empresa dela.

@@ -1,6 +1,6 @@
 ﻿# Padrões Codex do Projeto
 
-Este arquivo define os padrões de trabalho para o projeto BEEZAP.
+Este arquivo define os padrões de trabalho para o projeto BEEonBOARD.
 
 ## Regras principais
 

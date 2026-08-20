@@ -2898,7 +2898,7 @@ class CompanyBrandingTests(TestCase):
         )
         self.client.force_login(master)
         r = self.client.get(reverse('clients'))
-        self.assertContains(r, 'BEEZap')
+        self.assertContains(r, 'BEEonBOARD')
         self.assertContains(r, 'Gestão de clientes')
 
     def test_company_initials_and_location(self):

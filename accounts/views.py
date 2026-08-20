@@ -344,7 +344,7 @@ def create_and_send_password_recovery_code(user, phone):
         expires_at=now + timedelta(minutes=10),
     )
     message = (
-        f'Seu codigo de recuperacao de senha do BEEZAP e: {code}\n\n'
+        f'Seu codigo de recuperacao de senha do BEEonBOARD e: {code}\n\n'
         'Este codigo expira em 10 minutos.'
     )
     result = send_text_message(phone=phone, message=message, company=company)
@@ -2212,7 +2212,7 @@ def clients_view(request):
     """Tela CLIENTES (exclusiva do gestor master): cadastra e administra as EMPRESAS
     que usam o sistema.
 
-    Cada empresa cadastrada aqui e uma "instancia" do BEEZAP: tem os seus setores,
+    Cada empresa cadastrada aqui e uma "instancia" do BEEonBOARD: tem os seus setores,
     atendentes, contatos, conversas e as suas proprias credenciais de W-API/GPT. Os
     dados cadastrais e o logo definidos aqui aparecem na barra lateral do cliente
     (ver accounts/context_processors.py).

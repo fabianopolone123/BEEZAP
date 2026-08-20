@@ -86,7 +86,7 @@ class OpenAiConfigurationForm(forms.Form):
         required=False,
         widget=forms.Textarea(attrs={
             'rows': 8,
-            'placeholder': 'Ex.: Voce e o atendente virtual da BEEZAP. Cumprimente conforme o horario, '
+            'placeholder': 'Ex.: Voce e o atendente virtual da BEEonBOARD. Cumprimente conforme o horario, '
                            'pergunte como pode ajudar e encaminhe para o setor certo...',
             'autocomplete': 'off',
         }),
@@ -123,7 +123,7 @@ class MenuBotConfigurationForm(forms.Form):
         required=False,
         widget=forms.Textarea(attrs={
             'rows': 2,
-            'placeholder': 'Ex.: Ola, {saudacao}! Seja bem-vindo(a) a BEEZAP.',
+            'placeholder': 'Ex.: Ola, {saudacao}! Seja bem-vindo(a) a BEEonBOARD.',
             'autocomplete': 'off',
         }),
     )

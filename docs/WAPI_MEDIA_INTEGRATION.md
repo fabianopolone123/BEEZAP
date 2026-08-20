@@ -1,6 +1,6 @@
-# Integração de mídia da W-API no BEEZAP
+# Integração de mídia da W-API no BEEonBOARD
 
-Documenta como o BEEZAP trata emoji, mídia (imagem/áudio/vídeo/documento),
+Documenta como o BEEonBOARD trata emoji, mídia (imagem/áudio/vídeo/documento),
 figurinha/sticker, GIF e reação da W-API, e o que respeita o plano **LITE vs PRO**.
 
 ## Plano LITE vs PRO
@@ -40,7 +40,7 @@ Emoji é apenas texto Unicode: vai/vem pelo `send-text` normalmente. O banco
 ## 2. ID real da mensagem (`external_message_id`)
 
 Toda mensagem (recebida pelo webhook e enviada pelo sistema) guarda o
-`external_message_id` retornado/recebido da W-API, além do id interno do BEEZAP.
+`external_message_id` retornado/recebido da W-API, além do id interno do BEEonBOARD.
 Esse id é a base para reações no futuro (PRO).
 
 ## 3. Tipos de mensagem

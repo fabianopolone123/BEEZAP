@@ -1,4 +1,4 @@
-"""System checks do BEEZAP (rodam em `manage.py check` e no deploy).
+"""System checks do BEEonBOARD (rodam em `manage.py check` e no deploy).
 
 Objetivo: falhar cedo/avisar quando falta uma dependencia de SISTEMA que nao vem
 pelo pip, para nao descobrir so em producao com o envio quebrando.
@@ -12,7 +12,7 @@ from django.core.checks import Warning, register
 def ffmpeg_available_check(app_configs, **kwargs):
     """Avisa (nao bloqueia) quando o ffmpeg nao esta no PATH.
 
-    O BEEZAP usa ffmpeg para converter o audio gravado no navegador (.webm -> .ogg)
+    O BEEonBOARD usa ffmpeg para converter o audio gravado no navegador (.webm -> .ogg)
     e imagens nao suportadas pela W-API (webp/gif/bmp/heic... -> .jpg) antes de
     enviar. Sem ele, esses envios falham (JPG/PNG, video, documento e texto seguem
     funcionando)."""

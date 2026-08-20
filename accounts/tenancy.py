@@ -1,6 +1,6 @@
 """Multiempresa (SaaS): a qual EMPRESA CLIENTE pertence quem esta usando o sistema.
 
-O BEEZAP atende varias empresas na MESMA instalacao. Cada empresa (`Company`) tem
+O BEEonBOARD atende varias empresas na MESMA instalacao. Cada empresa (`Company`) tem
 os seus setores, atendentes, contatos, conversas, mensagens e as suas proprias
 credenciais de W-API e GPT. O isolamento e por VINCULO: todo dado operacional
 aponta para a empresa dona, e as consultas filtram por ela.
