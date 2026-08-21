@@ -244,6 +244,10 @@ LOGGING = {
     },
 }
 
+# Runner de testes: usa hash de senha rapido SO durante os testes (a suite cria
+# usuario em quase todo teste e o PBKDF2 dominava o tempo). Ver accounts/test_runner.py.
+TEST_RUNNER = 'accounts.test_runner.FastPasswordHasherRunner'
+
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 

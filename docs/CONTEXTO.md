@@ -687,6 +687,19 @@ OPENAI_TIMEOUT=30
    **`git push` imediato** (código + docs no mesmo commit).
 5. Não commitar `.env`, `db.sqlite3`, `venv/`, tokens.
 
+### Rodar os testes
+
+```bash
+python manage.py test          # 371 testes, ~9 segundos
+```
+
+O projeto usa um runner proprio, `accounts/test_runner.py`
+(`FastPasswordHasherRunner`), registrado em `settings.TEST_RUNNER`: ele troca o
+`PASSWORD_HASHERS` por MD5 **somente durante os testes**. Sem isso a suite levava
+**mais de 10 minutos** (quase todo teste cria usuario, e o PBKDF2 dominava o tempo),
+e uma suite lenta assim simplesmente deixa de ser rodada antes do commit. O hash de
+**producao continua o padrao do Django** — nada muda para senha real.
+
 ## 9. Comandos de diagnóstico úteis (no VPS)
 
 ```bash
