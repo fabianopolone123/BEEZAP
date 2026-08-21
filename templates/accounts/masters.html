@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% load static %}
+{% load beeonboard_assets %}
 
 {% comment %}
 Tela GESTORES — exclusiva do GESTOR MASTER. Aqui um master cadastra OUTRO master
@@ -17,10 +18,10 @@ se deixa a plataforma sem gestor ativo e excluir exige desativar antes.
 
 {% block title %}Gestores | BEEonBOARD{% endblock %}
 {% block extra_head %}
-<link rel="stylesheet" href="{% static 'css/dashboard.css' %}?v=6">
+<link rel="stylesheet" href="{% asset 'css/dashboard.css' %}">
 {# attendants.css traz os botoes compartilhados (primary/secondary/modal-close). #}
-<link rel="stylesheet" href="{% static 'css/attendants.css' %}">
-<link rel="stylesheet" href="{% static 'css/masters.css' %}?v=1">
+<link rel="stylesheet" href="{% asset 'css/attendants.css' %}">
+<link rel="stylesheet" href="{% asset 'css/masters.css' %}">
 {% endblock %}
 
 {% block content %}

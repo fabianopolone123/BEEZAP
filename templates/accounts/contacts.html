@@ -1,11 +1,12 @@
 {% extends "base.html" %}
 {% load static %}
+{% load beeonboard_assets %}
 
 {% block title %}Contatos | BEEonBOARD{% endblock %}
 {% block extra_head %}
-<link rel="stylesheet" href="{% static 'css/dashboard.css' %}">
-<link rel="stylesheet" href="{% static 'css/attendants.css' %}">
-<link rel="stylesheet" href="{% static 'css/contacts.css' %}?v=1">
+<link rel="stylesheet" href="{% asset 'css/dashboard.css' %}">
+<link rel="stylesheet" href="{% asset 'css/attendants.css' %}">
+<link rel="stylesheet" href="{% asset 'css/contacts.css' %}">
 {% endblock %}
 
 {% block content %}

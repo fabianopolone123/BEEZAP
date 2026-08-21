@@ -6181,3 +6181,68 @@ class ProductionSettingsTests(SimpleTestCase):
             self.skipTest('so vale para SQLite')
         self.assertGreaterEqual(opcoes.get('timeout', 0), 10)
         self.assertIn('WAL', opcoes.get('init_command', ''))
+
+
+class AssetVersioningTests(TestCase):
+    """Todo CSS sai versionado, sem `?v=N` na mao.
+
+    Regressao de um problema recorrente: o `?v=N` era incrementado manualmente e o
+    MESMO arquivo era carregado por varios templates. No pente fino, `dashboard.css`
+    estava com `?v=6` em 8 templates e SEM versao em outros 7 — ou seja, editar o CSS
+    e bumpar limpava o cache de metade das telas e deixava a outra metade com o
+    arquivo antigo no navegador. E era o sintoma "mudei o CSS e nao aparece" que o
+    projeto ja tinha documentado como armadilha.
+    """
+
+    def test_a_tag_versiona_pela_data_do_arquivo(self):
+        from django.template import Context, Template
+        saida = Template(
+            "{% load beeonboard_assets %}{% asset 'css/dashboard.css' %}"
+        ).render(Context({}))
+        self.assertIn('css/dashboard.css?v=', saida)
+
+    def test_arquivo_inexistente_nao_derruba_a_pagina(self):
+        from django.template import Context, Template
+        saida = Template(
+            "{% load beeonboard_assets %}{% asset 'css/nao-existe.css' %}"
+        ).render(Context({}))
+        self.assertIn('css/nao-existe.css', saida)
+        self.assertNotIn('?v=', saida)
+
+    def test_arquivos_diferentes_tem_versoes_diferentes(self):
+        from accounts.templatetags.beeonboard_assets import _versao_do_arquivo
+        um = _versao_do_arquivo('css/dashboard.css')
+        outro = _versao_do_arquivo('css/conversations.css')
+        self.assertTrue(um and outro)
+        self.assertNotEqual(um, outro)
+
+    def test_nenhum_template_usa_v_manual_em_css(self):
+        """Se voltar a aparecer `?v=N` num link de CSS, este teste reprova."""
+        import glob
+        problemas = []
+        for caminho in glob.glob('templates/**/*.html', recursive=True):
+            with open(caminho, encoding='utf-8') as arquivo:
+                for numero, linha in enumerate(arquivo, 1):
+                    if '.css' in linha and '?v=' in linha:
+                        problemas.append('%s:%d' % (caminho, numero))
+        self.assertEqual(problemas, [], 'use {%% asset %%} em vez de ?v= na mao')
+
+    def test_toda_tela_carrega_css_versionado(self):
+        """Varre as telas principais e confere que o link saiu com versao."""
+        import re
+        adm = User.objects.create_user(
+            email='adm-asset@x.com', password='SenhaForte123',
+            role=User.Role.ADM, company=default_company(),
+        )
+        adm.attendant_profile.must_change_password = False
+        adm.attendant_profile.save(update_fields=['must_change_password'])
+        self.client.force_login(adm)
+        for rota in ('dashboard', 'conversations', 'contacts', 'attendants',
+                     'sectors', 'permissions', 'atendimento', 'company-brand',
+                     'company-data'):
+            with self.subTest(rota=rota):
+                corpo = self.client.get(reverse(rota)).content.decode()
+                links = re.findall(r'href="([^"]*\.css[^"]*)"', corpo)
+                self.assertTrue(links, 'nenhum CSS na tela %s' % rota)
+                for link in links:
+                    self.assertIn('?v=', link, '%s sem versao em %s' % (link, rota))

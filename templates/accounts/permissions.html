@@ -1,10 +1,11 @@
 {% extends "base.html" %}
 {% load static %}
+{% load beeonboard_assets %}
 
 {% block title %}Permissões | BEEonBOARD{% endblock %}
 {% block extra_head %}
-<link rel="stylesheet" href="{% static 'css/dashboard.css' %}">
-<link rel="stylesheet" href="{% static 'css/permissions.css' %}?v=8">
+<link rel="stylesheet" href="{% asset 'css/dashboard.css' %}">
+<link rel="stylesheet" href="{% asset 'css/permissions.css' %}">
 {% endblock %}
 
 {% block content %}

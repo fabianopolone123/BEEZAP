@@ -1,11 +1,12 @@
 {% extends "base.html" %}
 {% load static %}
+{% load beeonboard_assets %}
 
 {% block title %}Setores | BEEonBOARD{% endblock %}
 
 {% block extra_head %}
-<link rel="stylesheet" href="{% static 'css/dashboard.css' %}">
-<link rel="stylesheet" href="{% static 'css/sectors.css' %}?v=5">
+<link rel="stylesheet" href="{% asset 'css/dashboard.css' %}">
+<link rel="stylesheet" href="{% asset 'css/sectors.css' %}">
 {% endblock %}
 
 {% block content %}

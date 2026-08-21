@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% load static %}
+{% load beeonboard_assets %}
 
 {% comment %}
 Aba MARCA (Configuracoes do cliente) — logo e cor da propria empresa.
@@ -14,9 +15,9 @@ com o master, na tela Clientes.
 
 {% block title %}Marca | BEEonBOARD{% endblock %}
 {% block extra_head %}
-<link rel="stylesheet" href="{% static 'css/dashboard.css' %}?v=6">
-<link rel="stylesheet" href="{% static 'css/settings_tabs.css' %}?v=2">
-<link rel="stylesheet" href="{% static 'css/company_brand.css' %}?v=1">
+<link rel="stylesheet" href="{% asset 'css/dashboard.css' %}">
+<link rel="stylesheet" href="{% asset 'css/settings_tabs.css' %}">
+<link rel="stylesheet" href="{% asset 'css/company_brand.css' %}">
 {% endblock %}
 
 {% block content %}

@@ -1,11 +1,12 @@
 {% extends "base.html" %}
 {% load static %}
+{% load beeonboard_assets %}
 
 {% block title %}Inteligencia (IA) | BEEonBOARD{% endblock %}
 {% block extra_head %}
-<link rel="stylesheet" href="{% static 'css/dashboard.css' %}">
-<link rel="stylesheet" href="{% static 'css/settings_tabs.css' %}?v=2">
-<link rel="stylesheet" href="{% static 'css/openai_settings.css' %}?v=7">
+<link rel="stylesheet" href="{% asset 'css/dashboard.css' %}">
+<link rel="stylesheet" href="{% asset 'css/settings_tabs.css' %}">
+<link rel="stylesheet" href="{% asset 'css/openai_settings.css' %}">
 {% endblock %}
 
 {% block content %}

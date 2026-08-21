@@ -661,9 +661,19 @@ sai por duas rotas do Django:
   `LOGIN_REDIRECT_URL`/`LOGOUT_REDIRECT_URL` são **nomes de rota** (herdam o prefixo).
 - **Estáticos**: como o Nginx serve `static/` (a fonte) direto, **um `git pull`
   já publica CSS/JS** — sem `collectstatic`/`cp`. O admin do Django vem de
-  `staticfiles/admin/` (rodar `collectstatic` uma vez). Cache-busting: `?v=N` nos
-  links de CSS em `conversations.html` (hoje `conversations.css?v=27`) — **incrementar
-  ao editar o CSS**. O JS fica inline no template (publica com o `git pull`).
+  `staticfiles/admin/` (rodar `collectstatic` uma vez).
+- **Cache-busting é automático — não existe mais `?v=N` na mão.** Todo link de CSS usa
+  a tag `{% asset 'css/x.css' %}` (`accounts/templatetags/beeonboard_assets.py`), que
+  deriva a versão da **data de modificação do próprio arquivo**. Editar o CSS e
+  publicar a versão nova passaram a ser a mesma ação.
+  > **Por que mudou:** o `?v=N` manual nunca ficava certo, porque o mesmo arquivo é
+  > carregado por vários templates. `dashboard.css` estava com `?v=6` em **8**
+  > templates e **sem versão nenhuma** em outros **7**; `attendants.css` tinha versão
+  > em 1 e faltava em 5; `login.css`, `password_recovery.css` e `wapi_settings.css`
+  > não tinham versão. Ou seja: bumpar limpava o cache de metade das telas e deixava a
+  > outra metade com o arquivo antigo no navegador — exatamente o sintoma "mudei o CSS
+  > e não aparece". Um teste (`AssetVersioningTests`) reprova se `?v=` manual voltar a
+  > aparecer num link de CSS.
 - **Histórico do bug de estáticos**: o `settings.py` do servidor já foi editado à
   mão com `STATICFILES_DIRS=[]`, o que impedia o `collectstatic` de publicar o
   CSS. Corrigido de forma versionada (ver `DEPLOY.md`). Não esvaziar `STATICFILES_DIRS`.

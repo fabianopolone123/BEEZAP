@@ -1,11 +1,12 @@
 {% extends "base.html" %}
 {% load static %}
+{% load beeonboard_assets %}
 
 {% block title %}Conversas | BEEonBOARD{% endblock %}
 
 {% block extra_head %}
-<link rel="stylesheet" href="{% static 'css/dashboard.css' %}?v=6">
-<link rel="stylesheet" href="{% static 'css/conversations.css' %}?v=27">
+<link rel="stylesheet" href="{% asset 'css/dashboard.css' %}">
+<link rel="stylesheet" href="{% asset 'css/conversations.css' %}">
 {% endblock %}
 
 {% block content %}

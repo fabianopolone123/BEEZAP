@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% load static %}
+{% load beeonboard_assets %}
 
 {% comment %}
 Tela METRICAS (todos os clientes) — exclusiva do GESTOR MASTER.
@@ -17,9 +18,9 @@ NAO existe limite nem bloqueio de consumo: esta tela mede, nao trava.
 
 {% block title %}Métricas dos clientes | BEEonBOARD{% endblock %}
 {% block extra_head %}
-<link rel="stylesheet" href="{% static 'css/dashboard.css' %}?v=6">
-<link rel="stylesheet" href="{% static 'css/attendants.css' %}">
-<link rel="stylesheet" href="{% static 'css/platform_metrics.css' %}?v=1">
+<link rel="stylesheet" href="{% asset 'css/dashboard.css' %}">
+<link rel="stylesheet" href="{% asset 'css/attendants.css' %}">
+<link rel="stylesheet" href="{% asset 'css/platform_metrics.css' %}">
 {% endblock %}
 
 {% block content %}

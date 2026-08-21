@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% load static %}
+{% load beeonboard_assets %}
 
 {% comment %}
 Tela CLIENTES — exclusiva do GESTOR MASTER. Cadastra e administra as EMPRESAS que
@@ -14,10 +15,10 @@ com ?editar=<id>, o que mantem o modal preenchido mesmo com erro de validacao.
 
 {% block title %}Clientes | BEEonBOARD{% endblock %}
 {% block extra_head %}
-<link rel="stylesheet" href="{% static 'css/dashboard.css' %}?v=6">
+<link rel="stylesheet" href="{% asset 'css/dashboard.css' %}">
 {# attendants.css traz os botoes compartilhados (primary/secondary/modal-close). #}
-<link rel="stylesheet" href="{% static 'css/attendants.css' %}">
-<link rel="stylesheet" href="{% static 'css/clients.css' %}?v=2">
+<link rel="stylesheet" href="{% asset 'css/attendants.css' %}">
+<link rel="stylesheet" href="{% asset 'css/clients.css' %}">
 {% endblock %}
 
 {% block content %}

@@ -31,6 +31,11 @@ Este arquivo define os padrões de trabalho para o projeto BEEonBOARD.
 11. Não misturar regras muito específicas de uma tela dentro do CSS global, quando isso puder afetar outras páginas.
 12. Antes de concluir ajuste visual, validar no navegador quando possível.
 13. Após alterar CSS, testar com recarregamento forçado, como Ctrl + F5, para evitar cache.
+13.1. **Não usar `?v=N` na mão nos links de CSS.** Todo link usa a tag
+   `{% asset 'css/arquivo.css' %}` (`{% load beeonboard_assets %}`), que versiona
+   pela data do arquivo. O `?v=N` manual precisava ser incrementado em TODOS os
+   templates que carregam o mesmo CSS, e por isso ficava sempre incompleto —
+   `dashboard.css` chegou a ter versão em 8 templates e nenhuma em outros 7.
 14. O layout deve ser responsivo e não deve criar rolagem horizontal.
 15. Cada tela deve evitar poluição visual e excesso de botões.
 16. Elementos não editáveis não devem receber foco de texto nem exibir barra piscando de digitação; o caret deve aparecer somente em campos editáveis reais, como `input`, `textarea` ou `contenteditable` necessário.

@@ -52,9 +52,10 @@ W-API, API Key do GPT, senha).
   arquivo de plano/roadmap; pendências conhecidas ficam no fim de `docs/CONTEXTO.md`.
 - Evoluir **por partes**, preservando uma base funcional; interface em **português**,
   simples e didática, pensada para quem tem pouca experiência técnica.
-- **CSS por página** com classe raiz própria (`dashboard.css` é só a base do painel);
-  incrementar o `?v=N` do link ao editar CSS. Layout responsivo, sem rolagem
-  horizontal na página.
+- **CSS por página** com classe raiz própria (`dashboard.css` é só a base do painel).
+  O cache-busting é **automático**: usar `{% asset 'css/arquivo.css' %}`
+  (`{% load beeonboard_assets %}`) — **não** existe mais `?v=N` na mão. Layout
+  responsivo, sem rolagem horizontal na página.
 - Mensagens ao usuário via **toast**, curtas, sem dado técnico (token, payload,
   traceback, ID interno).
 - **Multiempresa**: todo dado de cliente é filtrado por `company`; o **master
