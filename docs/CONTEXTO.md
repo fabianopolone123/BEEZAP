@@ -294,10 +294,27 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
 - `save_incoming_message(conversation, ctx, ...)` cria a mensagem por tipo;
   para mídia, chama `download-media` e **salva o arquivo localmente** em
   `MEDIA/whatsapp/` (o `fileLink` da W-API expira). Estados `pending/ok/unavailable`.
+  > **O download roda em BACKGROUND** (`download_incoming_media_async`, padrão
+  > `download_async=True`). **Não voltar a fazê-lo dentro da requisição:**
+  > `_download_to_media_file` faz `urlopen(timeout=60)` com **duas** tentativas, e
+  > antes dele ainda há a chamada `download-media` à W-API — uma única foto de link
+  > lento prendia um worker por mais de dois minutos. Com `--workers 2 --timeout 60`,
+  > duas mídias lentas ao mesmo tempo travavam **o sistema inteiro** (todas as
+  > empresas, todas as telas) e o gunicorn matava o worker no meio do download. A
+  > mensagem já nasce `media_status='pending'`, o resumo da conversa é atualizado
+  > **antes** de sair (a lista mostra "📷 Imagem" na hora) e o front já faz a mídia
+  > aparecer sozinha no poll seguinte. Quem quer o arquivo pronto ao retornar passa
+  > `download_async=False`: é o caso do comando
+  > `sync_wapi_events_to_conversations`, onde bloquear é o certo (o processo tem que
+  > terminar com o trabalho feito, não com threads que morrem ao sair). Testes em
+  > `WebhookDoesNotWaitForMediaDownloadTests`.
   A extensão do arquivo salvo vem de `_ext_for_media` (nome original do documento →
   mapa de mimetype → `mimetypes` do Python → `bin`), evitando baixar como `.bin`.
 - `document_filename(message)` → nome original do documento (do `raw_payload`),
   usado no download e na serialização.
+- `download_incoming_media_async(message, media)` → baixa em **background** (thread
+  daemon + lock por mensagem + `connection.close()`) a mídia que acabou de chegar. É
+  o caminho normal do webhook.
 - `retry_conversation_media_async(conversation_id)` → tenta rebaixar em **background**
   (thread) as mídias que falharam na chegada; disparado pelo botão **Atualizar**.
 - `save_outgoing_media_message(...)` salva arquivo enviado em

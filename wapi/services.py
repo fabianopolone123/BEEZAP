@@ -580,6 +580,53 @@ def _try_download_media(message, media):
     )
 
 
+# Downloads de midia da CHEGADA em andamento (uma thread por mensagem, no maximo).
+_incoming_media_lock = threading.Lock()
+_incoming_media_active = set()
+
+
+def download_incoming_media_async(message, media):
+    """Baixa a midia da mensagem recebida EM BACKGROUND.
+
+    Por que isto e obrigatorio: o download rodava DENTRO da requisicao do webhook.
+    `_download_to_media_file` faz `urlopen(timeout=60)` com DUAS tentativas, e antes
+    dele ainda ha a chamada `download-media` a W-API — ou seja, uma unica foto com
+    link lento podia segurar um worker do gunicorn por mais de dois minutos. O
+    servico roda com `--workers 2 --timeout 60`: duas midias lentas ao mesmo tempo
+    travavam o sistema INTEIRO (todas as empresas, todas as telas), e o gunicorn
+    ainda matava o worker no meio do download.
+
+    A mensagem ja nasce com `media_status='pending'` e o front ja mostra a midia
+    aparecer sozinha no proximo ciclo do poll, entao o webhook nao precisa esperar:
+    a peca que faltava era so nao esperar. Mesmo padrao (thread daemon + lock +
+    `connection.close()`) de `retry_conversation_media_async`.
+
+    Devolve True se a thread foi disparada.
+    """
+    if message is None or message.pk is None:
+        return False
+    with _incoming_media_lock:
+        if message.pk in _incoming_media_active:
+            return False
+        _incoming_media_active.add(message.pk)
+
+    def _worker():
+        from django.db import connection
+        try:
+            _try_download_media(message, media or {})
+        except Exception:
+            media_logger.exception('Falha ao baixar midia da chegada (msg=%s).', message.pk)
+        finally:
+            connection.close()  # nao deixar conexao de banco pendurada na thread
+            with _incoming_media_lock:
+                _incoming_media_active.discard(message.pk)
+
+    threading.Thread(
+        target=_worker, name='media-in-%s' % message.pk, daemon=True
+    ).start()
+    return True
+
+
 def retry_media_download(message):
     """Re-baixa a midia de uma mensagem recebida usando o payload salvo.
 
@@ -719,14 +766,20 @@ def _maybe_trigger_reception(conversation, message):
 
 
 def save_incoming_message(conversation, ctx, message_type='text', text='',
-                          external_message_id='', payload=None, media=None):
+                          external_message_id='', payload=None, media=None,
+                          download_async=True):
     """Registra a mensagem na conversa ja resolvida, respeitando grupo/direta.
 
     Mensagens `from_me` (enviadas pela conta conectada, inclusive pelo celular)
     entram como enviadas (`out`). Deduplica pelo id externo para nao repetir a
     mesma mensagem quando o webhook reenvia ou quando o proprio sistema ja salvou
-    o envio. Para midia, tenta baixar o arquivo. Nunca cria contato privado para
-    o participante de um grupo."""
+    o envio. Nunca cria contato privado para o participante de um grupo.
+
+    MIDIA: o download roda em BACKGROUND (`download_async=True`, o padrao) para nao
+    prender o worker do gunicorn durante a requisicao do webhook — ver
+    `download_incoming_media_async`. Quem quer o arquivo ja pronto ao retornar (a
+    sincronizacao de eventos antigos pela linha de comando, e os testes) passa
+    `download_async=False`."""
     from_me = bool(ctx.get('from_me'))
     external_message_id = (external_message_id or '').strip()
     if external_message_id and Message.objects.filter(
@@ -767,12 +820,20 @@ def save_incoming_message(conversation, ctx, message_type='text', text='',
         raw_payload=payload if isinstance(payload, dict) else None,
     )
     if is_media:
-        _try_download_media(message, media)
+        # O resumo da conversa e atualizado ANTES de sair: a lista precisa mostrar
+        # "Imagem"/"Audio" na hora, sem depender do download terminar.
+        update_conversation_summary(conversation, _summary_text(message_type, text), direction)
+        if download_async:
+            download_incoming_media_async(message, media)
+        else:
+            _try_download_media(message, media)
+        return message
     update_conversation_summary(conversation, _summary_text(message_type, text), direction)
     return message
 
 
-def ingest_wapi_payload(payload, trigger_ai=True, company=None, slug=''):
+def ingest_wapi_payload(payload, trigger_ai=True, company=None, slug='',
+                        download_media_async=True):
     """Ponto unico de entrada de uma mensagem recebida da W-API.
 
     Detecta grupo vs direta, resolve a conversa certa e cria a mensagem (texto,
@@ -782,6 +843,11 @@ def ingest_wapi_payload(payload, trigger_ai=True, company=None, slug=''):
     `trigger_ai` liga o atendente virtual (IA) — deve ser True apenas no webhook
     AO VIVO; a sincronizacao de eventos antigos chama com trigger_ai=False para
     NAO responder mensagens historicas.
+
+    `download_media_async` deixa o download de midia em background (padrao), para o
+    webhook responder rapido. A sincronizacao pela linha de comando passa False:
+    ali bloquear e o comportamento desejado, porque o comando deve terminar com o
+    trabalho feito.
 
     MULTIEMPRESA: `company` e a empresa dona da mensagem. Quando nao vem pronta, e
     resolvida por `resolve_webhook_company(slug, payload)` — identificador da URL,
@@ -868,6 +934,7 @@ def ingest_wapi_payload(payload, trigger_ai=True, company=None, slug=''):
     message = save_incoming_message(
         conversation, ctx, message_type=message_type, text=text,
         external_message_id=external_message_id, payload=payload, media=media,
+        download_async=download_media_async,
     )
     if trigger_ai:
         _maybe_trigger_reception(conversation, message)

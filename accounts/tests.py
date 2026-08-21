@@ -5340,3 +5340,101 @@ class AutomaticTextsUseClientBrandTests(TestCase):
             for nome in ('BEEZAP', 'BEEZap', 'Beezap', 'BEEonBOARD'):
                 with self.subTest(nome=nome, texto=texto[:40]):
                     self.assertNotIn(nome, texto)
+
+
+class WebhookDoesNotWaitForMediaDownloadTests(TestCase):
+    """O webhook NAO pode ficar preso baixando arquivo.
+
+    O download rodava dentro da requisicao: `_download_to_media_file` faz
+    `urlopen(timeout=60)` com DUAS tentativas, mais a chamada `download-media` a
+    W-API antes dela. Com `--workers 2 --timeout 60`, duas fotos de link lento
+    travavam o sistema INTEIRO — todas as empresas, todas as telas — e o gunicorn
+    matava o worker no meio do download.
+
+    A mensagem ja nasce `media_status='pending'` e o front ja mostra a midia aparecer
+    no poll seguinte, entao o webhook so precisava nao esperar.
+    """
+
+    def _payload_de_imagem(self):
+        return {
+            'instanceId': 'INSTANCIA-TESTE',
+            'chat': {'id': '5519988887777'},
+            'sender': {'id': '5519988887777', 'pushName': 'Cliente'},
+            'messageId': 'MSG-IMG-1',
+            'msgContent': {
+                'imageMessage': {
+                    'mimetype': 'image/jpeg',
+                    'mediaKey': 'CHAVE',
+                    'directPath': '/v/caminho',
+                    'caption': 'olha a foto',
+                }
+            },
+        }
+
+    def test_ingest_nao_baixa_a_midia_na_propria_requisicao(self):
+        from wapi.services import ingest_wapi_payload
+        with patch('wapi.services._try_download_media') as sincrono, \
+                patch('wapi.services.download_incoming_media_async') as background:
+            mensagem = ingest_wapi_payload(
+                self._payload_de_imagem(), trigger_ai=False,
+                company=default_company(),
+            )
+        self.assertIsNotNone(mensagem)
+        self.assertFalse(
+            sincrono.called,
+            'o download nao pode acontecer dentro da requisicao do webhook',
+        )
+        self.assertTrue(background.called, 'o download tem que ir para background')
+
+    def test_a_mensagem_e_a_conversa_ficam_prontas_sem_esperar_o_arquivo(self):
+        """A lista de conversas mostra "Imagem" na hora, antes do download acabar."""
+        from wapi.services import ingest_wapi_payload
+        with patch('wapi.services.download_incoming_media_async'):
+            mensagem = ingest_wapi_payload(
+                self._payload_de_imagem(), trigger_ai=False,
+                company=default_company(),
+            )
+        self.assertEqual(mensagem.message_type, 'image')
+        self.assertEqual(mensagem.media_status, 'pending')
+        mensagem.conversation.refresh_from_db()
+        self.assertIn('Imagem', mensagem.conversation.last_message_text)
+        self.assertIsNotNone(mensagem.conversation.last_message_at)
+
+    def test_link_morto_nao_estoura_para_fora_da_thread(self):
+        """A thread engole a falha: link expirado nao pode virar erro no webhook."""
+        import threading as _threading
+        from wapi.services import download_incoming_media_async, ingest_wapi_payload
+
+        terminou = _threading.Event()
+
+        def _explode(message, media):
+            try:
+                raise RuntimeError('link morto')
+            finally:
+                terminou.set()
+
+        with patch('wapi.services.download_incoming_media_async'):
+            mensagem = ingest_wapi_payload(
+                self._payload_de_imagem(), trigger_ai=False,
+                company=default_company(),
+            )
+        with patch('wapi.services._try_download_media', _explode):
+            # Nao levanta: a excecao morre no worker, logada.
+            self.assertTrue(download_incoming_media_async(mensagem, {}))
+        self.assertTrue(terminou.wait(timeout=5))
+        mensagem.refresh_from_db()
+        # A mensagem continua no chat, so sem o arquivo local.
+        self.assertEqual(mensagem.message_type, 'image')
+        self.assertIn('Imagem', mensagem.conversation.last_message_text)
+
+    def test_sincronizacao_de_eventos_antigos_continua_baixando_na_hora(self):
+        """Na linha de comando, bloquear e o certo: o comando deve terminar FEITO."""
+        from wapi.services import ingest_wapi_payload
+        with patch('wapi.services._try_download_media') as sincrono, \
+                patch('wapi.services.download_incoming_media_async') as background:
+            ingest_wapi_payload(
+                self._payload_de_imagem(), trigger_ai=False,
+                company=default_company(), download_media_async=False,
+            )
+        self.assertTrue(sincrono.called)
+        self.assertFalse(background.called)

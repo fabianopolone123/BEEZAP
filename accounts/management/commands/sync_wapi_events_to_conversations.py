@@ -26,9 +26,13 @@ class Command(BaseCommand):
             try:
                 # trigger_ai=False: reprocessar eventos antigos NAO deve acionar a
                 # IA (evita responder mensagens historicas).
+                # download_media_async=False: aqui bloquear e o comportamento certo —
+                # o comando deve terminar com o trabalho FEITO, nao com threads soltas
+                # que morrem quando o processo sai (no webhook e o contrario, ver
+                # wapi/services.download_incoming_media_async).
                 # A empresa vem do proprio evento — cada um ja sabe de quem e.
                 message = ingest_wapi_payload(
-                    payload, trigger_ai=False, company=event.company
+                    payload, trigger_ai=False, download_media_async=False, company=event.company
                 )
             except Exception:
                 message = None
