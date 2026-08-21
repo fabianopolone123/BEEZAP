@@ -1680,13 +1680,22 @@ def _digits(value):
     return ''.join(ch for ch in (value or '') if ch.isdigit())
 
 
-def _build_name_map(conversation):
+def _build_name_map(conversation, mensagens=None):
     """Mapa {digitos: nome} dos participantes do grupo, para exibir o remetente e
     resolver mencoes (@numero). Fonte UNICA: Contato CADASTRADO. O pushName do
     WhatsApp NAO entra aqui — sem contato cadastrado o numero fica visivel (e
-    clicavel, para cadastrar na hora); so nome cadastrado aparece como nome."""
+    clicavel, para cadastrar na hora); so nome cadastrado aparece como nome.
+
+    Recebe as mensagens JA CARREGADAS quando quem chama as tem em maos. Antes a
+    funcao fazia uma varredura propria de TODAS as mensagens da conversa — uma
+    segunda leitura completa do grupo, no mesmo request que ja havia lido a primeira,
+    a cada poll de 6 segundos.
+    """
     numbers = set()  # numeros relevantes (remetentes + mencionados)
-    rows = conversation.messages.values_list('sender_id', 'text')
+    if mensagens is None:
+        rows = conversation.messages.values_list('sender_id', 'text')
+    else:
+        rows = [(m.sender_id, m.text) for m in mensagens]
     for sender_id, text in rows:
         digits = _digits(sender_id)
         if digits:
@@ -1776,6 +1785,29 @@ def _serialize_contact_info(conversation, current_user=None):
         'attendant': attendant.name if attendant else 'Nao definido',
         'created_at': timezone.localtime(created_source).strftime('%d/%m/%Y %H:%M'),
     }
+
+
+# ---------------------------------------------------------------------------
+# JANELAS DE CARREGAMENTO (paginacao)
+#
+# Antes a tela mandava TUDO: `conversations_view` serializava todas as conversas
+# visiveis no HTML, `conversation_list_view` repetia a lista completa a cada 12s e
+# `conversation_messages_view` fazia `list()` da conversa inteira a cada 6s — por aba
+# aberta. Um grupo com anos de historico era lido por completo dez vezes por minuto.
+#
+# Com janela, o custo passa a ser CONSTANTE: o que a pessoa esta realmente olhando.
+# ---------------------------------------------------------------------------
+CONVERSATION_PAGE_SIZE = 60   # conversas por pagina da lista
+MESSAGE_PAGE_SIZE = 60        # mensagens carregadas de uma vez no chat
+MAX_PAGE_SIZE = 500           # teto de seguranca para `?limite=` vindo da URL
+
+
+def tamanho_da_pagina(valor, padrao):
+    """Le `?limite=` da URL com teto, para ninguem pedir a base inteira por URL."""
+    limite = id_valido(valor)
+    if not limite:
+        return padrao
+    return min(limite, MAX_PAGE_SIZE)
 
 
 CONVERSATION_FILTERS = (
@@ -1903,6 +1935,12 @@ def conversations_view(request):
         {'key': slug, 'label': label, 'count': type_counts.get(slug, 0), 'active': slug == 'todas'}
         for slug, label in CONVERSATION_TYPE_FILTERS
     ]
+    # Primeira PAGINA apenas. Antes a tela serializava todas as conversas visiveis
+    # dentro do HTML — um admin com muitas conversas recebia a base inteira no
+    # carregamento. O resto vem pelo botao "Carregar mais" (mesmo endpoint da lista).
+    pagina = list(conversations[:CONVERSATION_PAGE_SIZE + 1])
+    tem_mais = len(pagina) > CONVERSATION_PAGE_SIZE
+    pagina = pagina[:CONVERSATION_PAGE_SIZE]
     return render(
         request,
         'accounts/conversations.html',
@@ -1911,7 +1949,9 @@ def conversations_view(request):
             'nav_items': build_nav_items(request.user, 'Conversas', request),
             'role_label': request.user.get_role_display(),
             'user_initial': (request.user.first_name[:1] or request.user.email[:1]).upper(),
-            'conversations': [_serialize_conversation_item(c, request.user) for c in conversations],
+            'conversations': [_serialize_conversation_item(c, request.user) for c in pagina],
+            'has_more_conversations': tem_mais,
+            'page_size': CONVERSATION_PAGE_SIZE,
             'filter_chips': filter_chips,
             'type_tabs': type_tabs,
             'waiting_count': counts.get('aguardando', 0),
@@ -2930,11 +2970,17 @@ def conversation_list_view(request):
     queryset = _filter_conversations_by_type(base, tipo)
     queryset = _filter_conversations_by_status(queryset, status)
     queryset = _search_conversations(queryset, term)
+    # Janela: pede uma a mais para saber se ainda ha proximas, sem um count() extra.
+    limite = tamanho_da_pagina(request.GET.get('limite'), CONVERSATION_PAGE_SIZE)
+    pagina = list(queryset[:limite + 1])
+    tem_mais = len(pagina) > limite
+    pagina = pagina[:limite]
     return JsonResponse({
         'ok': True,
         'counts': _conversation_counts(base),
         'type_counts': _conversation_type_counts(base),
-        'conversations': [_serialize_conversation_item(c, request.user) for c in queryset],
+        'conversations': [_serialize_conversation_item(c, request.user) for c in pagina],
+        'has_more': tem_mais,
     })
 
 
@@ -2979,13 +3025,40 @@ def conversation_messages_view(request, conversation_id):
         )
         if last_start:
             messages_qs = messages_qs.filter(created_at__gte=last_start.created_at)
+
+    # ---------------------------------------------------------------- JANELA
+    # Antes esta view fazia `list()` da conversa INTEIRA — e o poll repetia isso a
+    # cada 6 segundos, por aba aberta. Um grupo com anos de historico era lido dez
+    # vezes por minuto. Agora carrega as ultimas `limite` mensagens; o front pede
+    # mais quando a pessoa rola para cima ("Carregar mensagens anteriores").
+    #
+    # A janela e ESTENDIDA PARA TRAS ate o inicio do atendimento mais antigo que ela
+    # alcanca. Sem isso, um atendimento cortado no meio seria classificado errado
+    # pelas abas "Conversa privada"/"Conversa do setor" — elas dependem de ver o
+    # segmento COMPLETO para saber de quem ele e e em que setor terminou.
+    limite = tamanho_da_pagina(request.GET.get('limite'), MESSAGE_PAGE_SIZE)
+    janela_ids = list(
+        messages_qs.order_by('-created_at', '-id').values_list('id', 'created_at')[:limite]
+    )
+    tem_mais_antigas = False
+    if janela_ids:
+        inicio = janela_ids[-1][1]
+        # Completa o atendimento em que a janela comeca.
+        divisoria = (
+            messages_qs
+            .filter(message_type='system', text=SYSTEM_NEW_SERVICE_TEXT,
+                    created_at__lte=inicio)
+            .order_by('-created_at').values_list('created_at', flat=True).first()
+        )
+        if divisoria is not None:
+            inicio = divisoria
+        tem_mais_antigas = messages_qs.filter(created_at__lt=inicio).exists()
+        messages_qs = messages_qs.filter(created_at__gte=inicio)
     # Transferencia so pode oferecer setores/atendentes DA EMPRESA da conversa.
     sectors = Sector.objects.filter(company=conversation.company)
     attendants = Attendant.objects.select_related('user').filter(
         company=conversation.company, user__is_active=True
     )
-    name_map = _build_name_map(conversation) if conversation.is_group else None
-
     # Abas "Conversa privada" (o que EU atendi) x "Conversa do setor" (tudo o que vejo):
     # separa os ATENDIMENTOS (segmentos entre as divisorias "Novo atendimento iniciado")
     # por dono. Um segmento e MEU se eu enviei alguma mensagem nele (comparo o nome do
@@ -2993,6 +3066,8 @@ def conversation_messages_view(request, conversation_id):
     # So faz sentido em conversa DIRETA. Marca cada mensagem com o segmento, se e minha
     # e o SETOR do atendimento (resolvido por segmento).
     msg_objs = list(messages_qs)
+    # O mapa de nomes sai das mensagens JA carregadas (nao de uma segunda varredura).
+    name_map = _build_name_map(conversation, msg_objs) if conversation.is_group else None
     mine_name = _current_attendant_name(request)
     my_att_id = getattr(getattr(request.user, 'attendant_profile', None), 'id', None)
     sector_name_by_id = {s.id: s.name for s in sectors}
@@ -3042,6 +3117,10 @@ def conversation_messages_view(request, conversation_id):
         'conv_sectors': conv_sectors,
         'sectors': [{'id': s.id, 'name': s.name} for s in sectors],
         'attendants': [{'id': a.id, 'name': a.name} for a in attendants],
+        # O front mostra "Carregar mensagens anteriores" quando ha historico antes
+        # da janela atual.
+        'has_older': tem_mais_antigas,
+        'page_size': MESSAGE_PAGE_SIZE,
     })
 
 

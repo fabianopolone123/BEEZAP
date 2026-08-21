@@ -122,6 +122,13 @@
           {% endfor %}
         </ul>
 
+        {# A lista carrega em PAGINAS. Antes o HTML trazia todas as conversas    #}
+        {# visiveis de uma vez, e o poll repetia a lista completa a cada 12s.    #}
+        <button type="button" class="conv-load-more" data-load-more-conversations
+                {% if not has_more_conversations %}hidden{% endif %}>
+          Carregar mais conversas
+        </button>
+
         <div class="conv-empty" data-conv-list-empty {% if conversations %}hidden{% endif %}>
           <strong>Nenhuma conversa recebida ainda.</strong>
           <span>Quando uma mensagem chegar pelo WhatsApp, ela aparecera aqui.</span>
@@ -159,6 +166,9 @@
             <div class="conv-sector-chips" data-sector-chips hidden aria-label="Filtrar por setor"></div>
           </div>
 
+          <button type="button" class="conv-load-older" data-load-older hidden>
+            Carregar mensagens anteriores
+          </button>
           <div class="conv-messages" id="conv-messages" role="log" aria-label="Mensagens da conversa" aria-live="polite" data-conv-messages></div>
 
           <form class="conv-chat-footer" data-conv-send-form autocomplete="off">
@@ -762,14 +772,16 @@
     return false;
   }
 
-  // Render COMPLETO — usado ao abrir uma conversa (troca tudo de uma vez).
-  function renderMessages(messages) {
+  // Render COMPLETO — usado ao abrir uma conversa (troca tudo de uma vez) e ao
+  // carregar mensagens anteriores (`mantemPosicao=true`, para nao pular para o fim
+  // justamente quando a pessoa foi ler o historico).
+  function renderMessages(messages, mantemPosicao) {
     // Troca de conversa: descarta o observer antigo (os posters serao recriados).
     if (posterObserver) { posterObserver.disconnect(); posterObserver = null; }
     var frag = document.createDocumentFragment();
     messages.forEach(function (msg) { frag.appendChild(buildMessageEl(msg)); });
     messagesEl.replaceChildren(frag);
-    scrollToBottom();
+    if (!mantemPosicao) scrollToBottom();
   }
 
   // ---------- Abas "Conversa do setor" x "Conversa privada" + filtro por setor ----------
@@ -974,20 +986,64 @@
     updateServiceButtons(contact);
   }
 
+  /* ---------- Janela de mensagens (paginacao) ---------- */
+  // Quantas mensagens estao carregadas no chat aberto. Comeca na primeira pagina e
+  // cresce quando a pessoa clica em "Carregar mensagens anteriores". O POLL pede
+  // sempre esta mesma janela, entao o custo e o do que esta na tela — nao o do
+  // historico inteiro, que era o comportamento antigo.
+  var MESSAGE_PAGE = 60;
+  var messageLimit = MESSAGE_PAGE;
+  var loadOlderBtn = document.querySelector('[data-load-older]');
+
+  function messagesUrl(id) {
+    return urlFor(id, 'mensagens') + '?limite=' + messageLimit;
+  }
+
+  function updateLoadOlder(hasOlder) {
+    if (loadOlderBtn) loadOlderBtn.hidden = !hasOlder;
+  }
+
+  if (loadOlderBtn) {
+    loadOlderBtn.addEventListener('click', function () {
+      if (!currentId) return;
+      var alturaAntes = messagesEl.scrollHeight;
+      var posicaoAntes = messagesEl.scrollTop;
+      loadOlderBtn.disabled = true;
+      messageLimit += MESSAGE_PAGE;
+      fetch(messagesUrl(currentId), {headers: {'X-Requested-With': 'XMLHttpRequest'}})
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (data) {
+          if (!data || !data.ok) return;
+          renderMessages(data.messages, true);
+          setupFilters(!!data.owner_tabs, data.conv_sectors || []);
+          updateLoadOlder(data.has_older);
+          // Mantem a pessoa lendo o mesmo trecho: o conteudo novo entrou ACIMA.
+          messagesEl.scrollTop = posicaoAntes + (messagesEl.scrollHeight - alturaAntes);
+        })
+        .catch(function () {
+          showToast('Nao foi possivel carregar as mensagens anteriores.', 'error');
+        })
+        .then(function () { loadOlderBtn.disabled = false; });
+    });
+  }
+
   /* ---------- Abrir conversa ---------- */
   function openConversation(id) {
     currentId = id;
     placeholderEl.hidden = true;
     panelEl.hidden = false;
+    // Toda conversa abre na primeira pagina (a janela nao vaza de um chat para outro).
+    messageLimit = MESSAGE_PAGE;
 
     // Apenas carrega as mensagens (sem retry): a retentativa de midias que
     // falharam agora e feita sob demanda pelo botao "Atualizar".
-    fetch(urlFor(id, 'mensagens'), {headers: {'X-Requested-With': 'XMLHttpRequest'}})
+    fetch(messagesUrl(id), {headers: {'X-Requested-With': 'XMLHttpRequest'}})
       .then(function (r) { if (!r.ok) throw new Error('fail'); return r.json(); })
       .then(function (data) {
         if (!data.ok) throw new Error('fail');
         fillInfo(data.contact, data.sectors, data.attendants);
         renderMessages(data.messages);
+        updateLoadOlder(data.has_older);
         setupFilters(!!data.owner_tabs, data.conv_sectors || []);
         // Zera o badge de nao lidas do item aberto na lista (feedback imediato).
         var item = listEl.querySelector('.conv-item[data-conv-id="' + id + '"]');
@@ -1005,9 +1061,16 @@
 
   function refreshOpenMessages() {
     if (!currentId) return;
-    fetch(urlFor(currentId, 'mensagens'), {headers: {'X-Requested-With': 'XMLHttpRequest'}})
+    // Pede a MESMA janela que esta na tela. Antes o poll trazia a conversa inteira a
+    // cada 6 segundos — num grupo com anos de historico, dez leituras completas por
+    // minuto, por aba aberta.
+    fetch(messagesUrl(currentId), {headers: {'X-Requested-With': 'XMLHttpRequest'}})
       .then(function (r) { return r.ok ? r.json() : null; })
-      .then(function (data) { if (data && data.ok) syncMessages(data.messages); })
+      .then(function (data) {
+        if (!data || !data.ok) return;
+        syncMessages(data.messages);
+        updateLoadOlder(data.has_older);
+      })
       .catch(function () {});
   }
 
@@ -1146,11 +1209,18 @@
   // force=true: re-renderiza mesmo se a assinatura nao mudou (troca de
   // filtro/aba/busca). No poll (force ausente), so re-renderiza quando a lista
   // realmente muda, evitando reconstruir o DOM a cada ciclo.
+  // Quantas conversas estao carregadas. Cresce com "Carregar mais conversas"; volta
+  // ao inicio a cada troca de filtro/aba/busca (a lista muda de conteudo).
+  var CONVERSATION_PAGE = {{ page_size|default:60 }};
+  var conversationLimit = CONVERSATION_PAGE;
+  var loadMoreBtn = document.querySelector('[data-load-more-conversations]');
+
   function refreshList(force) {
     var term = searchEl ? searchEl.value.trim() : '';
     var url = base + 'lista/?status=' + encodeURIComponent(currentStatus) +
               '&tipo=' + encodeURIComponent(currentType) +
-              '&q=' + encodeURIComponent(term);
+              '&q=' + encodeURIComponent(term) +
+              '&limite=' + conversationLimit;
     fetch(url, {headers: {'X-Requested-With': 'XMLHttpRequest'}})
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (data) {
@@ -1163,8 +1233,24 @@
           renderConversationList(items);
           lastListSig = sig;
         }
+        if (loadMoreBtn) loadMoreBtn.hidden = !data.has_more;
       })
       .catch(function () {});
+  }
+
+  // Trocar filtro, aba ou busca muda o CONTEUDO da lista: a janela volta ao inicio,
+  // senao a pessoa continuaria carregando paginas de um recorte que nao existe mais.
+  function resetListWindow() {
+    conversationLimit = CONVERSATION_PAGE;
+  }
+
+  if (loadMoreBtn) {
+    loadMoreBtn.addEventListener('click', function () {
+      loadMoreBtn.disabled = true;
+      conversationLimit += CONVERSATION_PAGE;
+      refreshList(true);
+      window.setTimeout(function () { loadMoreBtn.disabled = false; }, 400);
+    });
   }
 
   /* ---------- Chips de filtro (status) ---------- */
@@ -1174,6 +1260,7 @@
       chip.classList.add('active');
       if (waitingBadge) waitingBadge.classList.remove('active');
       currentStatus = chip.dataset.filter || 'todas';
+      resetListWindow();
       refreshList(true);
     });
   });
@@ -1192,6 +1279,7 @@
         currentStatus = 'todas';
         chipEls.forEach(function (c) { c.classList.toggle('active', (c.dataset.filter || 'todas') === 'todas'); });
       }
+      resetListWindow();
       refreshList(true);
     });
   }
@@ -1206,6 +1294,7 @@
       tab.classList.add('active');
       tab.setAttribute('aria-selected', 'true');
       currentType = tab.dataset.typeFilter || 'todas';
+      resetListWindow();
       refreshList(true);
     });
   });

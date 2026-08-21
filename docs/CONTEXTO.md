@@ -416,6 +416,23 @@ sai por duas rotas do Django:
 - **Abas de tipo**: Todas / Diretas / Grupos (param `tipo` no endpoint da lista),
   com contagens. **Selo "Grupo"** na lista e no cabeçalho; em grupo, o **nome do
   participante** aparece acima de cada mensagem recebida.
+- **Carrega em JANELA, não a base inteira** (`CONVERSATION_PAGE_SIZE` e
+  `MESSAGE_PAGE_SIZE`, ambos 60). A lista abre com a primeira página e ganha
+  **"Carregar mais conversas"** no fim; o chat abre com as **últimas 60** mensagens e
+  ganha **"Carregar mensagens anteriores"** no topo. O `?limite=` tem teto
+  (`MAX_PAGE_SIZE = 500`), para ninguém pedir a base por URL.
+  > **Por que:** antes `conversations_view` serializava **todas** as conversas
+  > visíveis dentro do HTML, `conversation_list_view` repetia a lista completa a cada
+  > **12 s** e `conversation_messages_view` fazia `list()` da conversa **inteira** a
+  > cada **6 s** — por aba aberta. Um grupo com anos de histórico era lido por
+  > completo dez vezes por minuto. O poll pede a **mesma janela** que está na tela,
+  > então o custo passou a ser o do que a pessoa está olhando.
+  > **A janela nunca corta um atendimento:** ela é estendida para trás até a divisória
+  > mais próxima. Sem isso, as abas "Conversa privada"/"Conversa do setor"
+  > classificariam errado um segmento partido — elas dependem de ver o segmento
+  > completo para saber de quem ele é e em que setor terminou (teste
+  > `test_janela_nao_corta_um_atendimento_no_meio`).
+  > Os **contadores dos chips continuam mostrando o total real**, não o da janela.
 - **Contadores numa consulta só**: os 8 números dos chips (5 por status + 3 por tipo)
   saem de **duas** agregações (`_count_by_q` com `Count('id', filter=Q(...),
   distinct=True)`), não de 8 `.count()` — antes cada um refazia o join de
@@ -486,6 +503,10 @@ sai por duas rotas do Django:
   (atributo `download`).
 - **Menções em grupo**: `@<número>` no texto é resolvido para `@<nome>` (Contato
   salvo ou pushName de quem já enviou no grupo).
+- **`_build_name_map(conversation, mensagens)`** monta o mapa `{número: nome}` a
+  partir das mensagens **já carregadas**. Antes fazia uma varredura própria de todas
+  as mensagens da conversa — uma **segunda** leitura completa do grupo no mesmo
+  request que já havia feito a primeira, a cada poll de 6 s.
 - **Só nome CADASTRADO aparece como nome** (em qualquer tela): o pushName do WhatsApp
   não é usado nem na conversa direta (ver `Contact` na seção 3) nem no grupo
   (`_build_name_map` resolve **apenas** por Contato cadastrado). Sem cadastro, aparece
@@ -537,8 +558,9 @@ sai por duas rotas do Django:
 - **Transferência** (setor/atendente) por selects na coluna de info.
 - **URLs AJAX** montadas a partir de `window.location.pathname` (até `/conversas/`)
   para respeitar o prefixo `/beeonboard/` mesmo se o `{% url %}` vier sem prefixo.
-- Endpoints: `conversation-list` (`/conversas/lista/`), `conversation-messages`
-  (aceita `?retry=1` para rebaixar mídias falhas), `conversation-send`,
+- Endpoints: `conversation-list` (`/conversas/lista/`, aceita `?limite=`),
+  `conversation-messages` (aceita `?limite=` e `?retry=1` para rebaixar mídias falhas;
+  responde `has_older`), `conversation-send`,
   `conversation-send-media`, `conversation-transfer`, `conversation-take`
   (`/conversas/<id>/assumir/`), `conversation-close` (`/conversas/<id>/encerrar/`),
   `conversation-sync-groups`, `conversation-name-contact` (`/conversas/nomear-contato/`),

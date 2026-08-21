@@ -6485,3 +6485,217 @@ class MenuOptionsSaveIsAtomicTests(TestCase):
         opcao = MenuOption.objects.get(config=self.config)
         self.assertEqual(opcao.label, 'Sem setor')
         self.assertIsNone(opcao.sector)
+
+
+class ConversationPaginationTests(TestCase):
+    """A tela Conversas carrega em JANELA, nao a base inteira.
+
+    Antes: `conversations_view` serializava TODAS as conversas visiveis dentro do
+    HTML, `conversation_list_view` repetia a lista completa a cada 12s e
+    `conversation_messages_view` fazia `list()` da conversa inteira a cada 6s — por
+    aba aberta. Um grupo com anos de historico era lido por completo dez vezes por
+    minuto.
+    """
+
+    def setUp(self):
+        from .models import Contact, Conversation
+        self.company = default_company()
+        self.adm = User.objects.create_user(
+            email='adm-pag@x.com', password='SenhaForte123',
+            role=User.Role.ADM, company=self.company,
+        )
+        self.adm.attendant_profile.must_change_password = False
+        self.adm.attendant_profile.save(update_fields=['must_change_password'])
+        # 70 conversas: mais que a pagina de 60.
+        for i in range(70):
+            contato = Contact.objects.create(
+                company=self.company, name='Cliente %02d' % i,
+                phone='5519%09d' % i,
+            )
+            Conversation.objects.create(
+                company=self.company, contact=contato,
+                external_id='5519%09d' % i, chat_type='private',
+                last_message_text='mensagem %d' % i,
+            )
+        self.client.force_login(self.adm)
+
+    def test_tela_traz_so_a_primeira_pagina(self):
+        from .views import CONVERSATION_PAGE_SIZE
+        response = self.client.get(reverse('conversations'))
+        self.assertEqual(len(response.context['conversations']), CONVERSATION_PAGE_SIZE)
+        self.assertTrue(response.context['has_more_conversations'])
+
+    def test_contadores_continuam_mostrando_o_total_real(self):
+        """A janela e da LISTA; o contador tem que dizer quantas existem."""
+        response = self.client.get(reverse('conversations'))
+        chips = {c['key']: c['count'] for c in response.context['filter_chips']}
+        self.assertEqual(chips['todas'], 70)
+
+    def test_endpoint_da_lista_pagina_e_avisa_que_ha_mais(self):
+        response = self.client.get(reverse('conversation-list'))
+        dados = response.json()
+        self.assertEqual(len(dados['conversations']), 60)
+        self.assertTrue(dados['has_more'])
+        self.assertEqual(dados['counts']['todas'], 70)
+
+    def test_carregar_mais_traz_o_resto(self):
+        response = self.client.get(reverse('conversation-list') + '?limite=120')
+        dados = response.json()
+        self.assertEqual(len(dados['conversations']), 70)
+        self.assertFalse(dados['has_more'])
+
+    def test_limite_tem_teto(self):
+        """`?limite=` nao pode ser um jeito de pedir a base inteira por URL."""
+        from .views import MAX_PAGE_SIZE, tamanho_da_pagina
+        self.assertEqual(tamanho_da_pagina('999999', 60), MAX_PAGE_SIZE)
+        self.assertEqual(tamanho_da_pagina('abc', 60), 60)
+        self.assertEqual(tamanho_da_pagina('', 60), 60)
+        self.assertEqual(tamanho_da_pagina('10', 60), 10)
+
+
+class MessageWindowTests(TestCase):
+    """O chat carrega as ultimas N mensagens, e a janela nunca corta um atendimento.
+
+    O corte por janela tinha um risco real: as abas "Conversa privada"/"Conversa do
+    setor" dependem de ver o segmento COMPLETO para saber de quem ele e e em que setor
+    terminou. Por isso a janela e estendida para tras ate a divisoria mais proxima.
+    """
+
+    def setUp(self):
+        from datetime import timedelta as _td
+        from django.utils import timezone as _tz
+        from .models import Attendant as Att, Contact, Conversation, Message, Sector
+        self.company = default_company()
+        self.adm = User.objects.create_user(
+            email='adm-janela@x.com', password='SenhaForte123',
+            role=User.Role.ADM, company=self.company,
+        )
+        self.adm.attendant_profile.must_change_password = False
+        self.adm.attendant_profile.name = 'Chefe'
+        self.adm.attendant_profile.save()
+        self.setor = Sector.objects.create(company=self.company, name='Setor Janela')
+        contato = Contact.objects.create(
+            company=self.company, name='Cliente Janela', phone='5519888887777',
+        )
+        self.conv = Conversation.objects.create(
+            company=self.company, contact=contato, external_id='5519888887777',
+            chat_type='private', sector=self.setor,
+        )
+        base = _tz.now() - _td(days=1)
+        self.criadas = []
+        for i in range(80):
+            msg = Message.objects.create(
+                conversation=self.conv, direction='in', message_type='text',
+                text='msg %02d' % i,
+            )
+            Message.objects.filter(pk=msg.pk).update(created_at=base + _td(minutes=i))
+            self.criadas.append(msg)
+        self.client.force_login(self.adm)
+
+    def _mensagens(self, **params):
+        url = reverse('conversation-messages', args=[self.conv.pk])
+        if params:
+            url += '?' + '&'.join('%s=%s' % kv for kv in params.items())
+        return self.client.get(url).json()
+
+    def test_traz_so_a_ultima_pagina(self):
+        dados = self._mensagens()
+        self.assertEqual(len(dados['messages']), 60)
+        self.assertTrue(dados['has_older'])
+
+    def test_traz_as_MAIS_RECENTES(self):
+        """O chat abre no fim da conversa, entao a janela e o final do historico."""
+        dados = self._mensagens()
+        textos = [m['text'] for m in dados['messages']]
+        self.assertEqual(textos[-1], 'msg 79')
+        self.assertEqual(textos[0], 'msg 20')
+
+    def test_carregar_anteriores_traz_o_resto(self):
+        dados = self._mensagens(limite=200)
+        self.assertEqual(len(dados['messages']), 80)
+        self.assertFalse(dados['has_older'])
+
+    def test_conversa_curta_nao_oferece_anteriores(self):
+        from .models import Contact, Conversation, Message
+        contato = Contact.objects.create(
+            company=self.company, name='Curta', phone='5519111112222',
+        )
+        conv = Conversation.objects.create(
+            company=self.company, contact=contato, external_id='5519111112222',
+            chat_type='private',
+        )
+        Message.objects.create(
+            conversation=conv, direction='in', message_type='text', text='oi',
+        )
+        url = reverse('conversation-messages', args=[conv.pk])
+        dados = self.client.get(url).json()
+        self.assertEqual(len(dados['messages']), 1)
+        self.assertFalse(dados['has_older'])
+
+    def test_janela_nao_corta_um_atendimento_no_meio(self):
+        """A janela e estendida para tras ate a divisoria, senao as abas por dono e
+        por setor classificariam errado um atendimento partido."""
+        from datetime import timedelta as _td
+        from django.utils import timezone as _tz
+        from wapi.services import SYSTEM_NEW_SERVICE_TEXT
+        from .models import Contact, Conversation, Message
+
+        contato = Contact.objects.create(
+            company=self.company, name='Partido', phone='5519333334444',
+        )
+        conv = Conversation.objects.create(
+            company=self.company, contact=contato, external_id='5519333334444',
+            chat_type='private', sector=self.setor,
+        )
+        base = _tz.now() - _td(days=2)
+        momento = [0]
+
+        def _msg(texto, tipo='text', direcao='in', **extra):
+            msg = Message.objects.create(
+                conversation=conv, direction=direcao, message_type=tipo,
+                text=texto, **extra
+            )
+            momento[0] += 1
+            Message.objects.filter(pk=msg.pk).update(
+                created_at=base + _td(minutes=momento[0])
+            )
+            return msg
+
+        # Atendimento 1 (curto, antigo).
+        _msg('antigo 1')
+        _msg('antigo 2')
+        # Divisoria + atendimento 2 com 70 mensagens: a janela de 60 comeca NO MEIO
+        # dele, entao a divisoria tem que ser puxada junto.
+        _msg(SYSTEM_NEW_SERVICE_TEXT, tipo='system', direcao='out')
+        for i in range(70):
+            _msg('novo %02d' % i)
+
+        url = reverse('conversation-messages', args=[conv.pk])
+        dados = self.client.get(url).json()
+        textos = [m['text'] for m in dados['messages']]
+        # A divisoria do atendimento atual esta na janela.
+        self.assertIn(SYSTEM_NEW_SERVICE_TEXT, textos)
+        # E o atendimento anterior ficou de fora (ainda ha historico antes).
+        self.assertNotIn('antigo 1', textos)
+        self.assertTrue(dados['has_older'])
+        # Todas as mensagens da janela pertencem ao MESMO segmento (o atual).
+        segmentos = {m['seg'] for m in dados['messages']}
+        self.assertEqual(len(segmentos), 1)
+
+    def test_mapa_de_nomes_do_grupo_usa_as_mensagens_da_janela(self):
+        """`_build_name_map` recebe as mensagens ja carregadas — sem 2a varredura."""
+        from .models import Contact, Conversation, Message
+        Contact.objects.create(
+            company=self.company, name='Participante Fulano', phone='5519777770000',
+        )
+        grupo = Conversation.objects.create(
+            company=self.company, external_id='1203630009@g.us',
+            chat_type='group', name='Grupo Janela',
+        )
+        Message.objects.create(
+            conversation=grupo, direction='in', message_type='text',
+            text='oi pessoal', sender_id='5519777770000', is_group=True,
+        )
+        url = reverse('conversation-messages', args=[grupo.pk])
+        dados = self.client.get(url).json()
+        self.assertEqual(dados['messages'][0]['sender_name'], 'Participante Fulano')
