@@ -787,6 +787,27 @@ cópias mais recentes em `backup/`) → `migrate` → `collectstatic` →
 **`check --deploy`** (informativo, não aborta) → restart do gunicorn **confirmando que
 os PIDs reciclaram**. O backup existe porque **com SQLite não há rollback de
 migration**: a única volta é o arquivo de antes.
+
+> **Duas armadilhas do próprio script, as duas já aconteceram:**
+>
+> 1. **O script se auto-modifica.** O `git pull` do passo 1 pode substituir o
+>    `deploy.sh` enquanto ele roda; o bash lê o arquivo em pedaços, então a leitura
+>    continua num deslocamento errado e **uma versão antiga do deploy segue rodando —
+>    em silêncio**. Foi assim que os passos novos (backup e `check`) não aconteceram
+>    nas duas primeiras execuções após serem adicionados. Por isso todo o corpo está
+>    dentro de `main() { … }` com `main "$@"` na **última** linha: o bash parseia a
+>    função inteira antes de executar, então a troca do arquivo não afeta a execução
+>    em curso. **Ao mexer no script, manter esse formato.**
+> 2. **`manage.py` no terminal não carrega o `.env`** (quem carrega é o systemd, para
+>    o gunicorn). O passo do `check --deploy` carrega o `.env` num subshell antes de
+>    checar — sem isso ele avaliava `DEBUG=True` e acusava os cookies `Secure` como
+>    desligados, quando na aplicação real estão ligados. **Aviso que não reflete o app
+>    rodando é pior que nenhum aviso**: treina a ignorar a saída do deploy.
+>
+> Com o `.env` carregado, sobram **três** avisos, todos conhecidos: `SECURE_HSTS_SECONDS`
+> e `SECURE_SSL_REDIRECT` (decisões conscientes — ver seção 6) e a **`SECRET_KEY` curta**
+> (17 caracteres em produção; rotacionar é decisão do dono da plataforma, porque é
+> mexer em credencial).
 ```bash
 cd /var/www/beezap
 bash deploy/deploy.sh      # git pull + pip install + migrate + collectstatic + restart (RECOMENDADO)
