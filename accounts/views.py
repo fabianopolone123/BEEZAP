@@ -239,6 +239,31 @@ def require_feature(request, key):
     return None
 
 
+def require_feature_json(request, key):
+    """Versao JSON de `require_feature`, para os endpoints AJAX.
+
+    Existe porque o gate de feature estava so nas TELAS: um usuario com o botao
+    Conversas (ou Contatos) removido pelo ADM levava 403 na tela e continuava sendo
+    atendido pelos endpoints que a alimentam. A promessa do modulo de permissoes e
+    que esconder o botao BLOQUEIA a URL — inclusive a URL de dados.
+    """
+    from .permissions import user_can_access
+    if not user_can_access(request.user, key):
+        return JsonResponse({'ok': False, 'error': 'Acesso restrito.'}, status=403)
+    return None
+
+
+def deny_master_json(request):
+    """Retorna 403 JSON quando o gestor master chama um endpoint de ATENDIMENTO.
+
+    Segunda tranca, independente do alcance de conversas: o master administra os
+    clientes e nao opera (nem le) o atendimento deles, nem dentro do painel do
+    cliente. Ver accounts/tenancy.deny_master_json e docs/CONTEXTO.md secao 16.
+    """
+    from .tenancy import deny_master_json as _deny_master_json
+    return _deny_master_json(request)
+
+
 def deny_conversation_json(request, conversation):
     """Retorna 403 JSON se o usuario nao pode ver a conversa; senao None."""
     from .permissions import can_see_conversation
@@ -427,22 +452,39 @@ def build_wapi_webhook_url(request, company=None):
     return request.build_absolute_uri(reverse('wapi-webhook'))
 
 
-def require_admin_json(request):
-    if request.user.role != 'adm':
+def require_master_in_company_json(request):
+    """Versao JSON de `require_master_in_company`, para o endpoint que alimenta a
+    tela WhatsApp de um cliente.
+
+    A tela e do master DENTRO do painel do cliente; o endpoint precisa da MESMA
+    guarda. Antes ele exigia `role == 'adm'`, entao devolvia 403 justamente para a
+    unica pessoa que abre a tela — o painel de eventos nunca atualizava e o
+    JavaScript engolia o erro a cada 5 segundos, silenciosamente.
+    """
+    from .tenancy import is_master
+    if not is_master(request.user) or current_company(request) is None:
         return JsonResponse({'ok': False, 'error': 'Acesso restrito.'}, status=403)
     return None
 
 
 def serialize_wapi_event(event):
+    """Evento do webhook para a tela WhatsApp — SEM conteudo de atendimento.
+
+    Quem abre essa tela e o GESTOR MASTER, que administra os clientes sem ler o
+    atendimento deles (docs/CONTEXTO.md secao 16). Antes iam daqui o texto da
+    mensagem (`short_text`), o telefone e o nome do contato — exatamente o que a
+    regra do produto proibe, na unica tela que so ele alcanca.
+
+    O que o master precisa saber e apenas "esta chegando mensagem, e quando": entao
+    ficam o tipo do evento, o tipo do conteudo, a direcao e a data/hora.
+    """
     received_at = timezone.localtime(event.received_at)
     return {
         'id': event.id,
         'event_type': event.event_type or '-',
-        'phone': event.phone or '-',
-        'contact_name': event.contact_name or '-',
-        'message_text': event.short_text or '-',
+        'message_type': event.message_type or '-',
+        'direction': 'Enviada' if event.from_me else 'Recebida',
         'received_at': received_at.strftime('%d/%m/%Y %H:%M'),
-        'status_label': event.status_label,
     }
 
 
@@ -1399,12 +1441,17 @@ def wapi_settings_view(request):
 
 @login_required
 def wapi_webhook_events_view(request):
-    """Lista os ultimos eventos reais recebidos, para atualizacao automatica na tela."""
-    forbidden_response = require_admin_json(request)
+    """Ultimos eventos recebidos, para o painel da tela WhatsApp se atualizar sozinho.
+
+    Mesma guarda da tela (master DENTRO do painel do cliente) e mesmo corte de
+    privacidade do serializer: so tipo, direcao e data/hora — nunca o texto da
+    mensagem, o telefone ou o nome do contato. Ver `serialize_wapi_event`.
+    """
+    forbidden_response = require_master_in_company_json(request)
     if forbidden_response:
         return forbidden_response
 
-    events = WapiWebhookEvent.objects.filter(company=request_company(request))[:5]
+    events = WapiWebhookEvent.objects.filter(company=current_company(request))[:5]
     return JsonResponse({
         'ok': True,
         'events': [serialize_wapi_event(event) for event in events],
@@ -2726,6 +2773,18 @@ def contacts_view(request):
 
 @login_required
 def conversation_list_view(request):
+    """Lista de conversas para o poll da tela (JSON).
+
+    Passa pelas MESMAS guardas da tela Conversas. Sem o gate de feature aqui, quem
+    tivesse o botao Conversas removido levava 403 na tela e continuava recebendo por
+    esta URL a lista completa — com a previa da ultima mensagem de cada conversa.
+    """
+    forbidden = deny_master_json(request)
+    if forbidden:
+        return forbidden
+    forbidden = require_feature_json(request, 'conversations')
+    if forbidden:
+        return forbidden
     status = (request.GET.get('status') or 'todas').strip()
     tipo = (request.GET.get('tipo') or 'todas').strip()
     from .permissions import visible_conversations
@@ -2747,6 +2806,12 @@ def conversation_list_view(request):
 
 @login_required
 def conversation_messages_view(request, conversation_id):
+    forbidden = deny_master_json(request)
+    if forbidden:
+        return forbidden
+    forbidden = require_feature_json(request, 'conversations')
+    if forbidden:
+        return forbidden
     conversation = get_object_or_404(
         Conversation.objects.select_related('contact', 'assigned_attendant', 'sector'),
         pk=conversation_id,
@@ -2849,6 +2914,12 @@ def conversation_messages_view(request, conversation_id):
 @login_required
 @require_POST
 def conversation_send_view(request, conversation_id):
+    forbidden = deny_master_json(request)
+    if forbidden:
+        return forbidden
+    forbidden = require_feature_json(request, 'conversations')
+    if forbidden:
+        return forbidden
     conversation = get_object_or_404(
         Conversation.objects.select_related('contact'), pk=conversation_id
     )
@@ -3052,6 +3123,12 @@ def _media_file_to_data_uri(field_file, mimetype):
 @login_required
 @require_POST
 def conversation_send_media_view(request, conversation_id):
+    forbidden = deny_master_json(request)
+    if forbidden:
+        return forbidden
+    forbidden = require_feature_json(request, 'conversations')
+    if forbidden:
+        return forbidden
     conversation = get_object_or_404(
         Conversation.objects.select_related('contact'), pk=conversation_id
     )
@@ -3170,7 +3247,18 @@ def conversation_send_media_view(request, conversation_id):
 @login_required
 @require_POST
 def conversation_sync_groups_view(request):
-    """Busca os grupos na W-API e atualiza os nomes das conversas de grupo."""
+    """Busca os grupos na W-API e atualiza os nomes das conversas de grupo.
+
+    Mesmas guardas da tela Conversas: sem elas, quem tinha o botao removido (e o
+    proprio master, no painel do cliente) disparava uma chamada externa a W-API da
+    empresa por esta URL.
+    """
+    forbidden = deny_master_json(request)
+    if forbidden:
+        return forbidden
+    forbidden = require_feature_json(request, 'conversations')
+    if forbidden:
+        return forbidden
     readonly = deny_readonly_json(request)
     if readonly:
         return readonly
@@ -3192,7 +3280,18 @@ def conversation_sync_groups_view(request):
 @require_POST
 def conversation_name_contact_view(request):
     """Nomeia um numero (remetente de grupo ou mencionado) criando/atualizando um
-    Contato. O nome passa a aparecer no lugar do numero nas mensagens."""
+    Contato. O nome passa a aparecer no lugar do numero nas mensagens.
+
+    Passa pelas MESMAS guardas da tela Contatos: sem isso, o gestor master gravava
+    contato dentro da empresa do cliente por este endpoint (a tela dele da 403), e
+    quem tivesse o botao Contatos removido tambem escapava pela URL.
+    """
+    forbidden = deny_master_json(request)
+    if forbidden:
+        return forbidden
+    forbidden = require_feature_json(request, 'contacts')
+    if forbidden:
+        return forbidden
     readonly = deny_readonly_json(request)
     if readonly:
         return readonly
@@ -3213,6 +3312,12 @@ def conversation_name_contact_view(request):
 @login_required
 @require_POST
 def conversation_transfer_view(request, conversation_id):
+    forbidden = deny_master_json(request)
+    if forbidden:
+        return forbidden
+    forbidden = require_feature_json(request, 'conversations')
+    if forbidden:
+        return forbidden
     conversation = get_object_or_404(Conversation, pk=conversation_id)
     readonly = deny_readonly_json(request)
     if readonly:
@@ -3255,6 +3360,12 @@ def conversation_transfer_view(request, conversation_id):
 @login_required
 @require_POST
 def conversation_take_view(request, conversation_id):
+    forbidden = deny_master_json(request)
+    if forbidden:
+        return forbidden
+    forbidden = require_feature_json(request, 'conversations')
+    if forbidden:
+        return forbidden
     conversation = get_object_or_404(Conversation, pk=conversation_id)
     readonly = deny_readonly_json(request)
     if readonly:
@@ -3284,6 +3395,12 @@ def conversation_take_view(request, conversation_id):
 @login_required
 @require_POST
 def conversation_close_view(request, conversation_id):
+    forbidden = deny_master_json(request)
+    if forbidden:
+        return forbidden
+    forbidden = require_feature_json(request, 'conversations')
+    if forbidden:
+        return forbidden
     conversation = get_object_or_404(Conversation, pk=conversation_id)
     readonly = deny_readonly_json(request)
     if readonly:

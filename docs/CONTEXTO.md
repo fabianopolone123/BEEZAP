@@ -358,6 +358,14 @@ sai por duas rotas do Django:
   **do cliente** (`build_wapi_webhook_url(request, company)`).
 - O cliente centralizado (`wapi/client.py`) exige **`company`** em toda função (ver
   seção 16): sem empresa não há envio, para nunca sair pela instância errada.
+- **Painel "Últimas mensagens que chegaram"** (tela WhatsApp, só master): mostra
+  **horário, direção (enviada/recebida) e tipo do conteúdo** — e nada mais.
+  `serialize_wapi_event` **não** expõe `message_text`, `phone` nem `contact_name`: a
+  tela é do gestor master, que administra sem ler o atendimento (seção 16). O que ele
+  precisa dali é só confirmar que o canal está recebendo. O endpoint do poll
+  (`wapi-webhook-events`) usa `require_master_in_company_json`, a **mesma** guarda da
+  tela — antes exigia `role == 'adm'` e por isso devolvia 403 justamente para a única
+  pessoa que abre a tela, e o JavaScript engolia o erro a cada 5 segundos.
 
 ## 5. Tela Conversas (`templates/accounts/conversations.html` + `conversations.css`)
 
@@ -986,6 +994,14 @@ Controla **quais botões da barra lateral cada perfil vê e acessa** — não é
 visual: as views são gateadas (`require_feature` / `user_can_access`), então
 esconder o botão também bloqueia a URL.
 
+> **Vale também para os endpoints AJAX** (`require_feature_json`): a tela e a URL de
+> dados que a alimenta passam pela **mesma** guarda. Isso já foi um buraco real —
+> `conversation-list` não tinha gate nenhum, então quem tinha o botão Conversas
+> removido levava 403 na tela e continuava recebendo por aquela URL a lista completa,
+> **com a prévia da última mensagem** de cada conversa. Ao criar endpoint novo,
+> começar pela guarda, não deixá-la para depois (testes em
+> `AjaxEndpointsRespectMenuPermissionsTests`).
+
 - **Features** (botões reais, com ícone) em `MENU_FEATURES`: `dashboard`,
   `conversations`, `contacts`, `attendants`, `sectors`, `settings`. O botão
   **Permissões** (`permissions`) é exclusivo do ADM e o botão **Clientes**
@@ -1474,7 +1490,9 @@ uma empresa, nem o de outra, em nenhuma tela e por nenhuma URL.
 
 | O que | Como está fechado |
 |---|---|
-| Conversas e mensagens | `visible_conversations`/`can_see_conversation` devolvem vazio/False para o master (inclusive no modo suporte); os endpoints AJAX têm `deny_master_json` |
+| Conversas e mensagens | `visible_conversations`/`can_see_conversation` devolvem vazio/False para o master (inclusive no modo suporte) **e** os endpoints AJAX chamam `deny_master_json` + `require_feature_json` — duas trancas independentes |
+| **Nomear contato pelo chat** | `conversation-name-contact` passa por `deny_master_json` + `require_feature_json('contacts')`. Antes não tinha guarda nenhuma: o master gravava contato dentro da empresa do cliente por POST, enquanto a tela Contatos já dava 403 para ele |
+| **Texto das mensagens na tela WhatsApp** | o painel "Últimas mensagens que chegaram" mostra só **horário, direção e tipo** — nunca o texto, o telefone ou o nome do contato. Antes mostrava os três, na única tela que só o master abre (ver seção 4) |
 | **Arquivos** (foto/áudio/vídeo/documento) | só saem por `message-media`, que usa `can_see_conversation` → **403 para o master**. O Nginx não publica mais `media/whatsapp/` (seção 4) |
 | Contatos, Dashboard, Setores, Atendentes, Permissões e Atendimento | `user_can_access` devolve `False` para o master em **toda** feature da empresa — **403** inclusive no modo suporte e por POST forjado |
 | **Nomes dos grupos** de WhatsApp | ficam na tela Permissões, que é do ADM da empresa: o master leva **403** na tela inteira e nos POSTs `groups`/`group-name`/`group-remove` |

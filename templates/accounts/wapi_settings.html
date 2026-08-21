@@ -5,7 +5,7 @@
 {% block extra_head %}
 <link rel="stylesheet" href="{% static 'css/dashboard.css' %}">
 <link rel="stylesheet" href="{% static 'css/settings_tabs.css' %}?v=2">
-<link rel="stylesheet" href="{% static 'css/wapi_settings.css' %}">
+<link rel="stylesheet" href="{% static 'css/wapi_settings.css' %}?v=2">
 {% endblock %}
 
 {% block content %}
@@ -171,28 +171,34 @@
           data-webhook-events
           data-events-url="{% url 'wapi-webhook-events' %}"
         >
-          <h3>Ultimos eventos recebidos</h3>
+          <h3>Ultimas mensagens que chegaram</h3>
+          {# PRIVACIDADE: esta tela e do gestor master, que administra os clientes    #}
+          {# sem ler o atendimento deles (docs/CONTEXTO.md secao 16). Antes este      #}
+          {# painel mostrava o TEXTO da mensagem, o TELEFONE e o NOME do contato —    #}
+          {# justamente o que a regra proibe, na unica tela que so ele abre. Aqui vao #}
+          {# apenas tipo, direcao e horario: o suficiente para confirmar que o        #}
+          {# WhatsApp do cliente esta recebendo.                                     #}
+          <p class="webhook-privacy-note">
+            Mostramos só o horário e o tipo de cada mensagem, para você confirmar que
+            o WhatsApp está recebendo. O conteúdo das conversas é do cliente.
+          </p>
           <div class="webhook-event-list" data-webhook-event-list>
             {% for event in latest_webhook_events %}
               <article class="webhook-event-row">
-                <div class="event-message">
-                  <span class="event-label">Mensagem</span>
-                  <strong>{{ event.short_text|default:"-" }}</strong>
-                </div>
-                <div>
-                  <span class="event-label">Telefone</span>
-                  <span>{{ event.phone|default:"-" }}</span>
-                </div>
-                <div>
-                  <span class="event-label">Nome</span>
-                  <span>{{ event.contact_name|default:"-" }}</span>
-                </div>
                 <div>
                   <span class="event-label">Recebida em</span>
-                  <span>{{ event.received_at|date:"d/m/Y H:i" }}</span>
+                  <strong>{{ event.received_at|date:"d/m/Y H:i" }}</strong>
                 </div>
                 <div>
-                  <span class="event-label">Tipo</span>
+                  <span class="event-label">Direção</span>
+                  <span>{% if event.from_me %}Enviada{% else %}Recebida{% endif %}</span>
+                </div>
+                <div>
+                  <span class="event-label">Conteúdo</span>
+                  <span>{{ event.message_type|default:"-" }}</span>
+                </div>
+                <div>
+                  <span class="event-label">Evento</span>
                   <span>{{ event.event_type|default:"-" }}</span>
                 </div>
               </article>
@@ -261,11 +267,10 @@
       events.forEach(function (event) {
         const row = document.createElement('article');
         row.className = 'webhook-event-row';
-        row.appendChild(buildField('Mensagem', 'strong', event.message_text, 'event-message'));
-        row.appendChild(buildField('Telefone', 'span', event.phone));
-        row.appendChild(buildField('Nome', 'span', event.contact_name));
-        row.appendChild(buildField('Recebida em', 'span', event.received_at));
-        row.appendChild(buildField('Tipo', 'span', event.event_type));
+        row.appendChild(buildField('Recebida em', 'strong', event.received_at));
+        row.appendChild(buildField('Direção', 'span', event.direction));
+        row.appendChild(buildField('Conteúdo', 'span', event.message_type));
+        row.appendChild(buildField('Evento', 'span', event.event_type));
         fragment.appendChild(row);
       });
 

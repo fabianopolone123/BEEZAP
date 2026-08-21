@@ -299,3 +299,13 @@
     width: 100%;
   }
 }
+
+/* Aviso de privacidade do painel de eventos: o master ve que a mensagem chegou,
+   nunca o conteudo dela (ver docs/CONTEXTO.md secao 16). */
+.wapi-settings-page .webhook-privacy-note {
+  margin: 0 0 0.75rem;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  color: #5c6f86;
+  max-width: 62ch;
+}

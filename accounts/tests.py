@@ -5031,3 +5031,228 @@ class CompanyBrandScreenTests(TestCase):
         self.client.force_login(self.master)
         # O master nem alcanca a area de Atendimento (403); a aba nao existe para ele.
         self.assertEqual(self.client.get(reverse('atendimento')).status_code, 403)
+
+
+class WebhookEventsPanelPrivacyTests(TestCase):
+    """A tela WhatsApp e do gestor master — e nao pode mostrar o atendimento.
+
+    Regressao de um buraco real: o painel "Ultimos eventos recebidos" renderizava o
+    TEXTO da mensagem (`short_text`), o TELEFONE e o NOME do contato. Como a tela e
+    exclusiva do master (`require_master_in_company`), a unica pessoa que a abria era
+    justamente a que, pela regra do produto, nao le o atendimento de ninguem
+    (docs/CONTEXTO.md secao 16).
+
+    De quebra, o endpoint do poll exigia `role == 'adm'`, entao devolvia 403 para o
+    master: o painel nunca atualizava e o JavaScript engolia o erro a cada 5s.
+    """
+
+    SEGREDO = 'Preciso do orcamento de 12 mil reais'
+    TELEFONE = '5519988887777'
+    CONTATO = 'Joao da Silva'
+
+    def setUp(self):
+        from .models import Company, WapiConfiguration, WapiWebhookEvent
+        self.company = Company.objects.create(name='Cliente Alfa', slug='cliente-alfa')
+        self.master = User.objects.create_user(
+            email='master-eventos@x.com', password='SenhaForte123', role=User.Role.MASTER,
+        )
+        WapiConfiguration.objects.create(
+            company=self.company, instance_id='INST-1', token='TOKEN-1',
+        )
+        WapiWebhookEvent.objects.create(
+            company=self.company, event_type='message', message_type='text',
+            phone=self.TELEFONE, contact_name=self.CONTATO, message_text=self.SEGREDO,
+        )
+
+    def _entrar_no_painel(self):
+        self.client.force_login(self.master)
+        session = self.client.session
+        session['active_company_id'] = self.company.pk
+        session.save()
+
+    def test_tela_nao_mostra_texto_telefone_nem_nome_do_contato(self):
+        self._entrar_no_painel()
+        response = self.client.get(reverse('wapi-settings'))
+        self.assertEqual(response.status_code, 200)
+        corpo = response.content.decode()
+        self.assertNotIn(self.SEGREDO, corpo)
+        self.assertNotIn(self.TELEFONE, corpo)
+        self.assertNotIn(self.CONTATO, corpo)
+
+    def test_tela_ainda_mostra_que_a_mensagem_chegou(self):
+        """O painel continua util: o master confirma que o canal esta recebendo."""
+        self._entrar_no_painel()
+        response = self.client.get(reverse('wapi-settings'))
+        self.assertContains(response, 'Recebida em')
+
+    def test_poll_de_eventos_responde_ao_master_no_painel(self):
+        self._entrar_no_painel()
+        response = self.client.get(
+            reverse('wapi-webhook-events'),
+            headers={'x-requested-with': 'XMLHttpRequest'},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()['ok'])
+
+    def test_poll_de_eventos_nao_devolve_conteudo_de_atendimento(self):
+        self._entrar_no_painel()
+        response = self.client.get(reverse('wapi-webhook-events'))
+        evento = response.json()['events'][0]
+        self.assertNotIn('message_text', evento)
+        self.assertNotIn('phone', evento)
+        self.assertNotIn('contact_name', evento)
+        self.assertEqual(evento['message_type'], 'text')
+        self.assertEqual(evento['direction'], 'Recebida')
+
+    def test_poll_de_eventos_barra_o_adm_do_cliente(self):
+        """A tela e do master; o endpoint que a alimenta tem a MESMA guarda."""
+        adm = User.objects.create_user(
+            email='adm-eventos@x.com', password='SenhaForte123',
+            role=User.Role.ADM, company=self.company,
+        )
+        adm.attendant_profile.must_change_password = False
+        adm.attendant_profile.save(update_fields=['must_change_password'])
+        self.client.force_login(adm)
+        response = self.client.get(reverse('wapi-webhook-events'))
+        self.assertEqual(response.status_code, 403)
+
+    def test_poll_de_eventos_barra_o_master_fora_do_painel(self):
+        self.client.force_login(self.master)
+        response = self.client.get(reverse('wapi-webhook-events'))
+        self.assertEqual(response.status_code, 403)
+
+
+class AjaxEndpointsRespectMenuPermissionsTests(TestCase):
+    """Esconder o botao tem que bloquear a URL — inclusive a URL de DADOS.
+
+    Regressao: o gate de feature estava so nas telas. Um usuario com o botao
+    Conversas removido pela tela Permissoes levava 403 na tela e continuava
+    recebendo, por `conversation-list`, a lista completa com a PREVIA da ultima
+    mensagem de cada conversa. O mesmo valia para sincronizar grupos e nomear
+    contato.
+    """
+
+    PREVIA = 'conteudo sensivel da ultima mensagem'
+
+    def setUp(self):
+        from .models import (Attendant as Att, Contact, Conversation, Sector,
+                             UserMenuPermission)
+        self.company = default_company()
+        self.user = User.objects.create_user(
+            email='sem-botao@x.com', password='SenhaForte123',
+            role=User.Role.USUARIO, company=self.company,
+        )
+        self.attendant = Att.objects.create(
+            company=self.company, user=self.user, name='Ana',
+            must_change_password=False,
+        )
+        setor = Sector.objects.create(company=self.company, name='Financeiro AJAX')
+        setor.attendants.add(self.attendant)
+        contato = Contact.objects.create(
+            company=self.company, name='Cliente', phone='5519777776666',
+        )
+        self.conversation = Conversation.objects.create(
+            company=self.company, contact=contato, external_id='5519777776666',
+            chat_type='private', sector=setor, last_message_text=self.PREVIA,
+        )
+        # O ADM retira o botao Conversas desta pessoa.
+        UserMenuPermission.objects.create(user=self.user, allowed_keys=['contacts'])
+        self.client.force_login(self.user)
+
+    def test_tela_e_endpoint_de_lista_respondem_igual(self):
+        self.assertEqual(self.client.get(reverse('conversations')).status_code, 403)
+        response = self.client.get(reverse('conversation-list'))
+        self.assertEqual(response.status_code, 403)
+
+    def test_previa_da_mensagem_nao_vaza_pela_lista(self):
+        response = self.client.get(reverse('conversation-list'))
+        self.assertNotIn(self.PREVIA, response.content.decode())
+
+    def test_mensagens_da_conversa_bloqueadas(self):
+        response = self.client.get(
+            reverse('conversation-messages', args=[self.conversation.id])
+        )
+        self.assertEqual(response.status_code, 403)
+
+    def test_sincronizar_grupos_bloqueado(self):
+        """Sem o gate, esta URL disparava uma chamada externa a W-API da empresa."""
+        response = self.client.post(reverse('conversation-sync-groups'))
+        self.assertEqual(response.status_code, 403)
+
+    def test_acoes_de_atendimento_bloqueadas(self):
+        for nome in ('conversation-send', 'conversation-transfer',
+                     'conversation-take', 'conversation-close'):
+            with self.subTest(endpoint=nome):
+                response = self.client.post(
+                    reverse(nome, args=[self.conversation.id]), {'text': 'oi'}
+                )
+                self.assertEqual(response.status_code, 403)
+
+    def test_nomear_contato_bloqueado_sem_o_botao_contatos(self):
+        from .models import UserMenuPermission
+        UserMenuPermission.objects.filter(user=self.user).update(allowed_keys=[])
+        response = self.client.post(
+            reverse('conversation-name-contact'),
+            {'number': '5519333334444', 'name': 'Nome Novo'},
+        )
+        self.assertEqual(response.status_code, 403)
+
+
+class MasterCannotTouchClientAttendanceTests(TestCase):
+    """O master nao OPERA o atendimento — nem por endpoint AJAX, no modo suporte.
+
+    Regressao: `conversation-name-contact` nao tinha guarda nenhuma de master, entao
+    ele gravava contato dentro da empresa do cliente por POST, enquanto a tela
+    Contatos devolvia 403 para ele. `deny_master_json` (que a secao 16 ja descrevia
+    como instalada, mas que nunca era chamada) passou a ser realmente aplicada nos
+    endpoints de atendimento.
+    """
+
+    def setUp(self):
+        from .models import Company, Contact, Conversation
+        self.company = Company.objects.create(name='Cliente Beta', slug='cliente-beta')
+        self.master = User.objects.create_user(
+            email='master-ajax@x.com', password='SenhaForte123', role=User.Role.MASTER,
+        )
+        contato = Contact.objects.create(
+            company=self.company, name='', phone='5519222223333',
+        )
+        self.conversation = Conversation.objects.create(
+            company=self.company, contact=contato, external_id='5519222223333',
+            chat_type='private',
+        )
+        self.client.force_login(self.master)
+        session = self.client.session
+        session['active_company_id'] = self.company.pk
+        session.save()
+
+    def test_master_nao_nomeia_contato_do_cliente(self):
+        from .models import Contact
+        response = self.client.post(
+            reverse('conversation-name-contact'),
+            {'number': '5519444445555', 'name': 'Criado pelo master'},
+        )
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse(
+            Contact.objects.filter(company=self.company, name='Criado pelo master').exists()
+        )
+
+    def test_master_nao_lista_conversas_do_cliente(self):
+        response = self.client.get(reverse('conversation-list'))
+        self.assertEqual(response.status_code, 403)
+
+    def test_master_nao_abre_mensagens_do_cliente(self):
+        response = self.client.get(
+            reverse('conversation-messages', args=[self.conversation.id])
+        )
+        self.assertEqual(response.status_code, 403)
+
+    def test_master_nao_sincroniza_grupos_do_cliente(self):
+        response = self.client.post(reverse('conversation-sync-groups'))
+        self.assertEqual(response.status_code, 403)
+
+    def test_master_nao_assume_nem_encerra_atendimento(self):
+        for nome in ('conversation-take', 'conversation-close', 'conversation-transfer'):
+            with self.subTest(endpoint=nome):
+                response = self.client.post(reverse(nome, args=[self.conversation.id]))
+                self.assertEqual(response.status_code, 403)
