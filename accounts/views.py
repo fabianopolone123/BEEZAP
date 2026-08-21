@@ -17,7 +17,7 @@ from django.contrib.auth import authenticate, login, logout, update_session_auth
 from django.contrib.auth.decorators import login_required
 from django.core import signing
 from django.db import IntegrityError, transaction
-from django.db.models import Count, Max, OuterRef, Q, Subquery, Sum
+from django.db.models import Count, Max, Min, OuterRef, Q, Subquery, Sum
 from django.db.models.functions import Coalesce
 from django.http import FileResponse, Http404, HttpResponseForbidden, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
@@ -26,6 +26,34 @@ from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 
+# NAO ha ciclo de import aqui: `permissions.py`, `tenancy.py` e `signals.py` importam
+# `models` apenas DENTRO das funcoes, e nenhum deles importa `views`. Os imports
+# tardios espalhados pelo arquivo (34 deles) eram vestigio de um ciclo que ja nao
+# existe — custavam uma linha de ruido por uso e escondiam as dependencias reais do
+# modulo.
+from .permissions import (
+    ALL_FEATURE_KEYS,
+    EDITABLE_ROLES,
+    MENU_FEATURES,
+    allowed_keys_for,
+    can_see_conversation,
+    effective_view_scope,
+    first_landing_url_name,
+    history_full_for,
+    is_read_only,
+    nav_items_for,
+    role_allowed_keys,
+    user_can_access,
+    visible_conversations,
+)
+from .tenancy import (
+    current_company as tenancy_current_company,
+    deny_master_json as tenancy_deny_master_json,
+    is_master,
+    require_master as tenancy_require_master,
+    set_active_company as tenancy_set_active_company,
+)
+from .signals import ensure_admin_attendant
 from .forms import (
     AttendantForm,
     CompanyAdminForm,
@@ -65,7 +93,17 @@ from .models import (
     WapiConfiguration,
     WapiWebhookEvent,
 )
+from gpt.attendant import DEFAULT_INSTRUCTIONS, resolved_instructions
 from gpt.client import test_connection as gpt_test_connection
+from chatbot.handler import (
+    DEFAULT_CONFIRMATION_MESSAGE,
+    DEFAULT_GREETING,
+    DEFAULT_HANDOFF_MESSAGE,
+    DEFAULT_INVALID_MESSAGE,
+    DEFAULT_MENU_INTRO,
+    build_menu_text,
+)
+from .export import build_company_export, export_filename
 from wapi.client import (
     check_connection as wapi_check_connection,
     send_audio_message,
@@ -78,6 +116,7 @@ from wapi.formatting import markdown_to_whatsapp
 from wapi.parser import parse_wapi_webhook_payload
 from wapi.services import (
     SYSTEM_CLOSE_TEXT,
+    SYSTEM_NEW_SERVICE_TEXT,
     convert_audio_to_ogg,
     ensure_wapi_image,
     document_filename,
@@ -180,14 +219,12 @@ def build_settings_tabs(active_tab, active_subtab='', company=None):
 
 def set_active_company(request, company):
     """Entra/sai do painel de um cliente (modo suporte do master)."""
-    from .tenancy import set_active_company as _set_active_company
-    return _set_active_company(request, company)
+    return tenancy_set_active_company(request, company)
 
 
 def current_company(request):
     """Empresa da requisicao (ver accounts/tenancy.py)."""
-    from .tenancy import current_company as _current_company
-    return _current_company(request)
+    return tenancy_current_company(request)
 
 
 def require_master_in_company(request):
@@ -197,7 +234,6 @@ def require_master_in_company(request):
     Retorna um redirect amigavel quando o master ainda nao escolheu a empresa, e 403
     para qualquer outro perfil — o cliente nao mexe em credencial.
     """
-    from .tenancy import is_master
     if not is_master(request.user):
         return HttpResponseForbidden(
             'As configurações do WhatsApp são feitas pelo administrador da plataforma.'
@@ -218,21 +254,18 @@ def master_in_company(request):
     W-API) — nada do negocio da empresa e nunca Conversas/Contatos. Ver
     accounts/permissions.WHATSAPP_ITEM e accounts/tenancy.py.
     """
-    from .tenancy import current_company, is_master
     return is_master(request.user) and current_company(request) is not None
 
 
 def build_nav_items(user, active_label, request=None):
     """Itens do menu conforme as PERMISSOES do usuario (ver accounts/permissions.py)."""
-    from .permissions import nav_items_for
     in_company = master_in_company(request) if request is not None else False
     return nav_items_for(user, active_label, in_company=in_company)
 
 
 def require_master(request):
     """Retorna 403 se quem chamou nao e o gestor master; senao None."""
-    from .tenancy import require_master as _require_master
-    return _require_master(request)
+    return tenancy_require_master(request)
 
 
 def request_company(request):
@@ -242,14 +275,12 @@ def request_company(request):
     retaguarda para a empresa padrao existe para nunca gravar um registro sem
     empresa (o campo e obrigatorio) caso um usuario antigo esteja sem vinculo.
     """
-    from .tenancy import current_company
     return current_company(request) or Company.get_default()
 
 
 def require_feature(request, key):
     """Retorna 403 se o usuario nao pode acessar a feature/botao `key` (o admin
     sempre pode). Retorna None quando o acesso e permitido."""
-    from .permissions import user_can_access
     if not user_can_access(request.user, key):
         return HttpResponseForbidden('Acesso restrito.')
     return None
@@ -263,7 +294,6 @@ def require_feature_json(request, key):
     atendido pelos endpoints que a alimentam. A promessa do modulo de permissoes e
     que esconder o botao BLOQUEIA a URL — inclusive a URL de dados.
     """
-    from .permissions import user_can_access
     if not user_can_access(request.user, key):
         return JsonResponse({'ok': False, 'error': 'Acesso restrito.'}, status=403)
     return None
@@ -276,13 +306,11 @@ def deny_master_json(request):
     clientes e nao opera (nem le) o atendimento deles, nem dentro do painel do
     cliente. Ver accounts/tenancy.deny_master_json e docs/CONTEXTO.md secao 16.
     """
-    from .tenancy import deny_master_json as _deny_master_json
-    return _deny_master_json(request)
+    return tenancy_deny_master_json(request)
 
 
 def deny_conversation_json(request, conversation):
     """Retorna 403 JSON se o usuario nao pode ver a conversa; senao None."""
-    from .permissions import can_see_conversation
     if not can_see_conversation(request.user, conversation):
         return JsonResponse({'ok': False, 'error': 'Acesso restrito.'}, status=403)
     return None
@@ -291,7 +319,6 @@ def deny_conversation_json(request, conversation):
 def deny_readonly_json(request):
     """Retorna 403 JSON se o usuario e SOMENTE LEITURA (perfil leitor); senao None.
     Usado nos endpoints AJAX que alteram dados (enviar, assumir, encerrar, etc.)."""
-    from .permissions import is_read_only
     if is_read_only(request.user):
         return JsonResponse(
             {'ok': False, 'error': 'Seu perfil e somente leitura: voce pode visualizar, mas nao executar acoes.'},
@@ -304,7 +331,6 @@ def block_readonly(request):
     """Retorna 403 (pagina) se o usuario e SOMENTE LEITURA; senao None. Usado no
     tratamento de POST das telas de formulario (contatos, atendentes, setores,
     configuracoes)."""
-    from .permissions import is_read_only
     if is_read_only(request.user):
         return HttpResponseForbidden('Seu perfil e somente leitura.')
     return None
@@ -477,7 +503,6 @@ def require_master_in_company_json(request):
     unica pessoa que abre a tela — o painel de eventos nunca atualizava e o
     JavaScript engolia o erro a cada 5 segundos, silenciosamente.
     """
-    from .tenancy import is_master
     if not is_master(request.user) or current_company(request) is None:
         return JsonResponse({'ok': False, 'error': 'Acesso restrito.'}, status=403)
     return None
@@ -640,8 +665,6 @@ def build_dashboard_context(company):
 
     MULTIEMPRESA: todos os numeros sao SOMENTE da empresa informada — nenhum
     indicador mistura clientes."""
-    from django.db.models import Count, Min
-
     today = timezone.localdate()
     start_7 = today - timedelta(days=6)
     convs = Conversation.objects.filter(company=company)
@@ -764,7 +787,6 @@ def build_dashboard_context(company):
 @login_required
 def dashboard_view(request):
     # Quem nao tem o botao Dashboard cai na primeira tela disponivel (ex.: Conversas).
-    from .permissions import user_can_access, first_landing_url_name
     if not user_can_access(request.user, 'dashboard'):
         return redirect(first_landing_url_name(request.user))
 
@@ -793,8 +815,6 @@ def openai_settings_view(request):
     forbidden = require_master(request)
     if forbidden:
         return forbidden
-
-    from gpt.attendant import DEFAULT_INSTRUCTIONS, resolved_instructions
 
     config = OpenAiConfiguration.get_solo()
     config_form = OpenAiConfigurationForm(
@@ -880,15 +900,6 @@ def atendimento_view(request):
     forbidden = require_feature(request, 'settings')
     if forbidden:
         return forbidden
-
-    from chatbot.handler import (
-        DEFAULT_CONFIRMATION_MESSAGE,
-        DEFAULT_GREETING,
-        DEFAULT_HANDOFF_MESSAGE,
-        DEFAULT_INVALID_MESSAGE,
-        DEFAULT_MENU_INTRO,
-        build_menu_text,
-    )
 
     # O chatbot de cada empresa tem os SEUS textos, opcoes, tentativas e fallback.
     company = request_company(request)
@@ -1021,11 +1032,6 @@ def permissions_view(request):
     if forbidden:
         return forbidden
 
-    from .permissions import (
-        EDITABLE_ROLES, MENU_FEATURES, ALL_FEATURE_KEYS,
-        role_allowed_keys, allowed_keys_for, history_full_for, effective_view_scope,
-    )
-    from .tenancy import is_master
     is_ajax = request.headers.get('x-requested-with') == 'XMLHttpRequest'
     # MULTIEMPRESA: esta tela decide quem ve o que, então TODA consulta aqui e
     # restrita a empresa de quem esta logado — pessoas, setores e grupos de outro
@@ -1916,7 +1922,6 @@ def conversations_view(request):
     forbidden = require_feature(request, 'conversations')
     if forbidden:
         return forbidden
-    from .permissions import visible_conversations, is_read_only
     role = request.user.role
     read_only = is_read_only(request.user)
     conversations = visible_conversations(
@@ -1991,8 +1996,6 @@ def company_brand_view(request):
     qualquer feature da empresa (docs/CONTEXTO.md secao 16). O perfil `leitor` nao
     salva (bloqueio no POST).
     """
-    from .permissions import is_read_only as _is_read_only
-
     forbidden = require_feature(request, 'settings')
     if forbidden:
         return forbidden
@@ -2039,7 +2042,7 @@ def company_brand_view(request):
             'settings_tabs': build_settings_tabs('marca', company=company),
             'company': company,
             'form': form,
-            'read_only': _is_read_only(request.user),
+            'read_only': is_read_only(request.user),
             'logo_max_mb': CompanyBrandForm.LOGO_MAX_MB,
         },
     )
@@ -2062,7 +2065,6 @@ def company_data_view(request):
         return blocked
 
     company = request_company(request)
-    from .models import Contact, Conversation, Message
     return render(
         request,
         'accounts/company_data.html',
@@ -2101,7 +2103,6 @@ def company_export_view(request):
     if readonly:
         return readonly
 
-    from .export import build_company_export, export_filename
     company = request_company(request)
     if company is None:
         return HttpResponseForbidden('Sem empresa vinculada.')
@@ -2123,7 +2124,6 @@ def _delete_company_media_files(company):
     `_delete_company_media_files` so percorria `Message.media_file`, entao o arquivo
     de `media/empresas/logos/` sobrava no disco para sempre depois de o cliente sair.
     """
-    from .models import Message
     removidos = 0
     arquivos = (
         Message.objects.filter(conversation__company=company)
@@ -2143,7 +2143,6 @@ def _delete_company_media_files(company):
 
 def _deny_master_export(request):
     """403 para o gestor master nas telas de dados do cliente (inclusive no suporte)."""
-    from .tenancy import is_master
     if is_master(request.user):
         return HttpResponseForbidden(
             'A exportação é do cliente. O gestor master administra as empresas, '
@@ -2161,11 +2160,6 @@ def build_company_metrics(company):
     o suficiente para saber o tamanho do cliente, se ele esta usando o sistema e se
     o WhatsApp dele esta de pe.
     """
-    from .models import (
-        Attendant, CompanyAiUsage, Contact, Conversation, MenuBotConfiguration,
-        Message, Sector, WapiConfiguration, WapiWebhookEvent,
-    )
-
     now = timezone.now()
     last_7 = now - timedelta(days=7)
     last_30 = now - timedelta(days=30)
@@ -2587,7 +2581,6 @@ def clients_view(request):
                         # O sinal ja provisionou o Attendant do admin (ver
                         # accounts/signals.py); aqui ajustamos nome/telefone e
                         # OBRIGAMOS a troca da senha no primeiro acesso.
-                        from .signals import ensure_admin_attendant
                         attendant = ensure_admin_attendant(new_admin)
                         if attendant is not None:
                             attendant.name = admin_form.cleaned_data['name']
@@ -2924,7 +2917,6 @@ def contacts_view(request):
             messages.error(request, 'Ja existe um contato com esse telefone.')
         return redirect('contacts')
 
-    from .permissions import is_read_only
     term = (request.GET.get('q') or '').strip()
     company = request_company(request)
     contacts = Contact.objects.filter(company=company)
@@ -2961,7 +2953,6 @@ def conversation_list_view(request):
         return forbidden
     status = (request.GET.get('status') or 'todas').strip()
     tipo = (request.GET.get('tipo') or 'todas').strip()
-    from .permissions import visible_conversations
     term = (request.GET.get('q') or '').strip()
     base = visible_conversations(
         request.user,
@@ -2996,7 +2987,6 @@ def conversation_messages_view(request, conversation_id):
         Conversation.objects.select_related('contact', 'assigned_attendant', 'sector'),
         pk=conversation_id,
     )
-    from .permissions import can_see_conversation, history_full_for
     if not can_see_conversation(request.user, conversation):
         return JsonResponse({'ok': False, 'error': 'Acesso restrito.'}, status=403)
     # Ao abrir a conversa, zera as nao lidas.
@@ -3010,7 +3000,6 @@ def conversation_messages_view(request, conversation_id):
     if request.GET.get('retry'):
         retry_conversation_media_async(conversation.id)
 
-    from wapi.services import SYSTEM_NEW_SERVICE_TEXT
     messages_qs = conversation.messages.all()
     # Escopo do historico: quem nao tem "conversa inteira" ve so o ATENDIMENTO atual,
     # a partir da ultima divisoria "Novo atendimento iniciado" (NAO a de "Encerrado" —
@@ -3297,7 +3286,6 @@ def message_media_view(request, message_id):
     recebe 403 e o gestor master tambem — ele administra os clientes, nao le o
     atendimento deles.
     """
-    from .permissions import can_see_conversation
     message = get_object_or_404(
         Message.objects.select_related('conversation'), pk=message_id
     )
@@ -3590,7 +3578,6 @@ def conversation_take_view(request, conversation_id):
     if attendant is None and request.user.role == User.Role.ADM:
         # O admin sempre pode assumir: provisiona o perfil de atendente na hora
         # (normalmente ja existe pelo sinal/backfill; isto e uma rede de seguranca).
-        from .signals import ensure_admin_attendant
         attendant = ensure_admin_attendant(request.user)
     if attendant is None:
         return JsonResponse(
@@ -3756,7 +3743,6 @@ def sectors_view(request):
 def sectors_save_organization_view(request):
     if not request.user.is_authenticated:
         return JsonResponse({'ok': False, 'error': 'Sessão expirada. Faça login novamente.'}, status=401)
-    from .permissions import user_can_access
     if not user_can_access(request.user, 'sectors'):
         return JsonResponse({'ok': False, 'error': 'Acesso restrito.'}, status=403)
     readonly = deny_readonly_json(request)

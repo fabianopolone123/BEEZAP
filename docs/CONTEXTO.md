@@ -51,6 +51,7 @@ wapi/              MÓDULO (não é app instalado): client.py, parser.py, servic
 gpt/               MÓDULO (não é app): client.py, attendant.py (atendente virtual IA)
 chatbot/           MÓDULO (não é app): handler.py (chatbot de menu, sem IA)
 static/css/        CSS por página (dashboard.css, conversations.css, clients.css, ...)
+static/js/         conversations.js (o comportamento da tela Conversas)
 templates/         base.html + accounts/*.html
                    (accounts/_sidebar.html = barra lateral única, incluída por todas)
 docs/              documentação (este arquivo, DEPLOY.md, etc.)
@@ -556,6 +557,14 @@ sai por duas rotas do Django:
   listas `*/-/+`→`•`, `[texto](url)`→`texto (url)`; citação `>` e lista numerada
   mantidas) preservando as quebras. O histórico guarda a **mesma** versão enviada.
 - **Transferência** (setor/atendente) por selects na coluna de info.
+- **O JavaScript fica em `static/js/conversations.js`**, não inline no template. Eram
+  **1.593 linhas** dentro do `conversations.html` (que tinha 1.773 no total): o JS não
+  tinha cache-busting próprio (dependia do restart do gunicorn para publicar) e achar
+  o HTML no meio do script exigia rolar quase 1.800 linhas. Carregado com
+  `{% asset 'js/conversations.js' %}`.
+  > **O arquivo não passa por template**, então não pode conter `{% %}` nem `{{ }}`.
+  > Tudo o que vem do servidor entra por `data-*` em `.conv-body`: `data-conv-base`,
+  > `data-csrf`, `data-read-only`, `data-page-size`, `data-logo`.
 - **URLs AJAX** montadas a partir de `window.location.pathname` (até `/conversas/`)
   para respeitar o prefixo `/beeonboard/` mesmo se o `{% url %}` vier sem prefixo.
 - Endpoints: `conversation-list` (`/conversas/lista/`, aceita `?limite=`),

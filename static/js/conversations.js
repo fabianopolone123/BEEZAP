@@ -1,0 +1,1610 @@
+/* Tela CONVERSAS — comportamento da interface.
+ *
+ * Este arquivo era 1.593 linhas de JavaScript INLINE dentro de
+ * `templates/accounts/conversations.html` (que tinha 1.773 linhas no total). Isso
+ * custava duas coisas:
+ *
+ *  1. o JS nao tinha cache-busting proprio — dependia do restart do gunicorn para
+ *     publicar, junto do template;
+ *  2. o template do maior fluxo do sistema era ilegivel: achar o HTML no meio do
+ *     script (ou o contrario) exigia rolar um arquivo de quase 1.800 linhas.
+ *
+ * Agora ele e um estatico normal, servido com `{% asset 'js/conversations.js' %}`,
+ * que versiona pela data do arquivo (ver accounts/templatetags/beeonboard_assets.py).
+ *
+ * Tudo o que vem do servidor entra por `data-*` em `.conv-body` (base das URLs, token
+ * de CSRF, perfil somente-leitura, tamanho da pagina, logo da notificacao) — o
+ * arquivo NAO passa por template, entao nao pode conter `{% %}` nem `{{ }}`.
+ */
+
+(function () {
+  'use strict';
+
+  var body = document.querySelector('.conv-body');
+  if (!body) return;
+
+  // Deriva a base das rotas AJAX do caminho REAL da pagina no navegador, para
+  // funcionar sob prefixo (ex.: /beezap/conversas/) mesmo quando a URL gerada
+  // pelo servidor vier sem o prefixo. Fallback para o valor do data-conv-base.
+  var base = (function () {
+    var path = window.location.pathname;
+    var marker = '/conversas/';
+    var idx = path.indexOf(marker);
+    if (idx !== -1) return path.slice(0, idx + marker.length);
+    return body.dataset.convBase || '/conversas/';
+  }());
+  var csrf = body.dataset.csrf;
+
+  var listEl = document.querySelector('[data-conv-list]');
+  var placeholderEl = document.querySelector('[data-conv-placeholder]');
+  var panelEl = document.querySelector('[data-conv-panel]');
+  var messagesEl = document.querySelector('[data-conv-messages]');
+  var ownerTabsEl = document.querySelector('[data-owner-tabs]');
+  var sendForm = document.querySelector('[data-conv-send-form]');
+  var inputEl = document.querySelector('[data-conv-input]');
+  var sendBtn = document.querySelector('[data-conv-send]');
+  var attachWrap = document.querySelector('[data-attach]');
+  var attachToggle = document.querySelector('[data-attach-toggle]');
+  var attachMenu = document.querySelector('[data-attach-menu]');
+  var attachFile = document.querySelector('[data-attach-file]');
+  var micBtn = document.querySelector('[data-mic]');
+  var recIndicator = document.querySelector('[data-rec-indicator]');
+  var recTimeEl = document.querySelector('[data-rec-time]');
+  var recCancelBtn = document.querySelector('[data-rec-cancel]');
+  var searchEl = document.querySelector('[data-conv-search]');
+  var chipEls = document.querySelectorAll('[data-filter]');
+  var typeTabEls = document.querySelectorAll('[data-type-filter]');
+  var refreshBtn = document.querySelector('[data-refresh-all]');
+  var waitingBadge = document.querySelector('[data-waiting-badge]');
+  var listEmptyEl = document.querySelector('[data-conv-list-empty]');
+
+  var infoEmpty = document.querySelector('[data-info-empty]');
+  var infoPanel = document.querySelector('[data-info-panel]');
+  var sectorSelect = document.querySelector('[data-transfer-sector]');
+  var attendantSelect = document.querySelector('[data-transfer-attendant]');
+  var takeBtn = document.querySelector('[data-take-conversation]');
+  var closeBtn = document.querySelector('[data-close-conversation]');
+
+  var currentId = null;
+  var currentStatus = 'todas';
+  var currentType = 'todas';
+  var currentIsGroup = false;
+  var currentContactPhone = '';
+  var currentContactName = '';
+  var pollTimer = null;
+  var searchTimer = null;
+
+  /* ---------- Toast simples (reaproveita o visual do base.html) ---------- */
+  function showToast(text, type) {
+    var container = document.querySelector('.toast-container');
+    if (!container) {
+      container = document.createElement('div');
+      container.className = 'toast-container';
+      document.body.appendChild(container);
+    }
+    var toast = document.createElement('div');
+    toast.className = 'toast-message toast-' + (type || 'info');
+    var marker = document.createElement('span');
+    marker.className = 'toast-marker';
+    var content = document.createElement('div');
+    content.className = 'toast-content';
+    content.textContent = text;
+    toast.appendChild(marker);
+    toast.appendChild(content);
+    container.appendChild(toast);
+    window.setTimeout(function () {
+      toast.classList.add('toast-hiding');
+      window.setTimeout(function () { toast.remove(); }, 220);
+    }, 4000);
+    return toast;
+  }
+
+  function urlFor(id, suffix) {
+    return base + id + '/' + suffix + '/';
+  }
+
+  /* ---------- Lightbox (foto/video em tela grande) ---------- */
+  var lightbox = null;
+  function ensureLightbox() {
+    if (lightbox) return lightbox;
+    lightbox = document.createElement('div');
+    lightbox.className = 'conv-lightbox';
+    lightbox.hidden = true;
+    var inner = document.createElement('div');
+    inner.className = 'conv-lightbox-inner';
+    var closeBtn = document.createElement('button');
+    closeBtn.type = 'button';
+    closeBtn.className = 'conv-lightbox-close';
+    closeBtn.setAttribute('aria-label', 'Fechar');
+    closeBtn.textContent = '×';
+    var stage = document.createElement('div');
+    stage.className = 'conv-lightbox-stage';
+    inner.appendChild(closeBtn);
+    inner.appendChild(stage);
+    lightbox.appendChild(inner);
+    lightbox._stage = stage;
+    // Fecha ao clicar no fundo (fora da midia) ou no X; nao fecha ao clicar na midia.
+    lightbox.addEventListener('click', function (e) {
+      if (e.target === lightbox || e.target === inner || e.target === closeBtn) closeLightbox();
+    });
+    document.body.appendChild(lightbox);
+    return lightbox;
+  }
+
+  function closeLightbox() {
+    if (!lightbox || lightbox.hidden) return;
+    lightbox._stage.replaceChildren(); // remove o <video> -> interrompe play/download
+    lightbox.hidden = true;
+    document.body.classList.remove('conv-lightbox-open');
+  }
+
+  function openLightbox(kind, url) {
+    var lb = ensureLightbox();
+    var stage = lb._stage;
+    stage.replaceChildren();
+    if (kind === 'video') {
+      var v = document.createElement('video');
+      v.src = url; v.controls = true; v.autoplay = true; v.playsInline = true;
+      v.className = 'conv-lightbox-video';
+      stage.appendChild(v);
+    } else {
+      var img = document.createElement('img');
+      img.src = url; img.alt = 'imagem'; img.className = 'conv-lightbox-img';
+      stage.appendChild(img);
+    }
+    lb.hidden = false;
+    document.body.classList.add('conv-lightbox-open');
+  }
+
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') closeLightbox();
+  });
+
+  /* ---------- Modal "Nomear contato" ---------- */
+  var nameModal = null;
+  var nameModalInput = null;
+  var nameModalNumberEl = null;
+  var nameModalNumber = '';
+
+  function ensureNameModal() {
+    if (nameModal) return nameModal;
+    nameModal = document.createElement('div');
+    nameModal.className = 'conv-name-modal';
+    nameModal.hidden = true;
+    var card = document.createElement('div');
+    card.className = 'conv-name-card';
+    card.innerHTML =
+      '<div class="conv-name-title">Nomear contato</div>' +
+      '<div class="conv-name-number" data-name-number></div>' +
+      '<input type="text" class="conv-name-input" data-name-input placeholder="Nome do contato" maxlength="150">' +
+      '<div class="conv-name-actions">' +
+      '  <button type="button" class="conv-name-cancel" data-name-cancel>Cancelar</button>' +
+      '  <button type="button" class="conv-name-save" data-name-save>Adicionar</button>' +
+      '</div>';
+    nameModal.appendChild(card);
+    document.body.appendChild(nameModal);
+    nameModalInput = card.querySelector('[data-name-input]');
+    nameModalNumberEl = card.querySelector('[data-name-number]');
+    var saveBtn = card.querySelector('[data-name-save]');
+    var cancelBtn = card.querySelector('[data-name-cancel]');
+    cancelBtn.addEventListener('click', closeNameModal);
+    saveBtn.addEventListener('click', submitNameModal);
+    nameModal.addEventListener('click', function (e) { if (e.target === nameModal) closeNameModal(); });
+    nameModalInput.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); submitNameModal(); }
+      else if (e.key === 'Escape') { e.preventDefault(); closeNameModal(); }
+    });
+    return nameModal;
+  }
+
+  function openNameModal(number, currentName) {
+    var m = ensureNameModal();
+    nameModalNumber = number;
+    nameModalNumberEl.textContent = number;
+    nameModalInput.value = currentName || '';
+    m.hidden = false;
+    document.body.classList.add('conv-lightbox-open');
+    window.setTimeout(function () { nameModalInput.focus(); nameModalInput.select(); }, 30);
+  }
+
+  function closeNameModal() {
+    if (!nameModal || nameModal.hidden) return;
+    nameModal.hidden = true;
+    document.body.classList.remove('conv-lightbox-open');
+  }
+
+  function submitNameModal() {
+    var name = (nameModalInput.value || '').trim();
+    if (!name) { nameModalInput.focus(); return; }
+    var payload = new URLSearchParams();
+    payload.append('number', nameModalNumber);
+    payload.append('name', name);
+    fetch(base + 'nomear-contato/', {
+      method: 'POST',
+      headers: {
+        'X-CSRFToken': csrf,
+        'X-Requested-With': 'XMLHttpRequest',
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: payload.toString(),
+    })
+      .then(function (r) { return r.json().then(function (d) { return {ok: r.ok, data: d}; }); })
+      .then(function (res) {
+        if (!res.ok || !res.data.ok) {
+          showToast((res.data && res.data.error) || 'Nao foi possivel salvar o contato.', 'error');
+          return;
+        }
+        closeNameModal();
+        showToast('Contato salvo como "' + name + '".', 'success');
+        // Conversa direta: atualiza o nome no cabecalho na hora (sai o numero, entra o
+        // nome; a linha de baixo volta a mostrar o telefone).
+        if (!currentIsGroup && nameModalNumber && nameModalNumber === currentContactPhone) {
+          var chatNameEl = document.querySelector('[data-chat-name]');
+          if (chatNameEl) {
+            chatNameEl.textContent = name;
+            chatNameEl.classList.remove('conv-chat-name-unnamed');
+            chatNameEl.title = 'Clique para renomear este contato';
+            chatNameEl.classList.add('conv-chat-name-editable');
+          }
+          var chatPhoneEl = document.querySelector('[data-chat-phone]');
+          if (chatPhoneEl) chatPhoneEl.textContent = currentContactPhone;
+          var infoNameEl = document.querySelector('[data-info-name]');
+          if (infoNameEl) infoNameEl.textContent = name;
+          currentContactName = name;
+        }
+        refreshOpenMessages();  // reexibe as mensagens com o nome no lugar do numero
+        refreshList(true);
+      })
+      .catch(function () {
+        showToast('Nao foi possivel salvar o contato. Tente novamente.', 'error');
+      });
+  }
+
+  // Clicar no nome do contato no cabecalho (conversa direta) abre o modal para
+  // renomear; o nome vale no contato e aparece na lista e nas mensagens.
+  var chatNameHeader = document.querySelector('[data-chat-name]');
+  if (chatNameHeader) {
+    chatNameHeader.addEventListener('click', function () {
+      if (currentIsGroup || !currentContactPhone) return;
+      openNameModal(currentContactPhone, currentContactName);
+    });
+  }
+
+  // Carrega a capa do video (primeiro quadro) so quando ela entra em tela,
+  // evitando baixar metadados de dezenas de videos de uma vez (performance).
+  var posterObserver = null;
+  function observeLazyPoster(video) {
+    if (!('IntersectionObserver' in window)) {
+      if (video.dataset.src) { video.preload = 'metadata'; video.src = video.dataset.src; }
+      return;
+    }
+    if (!posterObserver) {
+      posterObserver = new IntersectionObserver(function (entries) {
+        entries.forEach(function (entry) {
+          if (!entry.isIntersecting) return;
+          var v = entry.target;
+          if (v.dataset.src && !v.src) { v.preload = 'metadata'; v.src = v.dataset.src; }
+          posterObserver.unobserve(v);
+        });
+      }, {root: messagesEl, rootMargin: '250px'});
+    }
+    posterObserver.observe(video);
+  }
+
+  /* ---------- Render de mensagens ---------- */
+  function appendText(parent, text) {
+    // Texto seguro (sem HTML), preservando quebras de linha.
+    (text || '').split('\n').forEach(function (line, idx) {
+      if (idx > 0) parent.appendChild(document.createElement('br'));
+      parent.appendChild(document.createTextNode(line));
+    });
+  }
+
+  function appendMediaNote(bubble, msg) {
+    var note = document.createElement('div');
+    note.className = 'conv-media-note';
+    note.textContent = msg.media_status === 'pending' ? 'Carregando midia...' : 'Midia indisponivel';
+    bubble.appendChild(note);
+  }
+
+  function appendMedia(bubble, msg) {
+    var kind = msg.kind;
+    var url = msg.media_url;
+    var mime = msg.media_mimetype || '';
+    if (msg.media_status !== 'ok' || !url) {
+      appendMediaNote(bubble, msg);
+    } else if (kind === 'image' || kind === 'sticker' || (kind === 'gif' && mime.indexOf('image') === 0)) {
+      var img = document.createElement('img');
+      img.className = 'conv-media-img' + (kind === 'sticker' ? ' conv-media-sticker' : '');
+      img.src = url; img.alt = kind; img.loading = 'lazy';
+      // Foto/gif-imagem: clicar abre grande no lightbox (figurinha fica so inline).
+      if (kind !== 'sticker') {
+        img.setAttribute('role', 'button');
+        img.setAttribute('tabindex', '0');
+        img.addEventListener('click', function () { openLightbox('image', url); });
+        img.addEventListener('keydown', function (e) {
+          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openLightbox('image', url); }
+        });
+      }
+      bubble.appendChild(img);
+    } else if (kind === 'audio') {
+      var audio = document.createElement('audio');
+      audio.controls = true;
+      audio.preload = 'metadata';
+      audio.className = 'conv-media-audio';
+      // Informar o type ajuda o navegador a tocar mesmo quando o servidor entrega
+      // o arquivo com content-type generico (causa comum do play desabilitado).
+      if (mime) {
+        var srcEl = document.createElement('source');
+        srcEl.src = url;
+        srcEl.type = mime.split(';')[0].trim();
+        audio.appendChild(srcEl);
+      } else {
+        audio.src = url;
+      }
+      // Fallback: se nao der para tocar no navegador, permite baixar o audio.
+      var audioDl = document.createElement('a');
+      audioDl.className = 'conv-media-doc conv-media-audio-fallback';
+      audioDl.href = url; audioDl.target = '_blank'; audioDl.rel = 'noopener';
+      audioDl.textContent = '🎧 Baixar audio';
+      audioDl.hidden = true;
+      audio.addEventListener('error', function () { audioDl.hidden = false; });
+      bubble.appendChild(audio);
+      bubble.appendChild(audioDl);
+    } else if (kind === 'video') {
+      // Miniatura leve (nao baixa o video inteiro): mostra o primeiro quadro e
+      // um botao de play; clicar abre o video grande no lightbox.
+      var thumb = document.createElement('div');
+      thumb.className = 'conv-media-video-thumb';
+      thumb.setAttribute('role', 'button');
+      thumb.setAttribute('tabindex', '0');
+      thumb.setAttribute('aria-label', 'Abrir video');
+      var poster = document.createElement('video');
+      poster.className = 'conv-media-video-poster';
+      poster.muted = true;
+      poster.preload = 'none';
+      poster.tabIndex = -1;
+      poster.setAttribute('playsinline', '');
+      // '#t=0.1' faz o navegador exibir o 1o quadro como capa, sem tocar.
+      poster.dataset.src = url + '#t=0.1';
+      observeLazyPoster(poster);
+      var play = document.createElement('span');
+      play.className = 'conv-media-play';
+      play.setAttribute('aria-hidden', 'true');
+      thumb.appendChild(poster);
+      thumb.appendChild(play);
+      thumb.addEventListener('click', function () { openLightbox('video', url); });
+      thumb.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openLightbox('video', url); }
+      });
+      bubble.appendChild(thumb);
+    } else if (kind === 'gif') {
+      // GIF (mp4 curto) mantem o loop automatico silencioso, como no WhatsApp.
+      var video = document.createElement('video');
+      video.src = url; video.className = 'conv-media-video';
+      video.loop = true; video.muted = true; video.autoplay = true;
+      video.controls = false; video.playsInline = true;
+      bubble.appendChild(video);
+    } else if (kind === 'document') {
+      var link = document.createElement('a');
+      link.className = 'conv-media-doc'; link.href = url;
+      link.target = '_blank'; link.rel = 'noopener';
+      // Nome real do arquivo (vem separado da legenda) para o download; o texto
+      // exibido pode ser a legenda ou, na falta dela, o proprio nome.
+      var realName = (msg.filename && msg.filename.trim()) ? msg.filename.trim() : '';
+      var label = (msg.text && msg.text.trim()) ? msg.text.trim() : (realName || 'Baixar documento');
+      link.textContent = '📄 ' + label;
+      // Baixa com o nome/extensao originais (ex.: contrato.docx), em vez do nome
+      // do arquivo salvo no servidor (que pode ser .bin). So funciona same-origin,
+      // que e o caso do arquivo local em /media/.
+      var dlName = realName || ((msg.text && msg.text.trim()) ? msg.text.trim() : '');
+      if (dlName) link.download = dlName;
+      bubble.appendChild(link);
+      return;
+    }
+    if (kind !== 'document' && msg.text && msg.text.trim()) {
+      var cap = document.createElement('div');
+      cap.className = 'conv-media-caption';
+      appendText(cap, msg.text);
+      bubble.appendChild(cap);
+    }
+  }
+
+  // Assinatura do conteudo de uma mensagem: muda quando algo que afeta o render
+  // muda (ex.: uma midia sai de "pending" para "ok" depois de baixada).
+  function msgSignature(msg) {
+    return [msg.kind || 'text', msg.media_status || '', msg.media_url || '',
+            msg.text || '', msg.type, msg.status || '', msg.sender_name || ''].join('|');
+  }
+
+  // Monta o elemento de UMA mensagem (reutilizado no render completo e no
+  // incremental). Marca id/assinatura para permitir a atualizacao seletiva.
+  function buildMessageEl(msg) {
+    var kind = msg.kind || 'text';
+
+    // Mensagem de sistema = divisoria de atendimento (encerramento / novo
+    // atendimento), centralizada no meio do chat, sem balao nem horario.
+    if (kind === 'system') {
+      var divider = document.createElement('div');
+      divider.className = 'conv-divider';
+      divider.dataset.msgId = msg.id;
+      divider.dataset.msgSig = msgSignature(msg);
+      divider.dataset.segMine = msg.seg_mine ? '1' : '0';
+      divider.dataset.segSector = msg.seg_sector ? String(msg.seg_sector) : '';
+      var pill = document.createElement('span');
+      pill.className = 'conv-divider-pill';
+      var stamp = [msg.date, msg.time].filter(Boolean).join(' · ');
+      pill.textContent = (msg.text || '') + (stamp ? ' · ' + stamp : '');
+      divider.appendChild(pill);
+      return divider;
+    }
+
+    var wrap = document.createElement('div');
+    wrap.className = 'conv-msg conv-msg-' + msg.type;
+    if (kind !== 'text') wrap.classList.add('conv-msg-kind-' + kind);
+    wrap.dataset.msgId = msg.id;
+    wrap.dataset.msgSig = msgSignature(msg);
+    wrap.dataset.segMine = msg.seg_mine ? '1' : '0';
+    wrap.dataset.segSector = msg.seg_sector ? String(msg.seg_sector) : '';
+    var bubble = document.createElement('div');
+    bubble.className = 'conv-bubble';
+
+    // Em grupo (numero unico), mostra QUEM enviou acima da mensagem:
+    // - recebida: o participante (nome do Contato/pushName; sem nome, o NUMERO vira
+    //   botao para nomear);
+    // - enviada: o ATENDENTE que mandou (para o time saber quem respondeu no grupo).
+    if (msg.is_group) {
+      var sname = (msg.sender_name && msg.sender_name.trim()) ? msg.sender_name.trim() : '';
+      if (msg.type === 'received') {
+        var snum = (msg.sender_id ? String(msg.sender_id).trim() : '');
+        if (sname) {
+          var sender = document.createElement('div');
+          sender.className = 'conv-msg-sender';
+          sender.textContent = sname;
+          bubble.appendChild(sender);
+        } else if (snum) {
+          var senderBtn = document.createElement('button');
+          senderBtn.type = 'button';
+          senderBtn.className = 'conv-msg-sender conv-msg-sender-num';
+          senderBtn.textContent = snum;
+          senderBtn.title = 'Clique para nomear este contato';
+          senderBtn.addEventListener('click', function () { openNameModal(snum); });
+          bubble.appendChild(senderBtn);
+        }
+      } else if (msg.type === 'sent' && sname) {
+        var senderMe = document.createElement('div');
+        senderMe.className = 'conv-msg-sender conv-msg-sender-me';
+        senderMe.textContent = sname;
+        bubble.appendChild(senderMe);
+      }
+    }
+
+    if (kind === 'text') {
+      appendText(bubble, msg.text);
+    } else if (kind === 'reaction') {
+      var reaction = document.createElement('div');
+      reaction.className = 'conv-reaction';
+      reaction.textContent = 'Reagiu: ' + (msg.text || '👍');
+      bubble.appendChild(reaction);
+    } else if (kind === 'location' || kind === 'contact' || kind === 'unknown') {
+      var info = document.createElement('div');
+      info.className = 'conv-media-note';
+      info.textContent = kind === 'location' ? '📍 Localizacao recebida'
+        : (kind === 'contact' ? '👤 Contato recebido' : 'Tipo de mensagem nao suportado');
+      bubble.appendChild(info);
+      if (msg.text && msg.text.trim()) appendText(bubble, msg.text);
+    } else {
+      appendMedia(bubble, msg);
+    }
+
+    var time = document.createElement('span');
+    time.className = 'conv-msg-time';
+    var stampMsg = [msg.date, msg.time].filter(Boolean).join(' · ');
+    time.textContent = stampMsg + (msg.type === 'sent' ? ' ✓' : '');
+    bubble.appendChild(time);
+    wrap.appendChild(bubble);
+    return wrap;
+  }
+
+  function isNearBottom() {
+    return messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 80;
+  }
+  function scrollToBottom() { messagesEl.scrollTop = messagesEl.scrollHeight; }
+
+  // Ha alguma midia (audio/video) tocando dentro deste elemento? Se sim, nao o
+  // recriamos no poll — recriar cortaria o play (queixa do usuario).
+  function elIsPlaying(el) {
+    var media = el.querySelectorAll('video, audio');
+    for (var i = 0; i < media.length; i++) {
+      if (!media[i].paused && !media[i].ended) return true;
+    }
+    return false;
+  }
+
+  // Render COMPLETO — usado ao abrir uma conversa (troca tudo de uma vez) e ao
+  // carregar mensagens anteriores (`mantemPosicao=true`, para nao pular para o fim
+  // justamente quando a pessoa foi ler o historico).
+  function renderMessages(messages, mantemPosicao) {
+    // Troca de conversa: descarta o observer antigo (os posters serao recriados).
+    if (posterObserver) { posterObserver.disconnect(); posterObserver = null; }
+    var frag = document.createDocumentFragment();
+    messages.forEach(function (msg) { frag.appendChild(buildMessageEl(msg)); });
+    messagesEl.replaceChildren(frag);
+    if (!mantemPosicao) scrollToBottom();
+  }
+
+  // ---------- Abas "Conversa do setor" x "Conversa privada" + filtro por setor ----------
+  // Filtra os ATENDIMENTOS por DONO (segmento) e por SETOR. "privada" = so os meus;
+  // "setor" = tudo o que vejo (com um seletor de setor: Todos ou um especifico). E so
+  // um filtro visual (classe .conv-msg-hidden por elemento), reaplicado tambem apos o
+  // poll (as mensagens ja vem marcadas com data-seg-mine e data-seg-sector).
+  var filterBarEl = document.querySelector('[data-filter-bar]');
+  var sectorChipsEl = document.querySelector('[data-sector-chips]');
+  var ownerMode = 'setor';   // 'setor' (tudo) | 'privada' (so os meus)
+  var sectorFilter = '';     // '' = todos | id do setor
+
+  function applyFilters() {
+    var els = messagesEl.querySelectorAll('[data-seg-mine]');
+    els.forEach(function (el) {
+      var okOwner = ownerMode === 'setor' || el.dataset.segMine === '1';
+      var okSector = ownerMode === 'privada' || !sectorFilter
+        || el.dataset.segSector === sectorFilter;
+      el.classList.toggle('conv-msg-hidden', !(okOwner && okSector));
+    });
+    // O seletor de setor so faz sentido na aba "Conversa do setor".
+    if (sectorChipsEl) sectorChipsEl.hidden = (ownerMode === 'privada') || !sectorChipsEl.dataset.has;
+    if (isNearBottom()) scrollToBottom();
+  }
+
+  function setOwnerMode(mode) {
+    ownerMode = mode;
+    if (ownerTabsEl) {
+      ownerTabsEl.querySelectorAll('.conv-owner-tab').forEach(function (b) {
+        b.classList.toggle('is-active', b.dataset.ownerTab === mode);
+      });
+    }
+    applyFilters();
+  }
+
+  function setSectorFilter(id) {
+    sectorFilter = id || '';
+    if (sectorChipsEl) {
+      sectorChipsEl.querySelectorAll('.conv-sector-chip').forEach(function (b) {
+        b.classList.toggle('is-active', (b.dataset.sectorId || '') === sectorFilter);
+      });
+    }
+    applyFilters();
+  }
+
+  function buildSectorChips(sectors) {
+    if (!sectorChipsEl) return;
+    sectorChipsEl.replaceChildren();
+    var hasChips = (sectors || []).length >= 2;
+    sectorChipsEl.dataset.has = hasChips ? '1' : '';
+    if (!hasChips) return;
+    function chip(id, label) {
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'conv-sector-chip' + (String(id) === sectorFilter ? ' is-active' : '');
+      b.dataset.sectorId = String(id);
+      b.textContent = label;
+      b.addEventListener('click', function () { setSectorFilter(b.dataset.sectorId); });
+      sectorChipsEl.appendChild(b);
+    }
+    chip('', 'Todos os setores');
+    sectors.forEach(function (s) { chip(s.id, s.name); });
+  }
+
+  // Configura a barra ao abrir/trocar de conversa: volta para "Conversa do setor" +
+  // "Todos os setores"; mostra/esconde a barra e o seletor conforme o que existe.
+  function setupFilters(ownerTabs, convSectors) {
+    ownerMode = 'setor';
+    sectorFilter = '';
+    if (ownerTabsEl) ownerTabsEl.hidden = !ownerTabs;
+    buildSectorChips(convSectors);
+    var hasSectorChips = (convSectors || []).length >= 2;
+    if (filterBarEl) filterBarEl.hidden = !(ownerTabs || hasSectorChips);
+    setOwnerMode('setor');
+    setSectorFilter('');
+  }
+
+  if (ownerTabsEl) {
+    ownerTabsEl.querySelectorAll('.conv-owner-tab').forEach(function (btn) {
+      btn.addEventListener('click', function () { setOwnerMode(btn.dataset.ownerTab); });
+    });
+  }
+
+  // Atualizacao INCREMENTAL — usada pelo poll. So mexe no DOM quando chega
+  // mensagem nova ou quando o conteudo de uma mensagem existente muda; nunca
+  // recria uma midia que esteja tocando. Sem mudancas, nao toca no DOM (o video
+  // continua rodando normalmente).
+  function syncMessages(messages) {
+    var wasNearBottom = isNearBottom();
+    var appended = false;
+    messages.forEach(function (msg) {
+      var existing = messagesEl.querySelector('[data-msg-id="' + msg.id + '"]');
+      if (!existing) {
+        messagesEl.appendChild(buildMessageEl(msg));
+        appended = true;
+      } else if (existing.dataset.msgSig !== msgSignature(msg) && !elIsPlaying(existing)) {
+        existing.replaceWith(buildMessageEl(msg));
+      }
+    });
+    applyFilters();  // novas mensagens tambem respeitam o filtro ativo (dono/setor)
+    if (appended && wasNearBottom) scrollToBottom();
+  }
+
+  function fillSelect(select, items, selectedId, emptyLabel) {
+    select.replaceChildren();
+    var opt0 = document.createElement('option');
+    opt0.value = '';
+    opt0.textContent = emptyLabel;
+    select.appendChild(opt0);
+    items.forEach(function (item) {
+      var opt = document.createElement('option');
+      opt.value = item.id;
+      opt.textContent = item.name;
+      if (selectedId && String(selectedId) === String(item.id)) opt.selected = true;
+      select.appendChild(opt);
+    });
+  }
+
+  function fillInfo(contact, sectors, attendants) {
+    var isGroup = !!contact.is_group;
+    // Guarda o contexto da conversa aberta (usado para editar o nome no cabecalho).
+    currentIsGroup = isGroup;
+    currentContactPhone = isGroup ? '' : (contact.phone || '');
+    // Nome CADASTRADO (vazio = ainda aparece o numero); nunca o numero em si, para o
+    // modal nao abrir com o telefone escrito no campo de nome.
+    currentContactName = contact.contact_name || '';
+    document.querySelector('[data-chat-initials]').textContent = contact.initials;
+
+    var chatName = document.querySelector('[data-chat-name]');
+    chatName.replaceChildren();
+    if (isGroup) {
+      var headerBadge = document.createElement('span');
+      headerBadge.className = 'conv-group-badge';
+      headerBadge.textContent = 'Grupo';
+      chatName.appendChild(headerBadge);
+    }
+    chatName.appendChild(document.createTextNode(contact.name));
+    // Em conversa direta, o nome vira clicavel para editar o contato. Quando ainda
+    // NAO ha nome cadastrado (o cabecalho mostra o numero), o destaque fica visivel
+    // e o texto de ajuda convida a cadastrar.
+    var canName = !isGroup && !!contact.phone;
+    var unnamed = canName && !currentContactName;
+    chatName.classList.toggle('conv-chat-name-editable', canName);
+    chatName.classList.toggle('conv-chat-name-unnamed', unnamed);
+    chatName.title = canName
+      ? (unnamed ? 'Clique no número para cadastrar este contato'
+                 : 'Clique para renomear este contato')
+      : '';
+
+    // Sem nome cadastrado o cabecalho JA mostra o numero na linha de cima, entao aqui
+    // vai a dica em vez de repetir o mesmo numero duas vezes.
+    document.querySelector('[data-chat-phone]').textContent = isGroup
+      ? 'Conversa em grupo'
+      : (unnamed ? 'Sem nome cadastrado — clique no número' : contact.phone);
+    document.querySelector('[data-chat-status]').textContent = '● ' + contact.status_label;
+
+    document.querySelector('[data-info-name]').textContent = contact.name;
+    document.querySelector('[data-info-phone]').textContent = isGroup ? '—' : contact.phone;
+    document.querySelector('[data-info-status]').textContent = contact.status_label;
+    document.querySelector('[data-info-sector]').textContent = contact.sector;
+    document.querySelector('[data-info-attendant]').textContent = contact.attendant;
+    document.querySelector('[data-info-created]').textContent = contact.created_at;
+
+    if (sectors) fillSelect(sectorSelect, sectors, contact.sector_id, 'Nao definido');
+    if (attendants) fillSelect(attendantSelect, attendants, contact.attendant_id, 'Nao definido');
+
+    updateServiceButtons(contact);
+
+    infoEmpty.hidden = true;
+    infoPanel.hidden = false;
+  }
+
+  /* Botoes do painel conforme o status/atribuicao:
+     - FINALIZADO (closed): so leitura (esconde Assumir, Encerrar e transferir).
+     - Ja e MINHA (sou o atendente): esconde "Assumir" (mostra so "Encerrar").
+     - Aguardando / de outro atendente: mostra "Assumir" (assumir/assumir de outro). */
+  function updateServiceButtons(contact) {
+    var transferBox = document.querySelector('.conv-transfer');
+    // GRUPO nao e "atendimento": nao assume, nao encerra, nao transfere.
+    if (contact.is_group) {
+      if (takeBtn) takeBtn.hidden = true;
+      if (closeBtn) closeBtn.hidden = true;
+      if (transferBox) transferBox.hidden = true;
+      return;
+    }
+    var isClosed = contact.status === 'closed';
+    var mine = !!contact.mine;
+    if (takeBtn) takeBtn.hidden = isClosed || mine;
+    if (closeBtn) closeBtn.hidden = isClosed;
+    if (transferBox) transferBox.hidden = isClosed;
+  }
+
+  function applyContactInfo(contact) {
+    if (!contact) return;
+    document.querySelector('[data-chat-status]').textContent = '● ' + contact.status_label;
+    document.querySelector('[data-info-status]').textContent = contact.status_label;
+    document.querySelector('[data-info-sector]').textContent = contact.sector;
+    document.querySelector('[data-info-attendant]').textContent = contact.attendant;
+    if (sectorSelect) sectorSelect.value = contact.sector_id || '';
+    if (attendantSelect) attendantSelect.value = contact.attendant_id || '';
+    // Atualiza os botoes (ex.: apos Assumir some o "Assumir"; apos Encerrar some tudo).
+    updateServiceButtons(contact);
+  }
+
+  /* ---------- Janela de mensagens (paginacao) ---------- */
+  // Quantas mensagens estao carregadas no chat aberto. Comeca na primeira pagina e
+  // cresce quando a pessoa clica em "Carregar mensagens anteriores". O POLL pede
+  // sempre esta mesma janela, entao o custo e o do que esta na tela — nao o do
+  // historico inteiro, que era o comportamento antigo.
+  var MESSAGE_PAGE = 60;
+  var messageLimit = MESSAGE_PAGE;
+  var loadOlderBtn = document.querySelector('[data-load-older]');
+
+  function messagesUrl(id) {
+    return urlFor(id, 'mensagens') + '?limite=' + messageLimit;
+  }
+
+  function updateLoadOlder(hasOlder) {
+    if (loadOlderBtn) loadOlderBtn.hidden = !hasOlder;
+  }
+
+  if (loadOlderBtn) {
+    loadOlderBtn.addEventListener('click', function () {
+      if (!currentId) return;
+      var alturaAntes = messagesEl.scrollHeight;
+      var posicaoAntes = messagesEl.scrollTop;
+      loadOlderBtn.disabled = true;
+      messageLimit += MESSAGE_PAGE;
+      fetch(messagesUrl(currentId), {headers: {'X-Requested-With': 'XMLHttpRequest'}})
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (data) {
+          if (!data || !data.ok) return;
+          renderMessages(data.messages, true);
+          setupFilters(!!data.owner_tabs, data.conv_sectors || []);
+          updateLoadOlder(data.has_older);
+          // Mantem a pessoa lendo o mesmo trecho: o conteudo novo entrou ACIMA.
+          messagesEl.scrollTop = posicaoAntes + (messagesEl.scrollHeight - alturaAntes);
+        })
+        .catch(function () {
+          showToast('Nao foi possivel carregar as mensagens anteriores.', 'error');
+        })
+        .then(function () { loadOlderBtn.disabled = false; });
+    });
+  }
+
+  /* ---------- Abrir conversa ---------- */
+  function openConversation(id) {
+    currentId = id;
+    placeholderEl.hidden = true;
+    panelEl.hidden = false;
+    // Toda conversa abre na primeira pagina (a janela nao vaza de um chat para outro).
+    messageLimit = MESSAGE_PAGE;
+
+    // Apenas carrega as mensagens (sem retry): a retentativa de midias que
+    // falharam agora e feita sob demanda pelo botao "Atualizar".
+    fetch(messagesUrl(id), {headers: {'X-Requested-With': 'XMLHttpRequest'}})
+      .then(function (r) { if (!r.ok) throw new Error('fail'); return r.json(); })
+      .then(function (data) {
+        if (!data.ok) throw new Error('fail');
+        fillInfo(data.contact, data.sectors, data.attendants);
+        renderMessages(data.messages);
+        updateLoadOlder(data.has_older);
+        setupFilters(!!data.owner_tabs, data.conv_sectors || []);
+        // Zera o badge de nao lidas do item aberto na lista (feedback imediato).
+        var item = listEl.querySelector('.conv-item[data-conv-id="' + id + '"]');
+        if (item) {
+          var badge = item.querySelector('[data-conv-unread]');
+          if (badge) badge.remove();
+        }
+        // Atualiza contadores/lista, pois abrir a conversa zera as nao lidas.
+        refreshList();
+      })
+      .catch(function () {
+        showToast('Nao foi possivel abrir a conversa. Tente novamente.', 'error');
+      });
+  }
+
+  function refreshOpenMessages() {
+    if (!currentId) return;
+    // Pede a MESMA janela que esta na tela. Antes o poll trazia a conversa inteira a
+    // cada 6 segundos — num grupo com anos de historico, dez leituras completas por
+    // minuto, por aba aberta.
+    fetch(messagesUrl(currentId), {headers: {'X-Requested-With': 'XMLHttpRequest'}})
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (data) {
+        if (!data || !data.ok) return;
+        syncMessages(data.messages);
+        updateLoadOlder(data.has_older);
+      })
+      .catch(function () {});
+  }
+
+  /* ---------- Selecao na lista ---------- */
+  function bindItem(item) {
+    function select() {
+      listEl.querySelectorAll('.conv-item').forEach(function (i) {
+        i.classList.remove('conv-item-active');
+        i.setAttribute('aria-selected', 'false');
+      });
+      item.classList.add('conv-item-active');
+      item.setAttribute('aria-selected', 'true');
+      openConversation(item.dataset.convId);
+    }
+    item.addEventListener('click', select);
+    item.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); select(); }
+    });
+  }
+  listEl.querySelectorAll('.conv-item').forEach(bindItem);
+
+  /* ---------- Render da lista (dados reais do banco) ---------- */
+  function buildConversationItem(conv) {
+    var li = document.createElement('li');
+    li.className = 'conv-item';
+    if (conv.mine) li.classList.add('conv-item-mine');   // atribuida a mim: destaque
+    li.setAttribute('role', 'option');
+    li.setAttribute('tabindex', '0');
+    li.dataset.convId = conv.id;
+    if (String(conv.id) === String(currentId)) {
+      li.classList.add('conv-item-active');
+      li.setAttribute('aria-selected', 'true');
+    } else {
+      li.setAttribute('aria-selected', 'false');
+    }
+
+    var avatar = document.createElement('div');
+    avatar.className = 'conv-avatar';
+    avatar.setAttribute('aria-hidden', 'true');
+    avatar.textContent = conv.initials;
+    li.appendChild(avatar);
+
+    var bodyDiv = document.createElement('div');
+    bodyDiv.className = 'conv-item-body';
+
+    var top = document.createElement('div');
+    top.className = 'conv-item-top';
+    var name = document.createElement('span');
+    name.className = 'conv-item-name';
+    if (conv.is_group) {
+      var badge = document.createElement('span');
+      badge.className = 'conv-group-badge';
+      badge.textContent = 'Grupo';
+      name.appendChild(badge);
+    }
+    name.appendChild(document.createTextNode(conv.name));
+    var time = document.createElement('span');
+    time.className = 'conv-item-time';
+    time.textContent = conv.time;
+    top.appendChild(name);
+    top.appendChild(time);
+
+    var bottom = document.createElement('div');
+    bottom.className = 'conv-item-bottom';
+    var preview = document.createElement('span');
+    preview.className = 'conv-item-preview';
+    preview.textContent = conv.preview || '';
+    bottom.appendChild(preview);
+    if (conv.unread > 0) {
+      var badge = document.createElement('span');
+      badge.className = 'conv-unread-badge';
+      badge.setAttribute('data-conv-unread', '');
+      badge.textContent = conv.unread;
+      bottom.appendChild(badge);
+    }
+    bodyDiv.appendChild(top);
+    bodyDiv.appendChild(bottom);
+    if (conv.queue_label) {
+      var meta = document.createElement('div');
+      meta.className = 'conv-item-meta' + (conv.mine ? ' conv-item-meta-mine' : '');
+      meta.textContent = conv.queue_label;
+      bodyDiv.appendChild(meta);
+    }
+    li.appendChild(bodyDiv);
+
+    bindItem(li);
+    return li;
+  }
+
+  function renderConversationList(items) {
+    var frag = document.createDocumentFragment();
+    items.forEach(function (conv) { frag.appendChild(buildConversationItem(conv)); });
+    listEl.replaceChildren(frag);
+    if (listEmptyEl) listEmptyEl.hidden = items.length > 0;
+  }
+
+  function updateCounts(counts) {
+    if (!counts) return;
+    Object.keys(counts).forEach(function (key) {
+      var el = document.querySelector('[data-count="' + key + '"]');
+      if (el) el.textContent = counts[key];
+    });
+    updateWaitingBadge(counts.aguardando || 0);
+  }
+
+  function updateWaitingBadge(n) {
+    if (!waitingBadge) return;
+    var countEl = waitingBadge.querySelector('[data-waiting-count]');
+    if (countEl) countEl.textContent = n;
+    // Se estava filtrando por "aguardando" e zerou, volta para "Todas".
+    if (n === 0 && currentStatus === 'aguardando') {
+      currentStatus = 'todas';
+      waitingBadge.classList.remove('active');
+      chipEls.forEach(function (c) { c.classList.toggle('active', (c.dataset.filter || 'todas') === 'todas'); });
+    }
+    waitingBadge.hidden = (n === 0 && currentStatus !== 'aguardando');
+  }
+
+  function updateTypeCounts(counts) {
+    if (!counts) return;
+    Object.keys(counts).forEach(function (key) {
+      var el = document.querySelector('[data-type-count="' + key + '"]');
+      if (el) el.textContent = counts[key];
+    });
+  }
+
+  var lastListSig = null;
+  function listSignature(items) {
+    return items.map(function (c) {
+      return c.id + ':' + (c.time || '') + ':' + (c.unread || 0) +
+             ':' + (c.preview || '') + ':' + (c.name || '') +
+             ':' + (c.status || '') + ':' + (c.queue_label || '');
+    }).join('|');
+  }
+
+  // force=true: re-renderiza mesmo se a assinatura nao mudou (troca de
+  // filtro/aba/busca). No poll (force ausente), so re-renderiza quando a lista
+  // realmente muda, evitando reconstruir o DOM a cada ciclo.
+  // Quantas conversas estao carregadas. Cresce com "Carregar mais conversas"; volta
+  // ao inicio a cada troca de filtro/aba/busca (a lista muda de conteudo).
+  var CONVERSATION_PAGE = parseInt(body.dataset.pageSize, 10) || 60;
+  var conversationLimit = CONVERSATION_PAGE;
+  var loadMoreBtn = document.querySelector('[data-load-more-conversations]');
+
+  function refreshList(force) {
+    var term = searchEl ? searchEl.value.trim() : '';
+    var url = base + 'lista/?status=' + encodeURIComponent(currentStatus) +
+              '&tipo=' + encodeURIComponent(currentType) +
+              '&q=' + encodeURIComponent(term) +
+              '&limite=' + conversationLimit;
+    fetch(url, {headers: {'X-Requested-With': 'XMLHttpRequest'}})
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (data) {
+        if (!data || !data.ok) return;
+        updateCounts(data.counts);
+        updateTypeCounts(data.type_counts);
+        var items = data.conversations || [];
+        var sig = listSignature(items);
+        if (force === true || sig !== lastListSig) {
+          renderConversationList(items);
+          lastListSig = sig;
+        }
+        if (loadMoreBtn) loadMoreBtn.hidden = !data.has_more;
+      })
+      .catch(function () {});
+  }
+
+  // Trocar filtro, aba ou busca muda o CONTEUDO da lista: a janela volta ao inicio,
+  // senao a pessoa continuaria carregando paginas de um recorte que nao existe mais.
+  function resetListWindow() {
+    conversationLimit = CONVERSATION_PAGE;
+  }
+
+  if (loadMoreBtn) {
+    loadMoreBtn.addEventListener('click', function () {
+      loadMoreBtn.disabled = true;
+      conversationLimit += CONVERSATION_PAGE;
+      refreshList(true);
+      window.setTimeout(function () { loadMoreBtn.disabled = false; }, 400);
+    });
+  }
+
+  /* ---------- Chips de filtro (status) ---------- */
+  chipEls.forEach(function (chip) {
+    chip.addEventListener('click', function () {
+      chipEls.forEach(function (c) { c.classList.remove('active'); });
+      chip.classList.add('active');
+      if (waitingBadge) waitingBadge.classList.remove('active');
+      currentStatus = chip.dataset.filter || 'todas';
+      resetListWindow();
+      refreshList(true);
+    });
+  });
+
+  /* ---------- Badge "Aguardando" (fila do setor, pulsante) ---------- */
+  if (waitingBadge) {
+    waitingBadge.addEventListener('click', function () {
+      var turningOn = !waitingBadge.classList.contains('active');
+      chipEls.forEach(function (c) { c.classList.remove('active'); });
+      if (turningOn) {
+        waitingBadge.classList.add('active');
+        currentStatus = 'aguardando';
+      } else {
+        // Clicar de novo volta para "Todas".
+        waitingBadge.classList.remove('active');
+        currentStatus = 'todas';
+        chipEls.forEach(function (c) { c.classList.toggle('active', (c.dataset.filter || 'todas') === 'todas'); });
+      }
+      resetListWindow();
+      refreshList(true);
+    });
+  }
+
+  /* ---------- Abas de tipo (Todas / Diretas / Grupos) ---------- */
+  typeTabEls.forEach(function (tab) {
+    tab.addEventListener('click', function () {
+      typeTabEls.forEach(function (t) {
+        t.classList.remove('active');
+        t.setAttribute('aria-selected', 'false');
+      });
+      tab.classList.add('active');
+      tab.setAttribute('aria-selected', 'true');
+      currentType = tab.dataset.typeFilter || 'todas';
+      resetListWindow();
+      refreshList(true);
+    });
+  });
+
+  /* ---------- Botao "Atualizar": nomes de grupos + midias que falharam ---------- */
+  if (refreshBtn) {
+    refreshBtn.addEventListener('click', function () {
+      refreshBtn.disabled = true;
+      refreshBtn.classList.add('spinning');
+
+      // 1) Sincroniza os nomes reais dos grupos pela W-API.
+      var syncGroups = fetch(base + 'sincronizar-grupos/', {
+        method: 'POST',
+        headers: {'X-CSRFToken': csrf, 'X-Requested-With': 'XMLHttpRequest'},
+      })
+        .then(function (r) { return r.json().then(function (d) { return {ok: r.ok, data: d}; }); })
+        .catch(function () { return {ok: false}; });
+
+      // 2) Recarrega a conversa aberta pedindo (?retry=1) a retentativa em
+      // background das midias que nao carregaram.
+      var reloadOpen;
+      if (currentId) {
+        reloadOpen = fetch(urlFor(currentId, 'mensagens') + '?retry=1', {headers: {'X-Requested-With': 'XMLHttpRequest'}})
+          .then(function (r) { return r.ok ? r.json() : null; })
+          .then(function (data) { if (data && data.ok) renderMessages(data.messages); })
+          .catch(function () {});
+      } else {
+        reloadOpen = Promise.resolve();
+      }
+
+      Promise.all([syncGroups, reloadOpen])
+        .then(function (results) {
+          var g = results[0];
+          if (g && g.data && g.data.ok) {
+            var n = g.data.updated || 0;
+            showToast(n > 0 ? ('Atualizado — ' + n + ' grupo(s) renomeado(s).') : 'Conversas atualizadas.', 'success');
+          } else {
+            showToast('Conversas atualizadas.', 'success');
+          }
+          refreshList(true);
+        })
+        .finally(function () {
+          refreshBtn.disabled = false;
+          refreshBtn.classList.remove('spinning');
+        });
+    });
+  }
+
+  /* ---------- Busca (server-side, combinada com o filtro) ---------- */
+  if (searchEl) {
+    searchEl.addEventListener('input', function () {
+      window.clearTimeout(searchTimer);
+      searchTimer = window.setTimeout(function () { refreshList(true); }, 250);
+    });
+  }
+
+  /* ---------- Envio de mensagem ---------- */
+  // O campo agora e um textarea (preserva quebras de linha do texto colado). Ele
+  // cresce conforme o conteudo e reproduz o WhatsApp Web: Enter envia, Shift+Enter
+  // quebra linha.
+  function autoGrowInput() {
+    if (!inputEl) return;
+    inputEl.style.height = 'auto';
+    inputEl.style.height = Math.min(inputEl.scrollHeight, 140) + 'px';
+  }
+  if (inputEl) {
+    inputEl.addEventListener('input', autoGrowInput);
+    inputEl.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        if (sendForm.requestSubmit) sendForm.requestSubmit();
+        else sendForm.dispatchEvent(new Event('submit', {cancelable: true}));
+      }
+    });
+  }
+
+  var sendingMessage = false;
+  sendForm.addEventListener('submit', function (e) {
+    e.preventDefault();
+    if (sendingMessage) return;         // evita reenvio ao apertar Enter varias vezes
+    if (!currentId) return;
+    var text = inputEl.value.trim();
+    if (!text) return;
+
+    sendingMessage = true;
+    sendBtn.disabled = true;
+    sendBtn.classList.add('is-sending');
+    var payload = new URLSearchParams();
+    payload.append('text', text);
+
+    fetch(urlFor(currentId, 'enviar'), {
+      method: 'POST',
+      headers: {
+        'X-CSRFToken': csrf,
+        'X-Requested-With': 'XMLHttpRequest',
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: payload.toString(),
+    })
+      .then(function (r) { return r.json().then(function (d) { return {ok: r.ok, data: d}; }); })
+      .then(function (res) {
+        if (!res.ok || !res.data.ok) {
+          showToast((res.data && res.data.error) || 'Nao foi possivel enviar a mensagem.', 'error');
+          return;
+        }
+        inputEl.value = '';
+        autoGrowInput();
+        refreshOpenMessages();
+      })
+      .catch(function () {
+        showToast('Nao foi possivel enviar a mensagem. Verifique a conexao do WhatsApp e tente novamente.', 'error');
+      })
+      .finally(function () {
+        sendingMessage = false;
+        sendBtn.disabled = false;
+        sendBtn.classList.remove('is-sending');
+        inputEl.focus();
+      });
+  });
+
+  /* ---------- Anexos (envio de midia LITE: imagem/audio/video/documento) ---------- */
+  var ATTACH_ACCEPT = {
+    image: 'image/*',
+    audio: 'audio/*',
+    video: 'video/*',
+    document: '.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,application/pdf',
+  };
+  var ATTACH_SENDING = {
+    image: 'Enviando imagem...',
+    audio: 'Enviando audio...',
+    video: 'Enviando video...',
+    document: 'Enviando documento...',
+  };
+  var pendingMediaType = '';
+
+  function closeAttachMenu() {
+    if (attachMenu) attachMenu.hidden = true;
+  }
+
+  if (attachToggle && attachMenu) {
+    attachToggle.addEventListener('click', function (e) {
+      e.stopPropagation();
+      attachMenu.hidden = !attachMenu.hidden;
+    });
+    document.addEventListener('click', function (e) {
+      if (attachWrap && !attachWrap.contains(e.target)) closeAttachMenu();
+    });
+    attachMenu.querySelectorAll('[data-attach-option]').forEach(function (option) {
+      option.addEventListener('click', function () {
+        if (!currentId) { showToast('Abra uma conversa primeiro.', 'error'); closeAttachMenu(); return; }
+        pendingMediaType = option.dataset.attachOption;
+        attachFile.accept = ATTACH_ACCEPT[pendingMediaType] || '';
+        closeAttachMenu();
+        attachFile.value = '';
+        attachFile.click();
+      });
+    });
+  }
+
+  if (attachFile) {
+    attachFile.addEventListener('change', function () {
+      var file = attachFile.files && attachFile.files[0];
+      if (!file || !pendingMediaType || !currentId) return;
+      uploadMedia(pendingMediaType, file);
+    });
+  }
+
+  function uploadMedia(mediaType, file) {
+    var data = new FormData();
+    data.append('file', file);
+    data.append('media_type', mediaType);
+
+    if (attachToggle) attachToggle.disabled = true;
+    var sendingToast = showToast(ATTACH_SENDING[mediaType] || 'Enviando arquivo...', 'info');
+
+    fetch(urlFor(currentId, 'enviar-midia'), {
+      method: 'POST',
+      headers: {'X-CSRFToken': csrf, 'X-Requested-With': 'XMLHttpRequest'},
+      body: data,
+    })
+      .then(function (r) { return r.json().then(function (d) { return {ok: r.ok, data: d}; }); })
+      .then(function (res) {
+        if (!res.data || !res.data.ok) {
+          showToast((res.data && res.data.error) || 'Nao foi possivel enviar o arquivo. Tente novamente.', 'error');
+        }
+        refreshOpenMessages();
+        refreshList();
+      })
+      .catch(function () {
+        showToast('Nao foi possivel enviar o arquivo. Tente novamente.', 'error');
+      })
+      .finally(function () {
+        if (sendingToast && sendingToast.remove) sendingToast.remove();
+        if (attachToggle) attachToggle.disabled = false;
+        attachFile.value = '';
+        pendingMediaType = '';
+      });
+  }
+
+  /* ---------- Gravacao de audio pelo navegador ---------- */
+  var mediaRecorder = null;
+  var audioChunks = [];
+  var recTimer = null;
+  var recSeconds = 0;
+  var recCancelled = false;
+
+  function pickAudioMime() {
+    var candidates = ['audio/ogg;codecs=opus', 'audio/webm;codecs=opus', 'audio/webm'];
+    if (window.MediaRecorder && MediaRecorder.isTypeSupported) {
+      for (var i = 0; i < candidates.length; i++) {
+        if (MediaRecorder.isTypeSupported(candidates[i])) return candidates[i];
+      }
+    }
+    return '';
+  }
+
+  function formatRecTime(total) {
+    var m = Math.floor(total / 60), s = total % 60;
+    return String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+  }
+
+  function setRecordingUI(on) {
+    if (!micBtn) return;
+    micBtn.classList.toggle('recording', on);
+    micBtn.title = on ? 'Parar e enviar' : 'Gravar audio';
+    if (recIndicator) recIndicator.hidden = !on;
+    if (recCancelBtn) recCancelBtn.hidden = !on;
+    if (inputEl) inputEl.disabled = on;
+    if (attachToggle) attachToggle.disabled = on;
+    if (sendBtn) sendBtn.disabled = on;
+  }
+
+  function stopTimer() {
+    if (recTimer) { window.clearInterval(recTimer); recTimer = null; }
+  }
+
+  function startRecording() {
+    if (!navigator.mediaDevices || !window.MediaRecorder) {
+      showToast('Gravacao de audio nao suportada neste navegador.', 'error');
+      return;
+    }
+    navigator.mediaDevices.getUserMedia({audio: true})
+      .then(function (stream) {
+        var mime = pickAudioMime();
+        try {
+          mediaRecorder = mime ? new MediaRecorder(stream, {mimeType: mime}) : new MediaRecorder(stream);
+        } catch (e) {
+          mediaRecorder = new MediaRecorder(stream);
+        }
+        audioChunks = [];
+        recCancelled = false;
+        mediaRecorder.addEventListener('dataavailable', function (e) {
+          if (e.data && e.data.size) audioChunks.push(e.data);
+        });
+        mediaRecorder.addEventListener('stop', function () {
+          stream.getTracks().forEach(function (t) { t.stop(); });
+          stopTimer();
+          setRecordingUI(false);
+          if (recCancelled || !audioChunks.length) return;
+          var type = mediaRecorder.mimeType || mime || 'audio/webm';
+          var ext = type.indexOf('ogg') !== -1 ? 'ogg' : 'webm';
+          var blob = new Blob(audioChunks, {type: type});
+          var file = new File([blob], 'audio.' + ext, {type: type});
+          uploadMedia('audio', file);
+        });
+        mediaRecorder.start();
+        recSeconds = 0;
+        if (recTimeEl) recTimeEl.textContent = '00:00';
+        setRecordingUI(true);
+        recTimer = window.setInterval(function () {
+          recSeconds += 1;
+          if (recTimeEl) recTimeEl.textContent = formatRecTime(recSeconds);
+          if (recSeconds >= 300) stopRecording(false); // limite de seguranca: 5 min
+        }, 1000);
+      })
+      .catch(function () {
+        showToast('Nao foi possivel acessar o microfone. Verifique a permissao.', 'error');
+      });
+  }
+
+  function stopRecording(cancel) {
+    recCancelled = !!cancel;
+    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+      mediaRecorder.stop();
+    } else {
+      stopTimer();
+      setRecordingUI(false);
+    }
+  }
+
+  if (micBtn) {
+    micBtn.addEventListener('click', function () {
+      if (mediaRecorder && mediaRecorder.state === 'recording') {
+        stopRecording(false); // parar e enviar
+      } else {
+        if (!currentId) { showToast('Abra uma conversa primeiro.', 'error'); return; }
+        startRecording();
+      }
+    });
+  }
+  if (recCancelBtn) {
+    recCancelBtn.addEventListener('click', function () { stopRecording(true); });
+  }
+
+  /* ---------- Transferencia (setor / atendente) ---------- */
+  function postConversationAction(suffix, payload, successMessage, errorMessage) {
+    if (!currentId) return;
+    fetch(urlFor(currentId, suffix), {
+      method: 'POST',
+      headers: {
+        'X-CSRFToken': csrf,
+        'X-Requested-With': 'XMLHttpRequest',
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: payload ? payload.toString() : '',
+    })
+      .then(function (r) { return r.ok ? r.json() : r.json().catch(function () { return null; }); })
+      .then(function (data) {
+        if (data && data.ok) {
+          applyContactInfo(data.contact);
+          refreshList(true);
+          showToast(successMessage, 'success');
+        } else {
+          showToast((data && data.error) || errorMessage, 'error');
+        }
+      })
+      .catch(function () {
+        showToast(errorMessage, 'error');
+      });
+  }
+
+  function transfer(field, value) {
+    if (!currentId) return;
+    var payload = new URLSearchParams();
+    payload.append(field, value);
+    postConversationAction(
+      'transferir', payload, 'Atendimento atualizado.',
+      'Nao foi possivel transferir o atendimento.'
+    );
+  }
+  if (sectorSelect) {
+    sectorSelect.addEventListener('change', function () { transfer('sector_id', sectorSelect.value); });
+  }
+  if (attendantSelect) {
+    attendantSelect.addEventListener('change', function () { transfer('attendant_id', attendantSelect.value); });
+  }
+  if (takeBtn) {
+    takeBtn.addEventListener('click', function () {
+      postConversationAction('assumir', null, 'Atendimento assumido.', 'Nao foi possivel assumir o atendimento.');
+    });
+  }
+  if (closeBtn) {
+    closeBtn.addEventListener('click', function () {
+      if (!currentId) return;
+      if (!window.confirm('Encerrar este atendimento? Novas mensagens deste contato voltarao para a recepcao da IA.')) return;
+      postConversationAction('encerrar', null, 'Atendimento encerrado.', 'Nao foi possivel encerrar o atendimento.');
+    });
+  }
+
+  /* ================================================================
+     Notificacoes de nova mensagem: pop-up (Web Notifications) + som
+     ================================================================ */
+  var NOTIF_ICON = body.dataset.logo || '';
+  var soundEnabled = localStorage.getItem('beezap_sound') !== '0'; // padrao: ligado
+  var prevUnread = {};        // {convId: ultimo unread conhecido}
+  var notifyReady = false;    // 1o poll so semeia o estado (nao notifica)
+  var audioCtx = null;
+
+  var soundToggle = document.querySelector('[data-sound-toggle]');
+  var soundIcon = document.querySelector('[data-sound-icon]');
+  var soundLabel = document.querySelector('[data-sound-label]');
+
+  /* ---------- Som (beep sintetizado, sem arquivo) ---------- */
+  function unlockAudio() {
+    try {
+      audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+    } catch (e) { audioCtx = null; }
+  }
+
+  function playBeep() {
+    if (!audioCtx) unlockAudio();
+    if (!audioCtx) return;
+    try {
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+      var t = audioCtx.currentTime;
+      [[0, 880], [0.16, 1175]].forEach(function (pair) {
+        var offset = pair[0], freq = pair[1];
+        var osc = audioCtx.createOscillator();
+        var gain = audioCtx.createGain();
+        osc.type = 'sine';
+        osc.frequency.value = freq;
+        gain.gain.setValueAtTime(0.0001, t + offset);
+        gain.gain.exponentialRampToValueAtTime(0.28, t + offset + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, t + offset + 0.15);
+        osc.connect(gain); gain.connect(audioCtx.destination);
+        osc.start(t + offset); osc.stop(t + offset + 0.16);
+      });
+    } catch (e) {}
+  }
+
+  // Destrava o audio no 1o clique/tecla (navegadores exigem gesto do usuario).
+  function firstGestureUnlock() {
+    unlockAudio();
+    document.removeEventListener('click', firstGestureUnlock);
+    document.removeEventListener('keydown', firstGestureUnlock);
+  }
+  document.addEventListener('click', firstGestureUnlock);
+  document.addEventListener('keydown', firstGestureUnlock);
+
+  /* ---------- Permissao e pop-up do desktop ---------- */
+  var notifToggle = document.querySelector('[data-notif-toggle]');
+  var notifIcon = document.querySelector('[data-notif-icon]');
+  var notifLabel = document.querySelector('[data-notif-label]');
+
+  function notifState() {
+    if (!('Notification' in window)) return 'unsupported';
+    return Notification.permission; // 'granted' | 'denied' | 'default'
+  }
+
+  function canNotify() {
+    return notifState() === 'granted';
+  }
+
+  // Indicador SOMENTE informativo (nao clicavel): apenas reflete se o navegador
+  // esta liberado para notificacoes (verde=ativas, ambar=desativadas, vermelho=bloqueadas).
+  function setNotifUI() {
+    if (!notifToggle) return;
+    var s = notifState();
+    if (s === 'unsupported') { notifToggle.style.display = 'none'; return; }
+    notifToggle.classList.toggle('on', s === 'granted');
+    notifToggle.classList.toggle('off', s === 'default');
+    notifToggle.classList.toggle('blocked', s === 'denied');
+    if (s === 'granted') {
+      if (notifIcon) notifIcon.textContent = '🔔';
+      if (notifLabel) notifLabel.textContent = 'Notificações ativas';
+      notifToggle.title = 'Notificacoes do navegador ativas';
+    } else if (s === 'default') {
+      if (notifIcon) notifIcon.textContent = '🔕';
+      if (notifLabel) notifLabel.textContent = 'Notificações desativadas';
+      notifToggle.title = 'Notificacoes do navegador desativadas — ative no cadeado ao lado do endereco (Configuracoes do site)';
+    } else {
+      if (notifIcon) notifIcon.textContent = '🔕';
+      if (notifLabel) notifLabel.textContent = 'Notificações bloqueadas';
+      notifToggle.title = 'Notificacoes bloqueadas — libere no cadeado da barra de endereco';
+    }
+  }
+
+  if (notifToggle) {
+    setNotifUI();
+    // Atualiza a cor sozinho se a permissao mudar no navegador (ex.: liberou no cadeado).
+    if (navigator.permissions && navigator.permissions.query) {
+      navigator.permissions.query({name: 'notifications'})
+        .then(function (status) { status.onchange = setNotifUI; })
+        .catch(function () {});
+    }
+  }
+
+  function showDesktopNotification(conv) {
+    if (!canNotify()) return;
+    try {
+      var n = new Notification(conv.name || 'Nova mensagem', {
+        body: conv.preview || 'Voce recebeu uma nova mensagem.',
+        icon: NOTIF_ICON || undefined,
+        tag: 'beezap-conv-' + conv.id,  // agrupa varias da mesma conversa
+        renotify: true,
+      });
+      n.onclick = function () { window.focus(); n.close(); openConvById(conv.id); };
+    } catch (e) {}
+  }
+
+  function openConvById(id) {
+    var item = listEl.querySelector('.conv-item[data-conv-id="' + id + '"]');
+    if (item) item.click(); else openConversation(id);
+  }
+
+  /* ---------- Titulo da aba com contador (estilo WhatsApp Web) ---------- */
+  function updateTitle(totalUnread) {
+    document.title = (totalUnread > 0 ? '(' + totalUnread + ') ' : '') + 'Conversas | BEEonBOARD';
+  }
+
+  /* ---------- Reacao a novas mensagens recebidas ---------- */
+  // Janela "em foco" = aba visivel E com foco. Se o usuario esta em outro app
+  // ou outra janela (mesmo com a aba do BEEonBOARD visivel ao lado), consideramos
+  // fora de foco e mostramos o pop-up do desktop — vale para grupo e direta.
+  function windowFocused() {
+    return !document.hidden && (document.hasFocus ? document.hasFocus() : true);
+  }
+
+  function handleNewIncoming(newOnes) {
+    var focused = windowFocused();
+    // Se a conversa ja esta aberta e a janela em foco, o usuario ja esta vendo.
+    var relevant = newOnes.filter(function (c) {
+      return !(String(c.id) === String(currentId) && focused);
+    });
+    if (!relevant.length) return;
+    if (soundEnabled) playBeep();
+    relevant.forEach(function (c) {
+      if (!focused) showDesktopNotification(c);
+      else showToast('💬 ' + (c.name || 'Nova mensagem') + (c.preview ? (': ' + c.preview) : ''), 'info');
+    });
+  }
+
+  /* ---------- Poll dedicado de notificacoes (todas as conversas) ---------- */
+  function pollNotifications() {
+    fetch(base + 'lista/?status=todas&tipo=todas', {headers: {'X-Requested-With': 'XMLHttpRequest'}})
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (data) {
+        if (!data || !data.ok) return;
+        var items = data.conversations || [];
+        var newOnes = [];
+        var total = 0;
+        items.forEach(function (c) {
+          var cur = c.unread || 0;
+          total += cur;
+          var prev = prevUnread[c.id] || 0;
+          if (notifyReady && cur > prev) {
+            newOnes.push({id: c.id, name: c.name, preview: c.preview});
+          }
+          prevUnread[c.id] = cur;
+        });
+        updateTitle(total);
+        if (notifyReady && newOnes.length) handleNewIncoming(newOnes);
+        notifyReady = true;  // a partir do 2o poll, notifica
+      })
+      .catch(function () {});
+  }
+
+  /* ---------- Botao de ligar/desligar o som ---------- */
+  function setSoundUI() {
+    if (soundIcon) soundIcon.textContent = soundEnabled ? '🔊' : '🔇';
+    if (soundLabel) soundLabel.textContent = soundEnabled ? 'Som' : 'Sem som';
+    if (soundToggle) {
+      soundToggle.classList.toggle('off', !soundEnabled);
+      soundToggle.setAttribute('aria-pressed', soundEnabled ? 'true' : 'false');
+      soundToggle.title = soundEnabled
+        ? 'Aviso sonoro ativado (clique para desativar)'
+        : 'Aviso sonoro desativado (clique para ativar)';
+    }
+  }
+  if (soundToggle) {
+    setSoundUI();
+    soundToggle.addEventListener('click', function () {
+      soundEnabled = !soundEnabled;
+      localStorage.setItem('beezap_sound', soundEnabled ? '1' : '0');
+      setSoundUI();
+      if (soundEnabled) {
+        unlockAudio();
+        playBeep();  // toca uma vez pra confirmar
+        showToast('Aviso sonoro ativado.', 'success');
+      } else {
+        showToast('Aviso sonoro desativado.', 'info');
+      }
+    });
+  }
+
+  /* Atualiza mensagens da conversa aberta periodicamente (recebe respostas novas). */
+  pollTimer = window.setInterval(refreshOpenMessages, 6000);
+  /* Mantem a lista e os contadores atualizados (novas mensagens, leitura, status). */
+  window.setInterval(refreshList, 12000);
+  /* Detecta novas mensagens em qualquer conversa para pop-up/som. */
+  pollNotifications();
+  window.setInterval(pollNotifications, 6000);
+}());
