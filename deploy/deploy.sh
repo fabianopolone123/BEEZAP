@@ -58,10 +58,21 @@ if ! command -v ffmpeg >/dev/null 2>&1; then
 fi
 
 echo ">> conferindo a configuracao de producao (check --deploy)..."
-# Nao aborta o deploy: alguns avisos sao decisoes conscientes (ex.: HSTS desligado
-# porque vale para o dominio inteiro). Mas fica registrado na saida do deploy, em vez
-# de so aparecer quando alguem lembra de rodar o comando a mao.
-venv/bin/python manage.py check --deploy 2>&1 | sed 's/^/   /' || true
+# ARMADILHA: `manage.py` rodado no terminal NAO carrega o .env — quem carrega e o
+# systemd, para o gunicorn (ver docs/CONTEXTO.md secao 9). Sem carregar aqui, o check
+# avaliava DEBUG=True e acusava SESSION_COOKIE_SECURE/CSRF_COOKIE_SECURE desligados,
+# que na aplicacao REAL estao ligados. Avisos que nao refletem o app rodando sao piores
+# que nenhum aviso: treinam a gente a ignorar a saida.
+#
+# Nao aborta o deploy: alguns avisos sao decisao consciente (HSTS desligado porque vale
+# para o dominio INTEIRO, nao so para /beeonboard/; o redirect HTTPS e do Nginx).
+(
+    set -a
+    # shellcheck disable=SC1091
+    . ./.env
+    set +a
+    venv/bin/python manage.py check --deploy 2>&1 | sed 's/^/   /'
+) || true
 
 echo ">> reiniciando servico (com verificacao de restart)..."
 # ARMADILHA (ver docs/DEPLOY.md): com DEBUG=False o Django guarda os templates
