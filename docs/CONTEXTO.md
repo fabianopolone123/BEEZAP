@@ -60,7 +60,16 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
 > `wapi/` é um módulo Python comum (importa `accounts.models`); **não** está em
 > `INSTALLED_APPS`, por isso os models ficam em `accounts/models.py`.
 
-## 3. Modelos (`accounts/models.py`) — migração atual: `0034`
+## 3. Modelos (`accounts/models.py`) — migração atual: `0036`
+
+> **Índices (migração `0036`)**: até ela, o único `db_index` do projeto era
+> `Conversation.external_id`. As FKs ganham índice sozinhas, mas as consultas reais
+> são **compostas** — `Conversation(company, status)`, `(company, last_message_at)`,
+> `(company, chat_type)`, `(company, created_at)`; `Message(conversation, created_at)`,
+> `(conversation, message_type, created_at)`, `(created_at)`, `(external_message_id)`;
+> `WapiWebhookEvent(company, received_at)`, `(instance_id)`; `Contact(company, name)`.
+> Ao criar consulta nova de tela ou métrica, conferir se ela cai num desses.
+
 
 > **MULTIEMPRESA:** quase todo model abaixo tem um campo **`company`** (a empresa
 > cliente dona do registro) e as unicidades passaram a ser **por empresa**. Os

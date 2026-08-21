@@ -765,6 +765,13 @@ class WapiWebhookEvent(models.Model):
         ordering = ('-received_at',)
         verbose_name = 'Evento webhook W-API'
         verbose_name_plural = 'Eventos webhook W-API'
+        # A tabela cresce com TODO evento recebido (e e a maior do sistema em linhas).
+        # As consultas sao "os ultimos N desta empresa" e `Max(received_at)` por
+        # empresa, nas telas de Metricas — as duas cobertas pelo indice abaixo.
+        indexes = [
+            models.Index(fields=['company', '-received_at'], name='evento_empresa_data_idx'),
+            models.Index(fields=['instance_id'], name='evento_instancia_idx'),
+        ]
 
     @property
     def status_label(self):
@@ -958,6 +965,12 @@ class Contact(models.Model):
         constraints = [
             models.UniqueConstraint(fields=('company', 'phone'), name='unique_contact_phone_per_company'),
         ]
+        # A unicidade (company, phone) ja cobre a busca por telefone DENTRO da
+        # empresa, que e como o sistema sempre consulta (`_build_name_map`,
+        # `get_or_create_contact`). Este indice cobre a listagem/busca por nome.
+        indexes = [
+            models.Index(fields=['company', 'name'], name='contato_empresa_nome_idx'),
+        ]
 
     @property
     def display_name(self):
@@ -1021,6 +1034,17 @@ class Conversation(models.Model):
         verbose_name = 'Conversa'
         verbose_name_plural = 'Conversas'
         ordering = ('-last_message_at', '-created_at')
+        # As consultas quentes desta tabela sao SEMPRE por empresa + algo. Sem indice
+        # composto, cada contador da tela Conversas (5 por status + 3 por tipo, a
+        # cada poll de 12s) e cada indicador do Dashboard varria a tabela inteira.
+        indexes = [
+            models.Index(fields=['company', 'status'], name='conv_company_status_idx'),
+            models.Index(fields=['company', '-last_message_at'],
+                         name='conv_company_ultima_idx'),
+            models.Index(fields=['company', 'chat_type'], name='conv_company_tipo_idx'),
+            # `created_at` alimenta "novas em 7 dias" (Dashboard e Metricas).
+            models.Index(fields=['company', 'created_at'], name='conv_company_criada_idx'),
+        ]
 
     @property
     def status_label(self):
@@ -1139,6 +1163,19 @@ class Message(models.Model):
         verbose_name = 'Mensagem'
         verbose_name_plural = 'Mensagens'
         ordering = ('created_at',)
+        # A chave estrangeira `conversation` ja ganha indice sozinha, mas as consultas
+        # reais sao COMPOSTAS e nenhuma tinha cobertura:
+        #  - abrir/poll de conversa le as mensagens daquela conversa em ordem de data;
+        #  - o escopo por divisoria filtra `message_type='system'` + data;
+        #  - as Metricas contam por data (7d/30d) sobre a tabela toda;
+        #  - a deduplicacao do webhook busca por `external_message_id`.
+        indexes = [
+            models.Index(fields=['conversation', 'created_at'], name='msg_conv_data_idx'),
+            models.Index(fields=['conversation', 'message_type', '-created_at'],
+                         name='msg_conv_tipo_idx'),
+            models.Index(fields=['created_at'], name='msg_data_idx'),
+            models.Index(fields=['external_message_id'], name='msg_id_externo_idx'),
+        ]
 
     @property
     def is_media(self):
