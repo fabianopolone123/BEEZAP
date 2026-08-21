@@ -100,6 +100,21 @@ wapi_webhook_logger = logging.getLogger('beezap.wapi.webhook')
 brand_logger = logging.getLogger('beezap.marca')
 
 
+def id_valido(value):
+    """Devolve o id inteiro do POST, ou None quando nao e numero.
+
+    `Model.objects.filter(pk='abc')` levanta `ValueError` — 500 na cara do usuario
+    em vez de "nao encontrado". Todo lugar que le id de formulario passa por aqui.
+    """
+    texto = (str(value) if value is not None else '').strip()
+    if not texto or not texto.isdigit():
+        return None
+    try:
+        return int(texto)
+    except (TypeError, ValueError):
+        return None
+
+
 def _fmt_int(value):
     """Formata inteiro com separador de milhar no estilo pt-br (ex.: 1.234.567)."""
     try:
@@ -1047,7 +1062,7 @@ def permissions_view(request):
             return redirect('permissions')
 
         if form_type == 'user':
-            user_id = (request.POST.get('user_id') or '').strip()
+            user_id = id_valido(request.POST.get('user_id'))
             target = company_users.filter(pk=user_id).first() if user_id else None
             if not target or target.role == 'adm':
                 if is_ajax:
@@ -1066,7 +1081,7 @@ def permissions_view(request):
             return redirect(f'{reverse("permissions")}?tab=botoes&user={target.id}')
 
         if form_type == 'user-reset':
-            user_id = (request.POST.get('user_id') or '').strip()
+            user_id = id_valido(request.POST.get('user_id'))
             UserMenuPermission.objects.filter(
                 user_id=user_id, user__company=company
             ).delete()
@@ -1091,7 +1106,7 @@ def permissions_view(request):
             return redirect(f'{reverse("permissions")}?tab=visualizacao')
 
         if form_type == 'view-user':
-            user_id = (request.POST.get('user_id') or '').strip()
+            user_id = id_valido(request.POST.get('user_id'))
             target = company_users.filter(pk=user_id).exclude(role='adm').first() if user_id else None
             if not target:
                 if is_ajax:
@@ -1116,7 +1131,7 @@ def permissions_view(request):
             return redirect(f'{reverse("permissions")}?tab=visualizacao&user={target.id}')
 
         if form_type == 'view-user-reset':
-            user_id = (request.POST.get('user_id') or '').strip()
+            user_id = id_valido(request.POST.get('user_id'))
             UserConversationView.objects.filter(
                 user_id=user_id, user__company=company
             ).delete()
@@ -1124,7 +1139,7 @@ def permissions_view(request):
             return redirect(f'{reverse("permissions")}?tab=visualizacao&user={user_id}')
 
         if form_type == 'profile-role':
-            user_id = (request.POST.get('user_id') or '').strip()
+            user_id = id_valido(request.POST.get('user_id'))
             new_role = (request.POST.get('role') or '').strip()
             valid_roles = {User.Role.ADM, User.Role.USUARIO, User.Role.LEITOR}
             target = company_users.filter(pk=user_id).first() if user_id else None
@@ -1162,7 +1177,7 @@ def permissions_view(request):
             return redirect('permissions')
 
         if form_type == 'group-name':
-            gid = (request.POST.get('group_id') or '').strip()
+            gid = id_valido(request.POST.get('group_id'))
             name = (request.POST.get('name') or '').strip()
             conv = (
                 Conversation.objects.filter(company=company, pk=gid, chat_type='group').first()
@@ -1176,7 +1191,7 @@ def permissions_view(request):
             return redirect(f'{reverse("permissions")}?tab=grupos')
 
         if form_type == 'group-remove':
-            gid = (request.POST.get('group_id') or '').strip()
+            gid = id_valido(request.POST.get('group_id'))
             deleted = 0
             if gid:
                 deleted, _ = Conversation.objects.filter(
@@ -1238,7 +1253,7 @@ def permissions_view(request):
         for u in users
     ]
 
-    selected_id = (request.GET.get('user') or '').strip()
+    selected_id = id_valido(request.GET.get('user'))
     selected = company_users.filter(pk=selected_id).exclude(role='adm').first() if selected_id else None
     selected_ctx = None
     if selected:
@@ -1497,7 +1512,7 @@ def attendants_view(request):
         blocked = block_readonly(request)
         if blocked:
             return blocked
-        attendant_id = request.POST.get('attendant_id')
+        attendant_id = id_valido(request.POST.get('attendant_id'))
         if attendant_id:
             # Escopo da empresa: id de atendente de outro cliente da 404.
             editing_attendant = get_object_or_404(
@@ -2053,11 +2068,15 @@ def company_export_view(request):
 
 
 def _delete_company_media_files(company):
-    """Apaga do disco as midias das conversas da empresa. Devolve quantas saiu.
+    """Apaga do disco TODOS os arquivos da empresa. Devolve quantos saíram.
 
     Chamado antes de excluir a empresa: o `delete()` em cascata limpa o banco, mas
     deixaria os arquivos orfaos no servidor — dado pessoal de cliente final que
     ninguem mais consegue nem ver nem remover pela interface.
+
+    Inclui as midias das conversas E o LOGO da empresa. O logo ficava para tras: o
+    `_delete_company_media_files` so percorria `Message.media_file`, entao o arquivo
+    de `media/empresas/logos/` sobrava no disco para sempre depois de o cliente sair.
     """
     from .models import Message
     removidos = 0
@@ -2071,6 +2090,9 @@ def _delete_company_media_files(company):
             removidos += 1
         except (FileNotFoundError, OSError, ValueError):
             continue
+    if company.logo:
+        _remove_company_logo_file(company)
+        removidos += 1
     return removidos
 
 
@@ -2439,7 +2461,7 @@ def clients_view(request):
 
     if request.method == 'POST':
         action = (request.POST.get('action') or '').strip()
-        company_id = (request.POST.get('company_id') or '').strip()
+        company_id = id_valido(request.POST.get('company_id'))
         target = Company.objects.filter(pk=company_id).first() if company_id else None
 
         if action == 'delete':
@@ -2560,8 +2582,16 @@ def clients_view(request):
 
         # Cadastro (sem company_id) ou edicao (com company_id).
         editing = target
+        # Logo ANTES de o form mutar a instancia (o ModelForm ja atribui o arquivo
+        # novo no `is_valid()`), para conseguir apagar o antigo do disco.
+        logo_anterior = bool(editing and editing.logo)
         form = CompanyForm(request.POST, request.FILES, instance=editing)
         if form.is_valid():
+            # Arquivo novo chegando: apaga o antigo. Sem isto, cada troca de logo
+            # pela tela do master deixava um arquivo orfao no servidor — a aba Marca
+            # do cliente ja fazia essa limpeza, esta tela nao.
+            if request.FILES.get('logo') and logo_anterior:
+                _remove_company_logo_file(Company.objects.get(pk=editing.pk))
             company = form.save()
             if editing is None:
                 messages.success(request, f'A empresa "{company.display_name}" foi cadastrada.')
@@ -2610,7 +2640,7 @@ def clients_view(request):
         c.admin_list = admins_by_company.get(c.id, [])
 
     # Abrir o modal de edicao direto pelo link da lista (?editar=<id>).
-    edit_id = (request.GET.get('editar') or '').strip()
+    edit_id = id_valido(request.GET.get('editar'))
     if form is None and edit_id:
         editing = Company.objects.filter(pk=edit_id).first()
         if editing is not None:
@@ -2661,7 +2691,7 @@ def masters_view(request):
 
     if request.method == 'POST':
         action = (request.POST.get('action') or '').strip()
-        target_id = (request.POST.get('master_id') or '').strip()
+        target_id = id_valido(request.POST.get('master_id'))
         target = masters.filter(pk=target_id).first() if target_id else None
         is_self = target is not None and target.pk == request.user.pk
 
@@ -2810,13 +2840,19 @@ def contacts_view(request):
         company = request_company(request)
         action = (request.POST.get('action') or '').strip()
         if action == 'delete':
-            Contact.objects.filter(
-                company=company, pk=(request.POST.get('contact_id') or '').strip()
-            ).delete()
-            messages.success(request, 'Contato removido.')
+            contact_id = id_valido(request.POST.get('contact_id'))
+            removidos = 0
+            if contact_id:
+                removidos, _ = Contact.objects.filter(
+                    company=company, pk=contact_id
+                ).delete()
+            if removidos:
+                messages.success(request, 'Contato removido.')
+            else:
+                messages.error(request, 'Contato não encontrado.')
             return redirect('contacts')
 
-        contact_id = (request.POST.get('contact_id') or '').strip()
+        contact_id = id_valido(request.POST.get('contact_id'))
         name = (request.POST.get('name') or '').strip()
         phone = _digits(request.POST.get('phone'))
         if not name or not phone:
@@ -3744,6 +3780,15 @@ def wapi_webhook_view(request, company_slug=''):
     return JsonResponse({'ok': True, 'message': 'Webhook recebido com sucesso.'})
 
 
+@require_POST
 def logout_view(request):
+    """Sai da conta. SO POR POST.
+
+    Por GET, qualquer pagina de terceiros podia derrubar a sessao de quem a
+    abrisse com um simples `<img src=".../logout/">` — o navegador segue a imagem
+    e o Django processa a saida. O proprio Django tirou o GET do `LogoutView` na
+    versao 5 por esse motivo. O botao "Sair" da barra lateral virou um formulario
+    (`templates/accounts/_logout_form.html`), com CSRF.
+    """
     logout(request)
     return redirect('login')

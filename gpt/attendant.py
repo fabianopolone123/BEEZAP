@@ -463,31 +463,64 @@ def handle_incoming_for_ai(conversation_id):
         Conversation.objects.filter(pk=conversation.id).update(ai_turns=new_turns)
 
 
-# Evita processar a mesma conversa em paralelo (mensagens em rajada).
-_ai_lock = threading.Lock()
-_ai_active = set()
-
-
 def handle_incoming_for_ai_async(conversation_id):
     """Dispara o atendente virtual em background (thread daemon).
 
-    Nunca bloqueia o recebimento do webhook. Evita rodar em paralelo para a mesma
-    conversa e fecha a conexao de banco ao fim (padrao de retry_conversation_media_async)."""
-    with _ai_lock:
-        if conversation_id in _ai_active:
-            return False
-        _ai_active.add(conversation_id)
+    Nunca bloqueia o recebimento do webhook. A trava contra processar a mesma
+    conversa duas vezes fica NO BANCO (`wapi/autoreply_lock.py`), nao num `set()` em
+    memoria: com `--workers 2` cada worker tinha o seu set, e uma rajada de mensagens
+    caindo em processos diferentes fazia o cliente receber DUAS respostas.
+
+    Ao terminar, se chegou mensagem nova durante o processamento, roda de novo — a
+    trava antiga descartava essa mensagem e a conversa podia ficar parada.
+    """
+    from wapi import autoreply_lock
+
+    if not autoreply_lock.acquire(conversation_id):
+        ai_logger.info('IA ja esta processando esta conversa (conv=%s).', conversation_id)
+        return False
 
     def _worker():
         from django.db import connection
         try:
-            handle_incoming_for_ai(conversation_id)
+            _processar_com_reprocesso(conversation_id)
         except Exception:
             ai_logger.exception('Falha no atendimento IA (conv=%s).', conversation_id)
         finally:
-            connection.close()
-            with _ai_lock:
-                _ai_active.discard(conversation_id)
+            try:
+                autoreply_lock.release(conversation_id)
+            finally:
+                connection.close()
 
     threading.Thread(target=_worker, name=f'ai-{conversation_id}', daemon=True).start()
     return True
+
+
+# Quantas vezes reprocessar quando chega mensagem nova durante o processamento.
+# Limite para uma rajada muito longa nao virar loop.
+MAX_REPROCESSOS = 3
+
+
+def _ultima_mensagem_recebida(conversation_id):
+    from accounts.models import Message
+    return (
+        Message.objects
+        .filter(conversation_id=conversation_id, direction='in')
+        .order_by('-created_at').values_list('pk', flat=True).first()
+    )
+
+
+def _processar_com_reprocesso(conversation_id):
+    """Roda a IA e, se o cliente mandou algo novo no meio, roda de novo.
+
+    Sem isto, a mensagem que chegasse durante o processamento seria descartada pela
+    trava: o cliente digitava a resposta, ninguem processava, e a conversa ficava
+    parada sem cair em fila.
+    """
+    for _ in range(MAX_REPROCESSOS):
+        antes = _ultima_mensagem_recebida(conversation_id)
+        handle_incoming_for_ai(conversation_id)
+        if _ultima_mensagem_recebida(conversation_id) == antes:
+            return
+        ai_logger.info('Mensagem nova durante o processamento (conv=%s): refazendo.',
+                       conversation_id)

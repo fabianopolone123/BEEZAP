@@ -397,3 +397,19 @@ body {
     font-size: 1.6rem;
   }
 }
+
+/* "Sair" da tela de troca de senha inicial: virou <button> num <form> POST
+   (ver templates/accounts/_logout_form.html). Mantem a aparencia de link. */
+.logout-form {
+  display: contents;
+}
+
+button.logout-link {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: var(--accent, #21c25e);
+  text-decoration: underline;
+  cursor: pointer;
+}

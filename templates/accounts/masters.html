@@ -46,7 +46,7 @@ se deixa a plataforma sem gestor ativo e excluir exige desativar antes.
               <span>{{ role_label }}</span>
             </div>
           </div>
-          <a href="{% url 'logout' %}" class="logout-link">Sair</a>
+          {% include 'accounts/_logout_form.html' %}
         </div>
       </header>
 

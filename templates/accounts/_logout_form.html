@@ -1,0 +1,12 @@
+{% comment %}
+Botao "Sair" como FORMULARIO (POST + CSRF), nao link.
+
+Por GET, qualquer pagina de terceiros derrubava a sessao de quem a abrisse com um
+`<img src=".../logout/">`. O proprio Django tirou o GET do `LogoutView` na versao 5
+por isso. Visualmente continua identico: `.logout-link` estilizado, agora num
+`<button>`.
+{% endcomment %}
+<form method="post" action="{% url 'logout' %}" class="logout-form">
+  {% csrf_token %}
+  <button type="submit" class="logout-link">Sair</button>
+</form>

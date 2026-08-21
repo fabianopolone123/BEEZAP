@@ -720,3 +720,18 @@ tbody tr:last-child td {
     grid-template-columns: 1fr;
   }
 }
+
+/* O botao "Sair" e um <button> dentro de um <form> (POST + CSRF, ver
+   templates/accounts/_logout_form.html) — antes era um <a>, e por GET qualquer
+   pagina de terceiros derrubava a sessao com um <img src=".../logout/">.
+   Estas regras deixam o botao visualmente identico ao link que ele substituiu. */
+.logout-form {
+  display: contents;
+}
+
+button.logout-link {
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  line-height: normal;
+}

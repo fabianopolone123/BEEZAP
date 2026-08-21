@@ -60,7 +60,7 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
 > `wapi/` é um módulo Python comum (importa `accounts.models`); **não** está em
 > `INSTALLED_APPS`, por isso os models ficam em `accounts/models.py`.
 
-## 3. Modelos (`accounts/models.py`) — migração atual: `0036`
+## 3. Modelos (`accounts/models.py`) — migração atual: `0037`
 
 > **Índices (migração `0036`)**: até ela, o único `db_index` do projeto era
 > `Conversation.external_id`. As FKs ganham índice sozinhas, mas as consultas reais
@@ -191,7 +191,10 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
   ou LID da direta), `name` (título/nome do grupo), `status`
   (`open`/`pending`/`closed`), `assigned_attendant`, `sector`,
   `last_message_text`, `last_message_at`, `unread_count`, `ai_turns` (respostas
-  da IA no atendimento atual; zera ao transferir/encerrar/reabrir). Propriedades:
+  da IA no atendimento atual; zera ao transferir/encerrar/reabrir),
+  `auto_reply_lock_at` (**trava do atendimento automático** — "estou processando
+  desde"; fica no banco porque precisa valer entre os workers do gunicorn, ver
+  `wapi/autoreply_lock.py` e a seção 14). Propriedades:
   `is_group`, `display_title`, `display_initials`, `recipient` (destino de envio).
 - **Message**: `conversation`, `sector` (FK, **setor da conversa NO MOMENTO** em que a
   mensagem foi criada — carimbado em todos os pontos de criação; nulo enquanto sem setor,
@@ -849,6 +852,23 @@ seed_demo_data [--no-clear]             # popula DEMO: 5 setores/atendentes + co
 - **Dado de cliente sempre filtrado por `company`**; o master não lê atendimento
   (seção 16, "O que o master NÃO alcança"). Ao criar tela/endpoint novo, começar
   pelo escopo de empresa, não deixá-lo para depois.
+- **`logout` só por POST** (`@require_POST`; o botão "Sair" é o include
+  `templates/accounts/_logout_form.html`, com CSRF). Por GET, qualquer página de
+  terceiros derrubava a sessão de quem a abrisse com um `<img src=".../logout/">`.
+- **Id de formulário passa por `views.id_valido()`**: `filter(pk='abc')` levanta
+  `ValueError` no Django, ou seja, um valor forjado virava **500** em vez de "não
+  encontrado".
+- **`User.save()` normaliza o e-mail para minúsculo.** `email` é único no banco de
+  forma sensível à caixa, mas o login busca com `email__iexact`: sem normalizar,
+  `Joao@x.com` e `joao@x.com` coexistiam (conta criada pelo shell ou pelo admin) e o
+  login estourava `MultipleObjectsReturned` — 500 na tela de entrada. O
+  `EmailBackend` também ficou tolerante ao que já estiver gravado.
+- **`Conversation` e `Message` NÃO ficam no admin do Django** (`accounts/admin.py`).
+  Estavam registradas sem filtro de empresa e com `search_fields = ('text', …)`:
+  qualquer conta `is_staff` lia e **pesquisava** o texto das conversas de todos os
+  clientes por `/beeonboard/admin/`. Para inspecionar conversa existem os comandos
+  `inspect_wapi_messages` / `inspect_wapi_events`, que rodam no servidor e não abrem
+  uma busca por texto na web. **Não registrar de volta.**
 
 ## 12. Ciclo de atendimento (assumir / encerrar)
 
@@ -1008,8 +1028,20 @@ O **primeiro atendimento** de conversas **diretas** sem setor/atendente é feito
 (IA), `handle_incoming_for_menu_async` (chatbot) ou nada. A guarda da IA
 (`gpt/attendant._should_handle`) lê o modo (não mais `OpenAiConfiguration.enabled`).
 
+**Trava por conversa (`wapi/autoreply_lock.py`) — vale ENTRE OS WORKERS.** A trava
+que evita processar a mesma conversa duas vezes fica **no banco**
+(`Conversation.auto_reply_lock_at`), não num `set()` em memória. Motivo: com
+`--workers 2` cada worker tinha o seu set, então uma rajada de mensagens caindo em
+processos diferentes passava pelas duas travas e **o cliente recebia o menu (ou a
+resposta da IA) duas vezes**. Tomar a trava é um `UPDATE` condicional — atômico por
+definição, sem Redis nem tabela nova. O TTL de 2 minutos existe para um worker morto
+(o gunicorn mata worker no timeout) não deixar a conversa presa para sempre.
+E **reprocessa**: se chegou mensagem nova durante o processamento, roda de novo (até
+3 vezes) — antes a mensagem rejeitada pela trava era descartada, então o cliente
+podia digitar a escolha e a conversa ficar parada, fora de qualquer fila.
+
 **Chatbot de menu** (`chatbot/handler.py`, espelha o `gpt/attendant.py` — thread em
-background, lock por conversa, nunca levanta exceção):
+background, trava por conversa no banco, nunca levanta exceção):
 - 1º contato do atendimento → envia **saudação + menu** (`build_menu_text`: `{saudacao}`
   vira Bom dia/tarde/noite, **`{empresa}` vira o nome da empresa cliente**; opções
   numeradas "1 - Financeiro").
@@ -1673,4 +1705,7 @@ A exclusão também **apaga os arquivos de mídia do disco**
 (`_delete_company_media_files`): o `delete()` em cascata limpa o banco, mas o Django
 **não** remove o arquivo — sem isso, as fotos e documentos do cliente ficariam órfãos
 no servidor para sempre, sem ninguém conseguir ver nem apagar pela interface. A
-mensagem de sucesso informa quantos arquivos saíram.
+mensagem de sucesso informa quantos arquivos saíram. **O logo da empresa entra nessa
+limpeza** (antes ficava para trás: a função só percorria `Message.media_file`), e
+**trocar o logo por Clientes → Editar também apaga o antigo** — a aba Marca do
+cliente já fazia isso, a tela do master não.

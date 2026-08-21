@@ -5732,3 +5732,340 @@ class AdminAttendantSignalIsQuietTests(TestCase):
         with _patch('accounts.signals.ensure_admin_attendant') as provisiona:
             self.adm.save()
         self.assertTrue(provisiona.called)
+
+
+class LogoutRequiresPostTests(TestCase):
+    """Sair da conta so por POST.
+
+    Por GET, qualquer pagina de terceiros derrubava a sessao de quem a abrisse com um
+    `<img src=".../logout/">` — o navegador segue a imagem e o Django processava a
+    saida. O proprio Django tirou o GET do `LogoutView` na versao 5 por isso.
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            email='sai@x.com', password='SenhaForte123',
+            role=User.Role.ADM, company=default_company(),
+        )
+        self.user.attendant_profile.must_change_password = False
+        self.user.attendant_profile.save(update_fields=['must_change_password'])
+
+    def test_get_nao_derruba_a_sessao(self):
+        self.client.force_login(self.user)
+        response = self.client.get(reverse('logout'))
+        self.assertEqual(response.status_code, 405)
+        # Continua logado: a proxima tela abre normalmente.
+        self.assertEqual(self.client.get(reverse('dashboard')).status_code, 200)
+
+    def test_post_sai_normalmente(self):
+        self.client.force_login(self.user)
+        response = self.client.post(reverse('logout'))
+        self.assertEqual(response.status_code, 302)
+        self.assertRedirects(response, reverse('login'))
+
+    def test_a_tela_oferece_o_botao_como_formulario(self):
+        self.client.force_login(self.user)
+        corpo = self.client.get(reverse('dashboard')).content.decode()
+        self.assertIn('<form method="post" action="%s"' % reverse('logout'), corpo)
+        self.assertIn('csrfmiddlewaretoken', corpo)
+
+
+class InvalidIdsDoNotBreakTests(TestCase):
+    """Id nao numerico em formulario responde mensagem, nao 500.
+
+    `Model.objects.filter(pk='abc')` levanta `ValueError` no Django. Varios POSTs
+    liam id cru do formulario, entao um valor forjado (ou um bug de front) virava
+    erro 500 em vez de "nao encontrado".
+    """
+
+    def setUp(self):
+        self.master = User.objects.create_user(
+            email='master-ids@x.com', password='SenhaForte123', role=User.Role.MASTER,
+        )
+        self.adm = User.objects.create_user(
+            email='adm-ids@x.com', password='SenhaForte123',
+            role=User.Role.ADM, company=default_company(),
+        )
+        self.adm.attendant_profile.must_change_password = False
+        self.adm.attendant_profile.save(update_fields=['must_change_password'])
+
+    def test_id_valido_aceita_so_numero(self):
+        from .views import id_valido
+        self.assertEqual(id_valido('42'), 42)
+        self.assertEqual(id_valido(' 7 '), 7)
+        self.assertIsNone(id_valido('abc'))
+        self.assertIsNone(id_valido(''))
+        self.assertIsNone(id_valido(None))
+        self.assertIsNone(id_valido('1; DROP TABLE'))
+        self.assertIsNone(id_valido('-3'))
+
+    def test_clientes_com_id_invalido(self):
+        self.client.force_login(self.master)
+        for acao in ('delete', 'toggle-active', 'enter', 'create-admin'):
+            with self.subTest(acao=acao):
+                response = self.client.post(
+                    reverse('clients'), {'action': acao, 'company_id': 'abc'}
+                )
+                self.assertEqual(response.status_code, 302)
+
+    def test_gestores_com_id_invalido(self):
+        self.client.force_login(self.master)
+        response = self.client.post(
+            reverse('masters'), {'action': 'delete', 'master_id': 'xyz'}
+        )
+        self.assertEqual(response.status_code, 302)
+
+    def test_permissoes_com_id_invalido(self):
+        self.client.force_login(self.adm)
+        casos = [
+            {'form_type': 'user', 'user_id': 'nao-e-numero'},
+            {'form_type': 'user-reset', 'user_id': 'nao-e-numero'},
+            {'form_type': 'view-user', 'user_id': 'nao-e-numero'},
+            {'form_type': 'view-user-reset', 'user_id': 'nao-e-numero'},
+            {'form_type': 'profile-role', 'user_id': 'nao-e-numero', 'role': 'adm'},
+            {'form_type': 'group-name', 'group_id': 'nao-e-numero', 'name': 'x'},
+            {'form_type': 'group-remove', 'group_id': 'nao-e-numero'},
+        ]
+        for dados in casos:
+            with self.subTest(form_type=dados['form_type']):
+                response = self.client.post(reverse('permissions'), dados)
+                self.assertIn(response.status_code, (302, 400))
+
+    def test_permissoes_com_usuario_invalido_na_query(self):
+        self.client.force_login(self.adm)
+        response = self.client.get(reverse('permissions') + '?user=abc&tab=botoes')
+        self.assertEqual(response.status_code, 200)
+
+    def test_contatos_com_id_invalido(self):
+        self.client.force_login(self.adm)
+        response = self.client.post(
+            reverse('contacts'), {'action': 'delete', 'contact_id': 'abc'}
+        )
+        self.assertEqual(response.status_code, 302)
+
+    def test_atendentes_com_id_invalido(self):
+        self.client.force_login(self.adm)
+        response = self.client.post(
+            reverse('attendants'),
+            {'attendant_id': 'abc', 'name': 'X', 'email': 'x@y.com', 'phone': ''},
+        )
+        self.assertIn(response.status_code, (200, 302))
+
+
+class EmailIsAlwaysLowercaseTests(TestCase):
+    """E-mail duplicado por CAIXA nao pode virar 500 no login.
+
+    `User.email` e unico no banco de forma sensivel a caixa, mas o login busca com
+    `email__iexact`. Sem normalizar, `Joao@x.com` e `joao@x.com` coexistiam (via
+    shell ou admin do Django) e o login estourava `MultipleObjectsReturned`.
+    """
+
+    def test_save_normaliza_para_minusculo(self):
+        user = User.objects.create_user(
+            email='Maiuscula@Exemplo.COM', password='SenhaForte123',
+            role=User.Role.USUARIO, company=default_company(),
+        )
+        user.refresh_from_db()
+        self.assertEqual(user.email, 'maiuscula@exemplo.com')
+
+    def test_login_funciona_com_qualquer_caixa(self):
+        User.objects.create_user(
+            email='Pessoa@Exemplo.com', password='SenhaForte123',
+            role=User.Role.USUARIO, company=default_company(),
+        )
+        for tentativa in ('pessoa@exemplo.com', 'Pessoa@Exemplo.com', 'PESSOA@EXEMPLO.COM'):
+            with self.subTest(email=tentativa):
+                self.assertTrue(
+                    self.client.login(email=tentativa, password='SenhaForte123')
+                )
+                self.client.logout()
+
+    def test_backend_nao_estoura_com_duas_contas_de_caixas_diferentes(self):
+        """Contas antigas gravadas antes da normalizacao continuam logando."""
+        from django.contrib.auth import authenticate
+        User.objects.create_user(
+            email='dupla@exemplo.com', password='SenhaUm123',
+            role=User.Role.USUARIO, company=default_company(),
+        )
+        # Grava a segunda por UPDATE, driblando o save() (simula o estado legado).
+        outra = User.objects.create_user(
+            email='outra@exemplo.com', password='SenhaDois123',
+            role=User.Role.USUARIO, company=default_company(),
+        )
+        User.objects.filter(pk=outra.pk).update(email='Dupla@exemplo.com')
+        # Antes isto levantava MultipleObjectsReturned (500 na tela de login).
+        self.assertIsNotNone(authenticate(email='dupla@exemplo.com', password='SenhaUm123'))
+        self.assertIsNotNone(authenticate(email='dupla@exemplo.com', password='SenhaDois123'))
+        self.assertIsNone(authenticate(email='dupla@exemplo.com', password='ErradaTotal'))
+
+
+class CompanyDeletionRemovesLogoTests(TestCase):
+    """Excluir a empresa apaga TODOS os arquivos dela, inclusive o logo.
+
+    `_delete_company_media_files` percorria so `Message.media_file`, entao o arquivo
+    de `media/empresas/logos/` sobrava no disco para sempre depois de o cliente sair.
+    """
+
+    def _empresa_com_logo(self):
+        from django.core.files.base import ContentFile
+        from .models import Company
+        company = Company.objects.create(name='Com Logo', slug='com-logo')
+        company.logo.save('logo-teste.png', ContentFile(b'PNG-falso'), save=True)
+        return company
+
+    def test_exclusao_apaga_o_arquivo_do_logo(self):
+        import os
+        from .views import _delete_company_media_files
+        company = self._empresa_com_logo()
+        caminho = company.logo.path
+        self.assertTrue(os.path.exists(caminho))
+        removidos = _delete_company_media_files(company)
+        self.assertGreaterEqual(removidos, 1)
+        self.assertFalse(os.path.exists(caminho))
+
+    def test_empresa_sem_logo_nao_quebra(self):
+        from .models import Company
+        from .views import _delete_company_media_files
+        company = Company.objects.create(name='Sem Logo', slug='sem-logo-x')
+        self.assertEqual(_delete_company_media_files(company), 0)
+
+    def test_master_trocando_o_logo_apaga_o_antigo(self):
+        import os
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        company = self._empresa_com_logo()
+        antigo = company.logo.path
+        master = User.objects.create_user(
+            email='master-logo@x.com', password='SenhaForte123', role=User.Role.MASTER,
+        )
+        self.client.force_login(master)
+        response = self.client.post(reverse('clients'), {
+            'company_id': company.pk,
+            'name': company.name,
+            'slug': company.slug,
+            'logo': SimpleUploadedFile('novo.png', b'PNG-novo', content_type='image/png'),
+            'is_active': 'on',
+        })
+        self.assertEqual(response.status_code, 302)
+        company.refresh_from_db()
+        self.assertFalse(os.path.exists(antigo), 'o logo antigo ficou orfao no disco')
+        self.assertTrue(company.logo)
+
+
+class AutoReplyLockIsSharedBetweenProcessesTests(TestCase):
+    """A trava do atendimento automatico vale ENTRE PROCESSOS.
+
+    Antes era um `set()` na memoria do worker. Com `--workers 2`, cada worker tinha o
+    seu — uma rajada caindo em processos diferentes passava pelas duas travas e o
+    cliente recebia o menu (ou a resposta da IA) DUAS vezes.
+    """
+
+    def setUp(self):
+        from .models import Contact, Conversation
+        self.company = default_company()
+        contato = Contact.objects.create(
+            company=self.company, name='Cliente Trava', phone='5519555554444',
+        )
+        self.conv = Conversation.objects.create(
+            company=self.company, contact=contato, external_id='5519555554444',
+            chat_type='private',
+        )
+
+    def test_segunda_tentativa_nao_toma_a_trava(self):
+        from wapi import autoreply_lock
+        self.assertTrue(autoreply_lock.acquire(self.conv.pk))
+        self.assertFalse(autoreply_lock.acquire(self.conv.pk))
+
+    def test_liberar_devolve_a_trava(self):
+        from wapi import autoreply_lock
+        autoreply_lock.acquire(self.conv.pk)
+        autoreply_lock.release(self.conv.pk)
+        self.assertTrue(autoreply_lock.acquire(self.conv.pk))
+
+    def test_trava_expira_para_worker_morto_nao_travar_a_conversa(self):
+        """O gunicorn mata worker no timeout; a conversa nao pode ficar presa."""
+        from datetime import timedelta as _td
+        from django.utils import timezone as _tz
+        from wapi import autoreply_lock
+        from .models import Conversation
+        autoreply_lock.acquire(self.conv.pk)
+        antiga = _tz.now() - autoreply_lock.LOCK_TTL - _td(seconds=1)
+        Conversation.objects.filter(pk=self.conv.pk).update(auto_reply_lock_at=antiga)
+        self.assertTrue(autoreply_lock.acquire(self.conv.pk))
+
+    def test_travas_de_conversas_diferentes_nao_se_atrapalham(self):
+        from .models import Contact, Conversation
+        from wapi import autoreply_lock
+        outro = Contact.objects.create(
+            company=self.company, name='Outro', phone='5519111112222',
+        )
+        conv2 = Conversation.objects.create(
+            company=self.company, contact=outro, external_id='5519111112222',
+            chat_type='private',
+        )
+        self.assertTrue(autoreply_lock.acquire(self.conv.pk))
+        self.assertTrue(autoreply_lock.acquire(conv2.pk))
+
+    def test_chatbot_reprocessa_quando_chega_mensagem_no_meio(self):
+        """A escolha digitada durante o processamento nao pode ser descartada."""
+        from unittest.mock import patch as _patch
+        from chatbot import handler
+        from .models import Message
+
+        chamadas = []
+
+        def _finge_atendimento(conversation_id):
+            chamadas.append(conversation_id)
+            if len(chamadas) == 1:
+                # Simula o cliente mandando "1" enquanto o bot processava.
+                Message.objects.create(
+                    conversation=self.conv, direction='in',
+                    message_type='text', text='1',
+                )
+
+        Message.objects.create(
+            conversation=self.conv, direction='in', message_type='text', text='oi',
+        )
+        with _patch.object(handler, 'handle_incoming_for_menu', _finge_atendimento):
+            handler._processar_com_reprocesso(self.conv.pk)
+        self.assertEqual(len(chamadas), 2, 'deveria reprocessar a mensagem nova')
+
+    def test_reprocesso_para_quando_nao_chega_nada_novo(self):
+        from unittest.mock import patch as _patch
+        from chatbot import handler
+        chamadas = []
+        with _patch.object(handler, 'handle_incoming_for_menu',
+                           lambda cid: chamadas.append(cid)):
+            handler._processar_com_reprocesso(self.conv.pk)
+        self.assertEqual(len(chamadas), 1)
+
+
+class DjangoAdminDoesNotExposeConversationsTests(TestCase):
+    """Conversa e mensagem NAO ficam no admin do Django.
+
+    Estavam registradas sem filtro de empresa e com `search_fields = ('text', ...)`:
+    qualquer conta `is_staff` lia e PESQUISAVA o texto das conversas de todos os
+    clientes por `/admin/` — um caminho que a secao 16 nem mencionava.
+    """
+
+    def test_conversa_e_mensagem_fora_do_admin(self):
+        from django.contrib import admin as django_admin
+        from .models import Conversation, Message
+        registrados = django_admin.site._registry
+        self.assertNotIn(Conversation, registrados)
+        self.assertNotIn(Message, registrados)
+
+    def test_urls_do_admin_dessas_tabelas_nao_existem(self):
+        from django.urls import NoReverseMatch, reverse as _reverse
+        for nome in ('admin:accounts_conversation_changelist',
+                     'admin:accounts_message_changelist'):
+            with self.subTest(url=nome):
+                with self.assertRaises(NoReverseMatch):
+                    _reverse(nome)
+
+    def test_cadastros_continuam_disponiveis_para_suporte(self):
+        from django.urls import reverse as _reverse
+        for nome in ('admin:accounts_company_changelist',
+                     'admin:accounts_user_changelist',
+                     'admin:accounts_contact_changelist'):
+            with self.subTest(url=nome):
+                self.assertTrue(_reverse(nome))

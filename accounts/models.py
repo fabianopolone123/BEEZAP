@@ -246,6 +246,20 @@ class User(AbstractUser):
     def is_master(self):
         return self.role == self.Role.MASTER
 
+    def save(self, *args, **kwargs):
+        """Normaliza o e-mail para MINUSCULO antes de gravar.
+
+        `email` e unico no banco de forma SENSIVEL a caixa, mas o login busca com
+        `email__iexact` (ver accounts/backends.EmailBackend). Sem normalizar, era
+        possivel existirem `Joao@x.com` e `joao@x.com` ao mesmo tempo — e aí o login
+        estourava `MultipleObjectsReturned`, ou seja, 500 na tela de entrada. Os
+        formularios do sistema ja normalizavam; a porta aberta era criar conta pelo
+        shell ou pelo admin do Django.
+        """
+        if self.email:
+            self.email = self.email.strip().lower()
+        return super().save(*args, **kwargs)
+
     def __str__(self):
         return self.email
 
@@ -1027,6 +1041,11 @@ class Conversation(models.Model):
     # Quantas respostas a IA ja deu no atendimento atual (recepcao). Zera ao
     # transferir/encerrar/reabrir. Usado para o limite max_turns.
     ai_turns = models.PositiveSmallIntegerField(default=0)
+    # TRAVA do atendimento automatico (IA/chatbot): "estou processando desde".
+    # Precisa ficar no BANCO porque a trava tem que valer ENTRE OS WORKERS do
+    # gunicorn — um `set()` em memoria e por processo, e com 2 workers uma rajada de
+    # mensagens fazia o cliente receber o menu duas vezes. Ver wapi/autoreply_lock.py.
+    auto_reply_lock_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

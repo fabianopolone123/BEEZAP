@@ -31,7 +31,7 @@
             <span>{{ role_label }}</span>
           </div>
         </div>
-        <a href="{% url 'logout' %}" class="logout-link">Sair</a>
+        {% include 'accounts/_logout_form.html' %}
       </div>
     </header>
 

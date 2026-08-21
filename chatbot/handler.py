@@ -325,31 +325,60 @@ def handle_incoming_for_menu(conversation_id):
         Conversation.objects.filter(pk=conversation.id).update(ai_turns=new_attempts)
 
 
-# Evita processar a mesma conversa em paralelo (mensagens em rajada).
-_menu_lock = threading.Lock()
-_menu_active = set()
+# Quantas vezes reprocessar quando chega mensagem nova durante o processamento.
+MAX_REPROCESSOS = 3
+
+
+def _ultima_mensagem_recebida(conversation_id):
+    from accounts.models import Message
+    return (
+        Message.objects
+        .filter(conversation_id=conversation_id, direction='in')
+        .order_by('-created_at').values_list('pk', flat=True).first()
+    )
+
+
+def _processar_com_reprocesso(conversation_id):
+    """Roda o menu e, se o cliente mandou algo novo no meio, roda de novo.
+
+    Sem isto, a escolha digitada durante o processamento era descartada pela trava e
+    a conversa ficava parada, sem cair em fila nenhuma.
+    """
+    for _ in range(MAX_REPROCESSOS):
+        antes = _ultima_mensagem_recebida(conversation_id)
+        handle_incoming_for_menu(conversation_id)
+        if _ultima_mensagem_recebida(conversation_id) == antes:
+            return
+        bot_logger.info('Mensagem nova durante o processamento (conv=%s): refazendo.',
+                        conversation_id)
 
 
 def handle_incoming_for_menu_async(conversation_id):
     """Dispara o chatbot de menu em background (thread daemon).
 
-    Nunca bloqueia o recebimento do webhook. Evita rodar em paralelo para a mesma
-    conversa e fecha a conexao de banco ao fim (padrao de handle_incoming_for_ai_async)."""
-    with _menu_lock:
-        if conversation_id in _menu_active:
-            return False
-        _menu_active.add(conversation_id)
+    Nunca bloqueia o recebimento do webhook. A trava contra processar a mesma
+    conversa duas vezes fica NO BANCO (`wapi/autoreply_lock.py`), nao num `set()` em
+    memoria: com `--workers 2` cada worker tinha o seu set, e uma rajada de mensagens
+    caindo em processos diferentes fazia o cliente receber o menu DUAS vezes.
+    """
+    from wapi import autoreply_lock
+
+    if not autoreply_lock.acquire(conversation_id):
+        bot_logger.info('Chatbot ja esta processando esta conversa (conv=%s).',
+                        conversation_id)
+        return False
 
     def _worker():
         from django.db import connection
         try:
-            handle_incoming_for_menu(conversation_id)
+            _processar_com_reprocesso(conversation_id)
         except Exception:
             bot_logger.exception('Falha no chatbot de menu (conv=%s).', conversation_id)
         finally:
-            connection.close()
-            with _menu_lock:
-                _menu_active.discard(conversation_id)
+            try:
+                autoreply_lock.release(conversation_id)
+            finally:
+                connection.close()
 
     threading.Thread(target=_worker, name=f'menu-{conversation_id}', daemon=True).start()
     return True
