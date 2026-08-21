@@ -126,7 +126,9 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
   é obrigatório, e quem pergunta "tem credencial?" deve receber "não", não um erro de
   banco. Idem `MenuBotConfiguration.for_company`, onde config vazia = modo `off`): `instance_id`,
   `token`, `webhook_token`. Credenciais reais ficam **aqui (no banco)**, editadas na
-  tela Configurações → WhatsApp/W-API. `resolved_*()` cai para env se vazio.
+  tela Configurações → WhatsApp/W-API. `resolved_*()` cai para as variáveis de
+  ambiente **apenas na empresa padrão** (`usa_credencial_do_ambiente`) — ver a nota
+  na seção 16.
   `get_solo()` sobrevive só como compatibilidade (empresa padrão). Ver seção 16.
 - **WapiWebhookEvent**: todo evento recebido do webhook (com `raw_payload`).
 - **OpenAiConfiguration** (**UMA para toda a PLATAFORMA**, `get_solo()` — **não é
@@ -669,6 +671,26 @@ sai por duas rotas do Django:
   mídia — converte áudio gravado (`.webm`→`.ogg`) e imagens não suportadas pela
   W-API (webp/gif/bmp/heic→`.jpg`). `sudo apt install -y ffmpeg`. O `manage.py check`
   avisa se faltar (**`beezap.W001`**). Ver `requirements.txt` e `DEPLOY.md`.
+- **Cookies com nome próprio** (`beeonboard_sessionid` / `beeonboard_csrftoken`,
+  path = `FORCE_SCRIPT_NAME`). **Não voltar ao padrão do Django.** O domínio serve
+  vários sistemas Django sob prefixos diferentes (`/beeonboard/`, `/trade/`,
+  `/tradeanalise/`, `/italiano-ti/`, …); com o nome padrão `sessionid` no path `/`,
+  eles **sobrescrevem a sessão um do outro** — entrar num derruba o login do outro.
+  Os vizinhos já resolvem assim (`italianoti_sessionid`, `formdesenv_sessionid`).
+  Efeito colateral do deploy que introduziu isso: as sessões abertas caíram **uma
+  vez**.
+- **`SESSION_COOKIE_SECURE` / `CSRF_COOKIE_SECURE`** ligam sozinhos quando
+  `DEBUG=False` (o domínio é HTTPS). **HSTS vem desligado de propósito**: vale para o
+  **domínio inteiro**, não só para `/beeonboard/`, e um `max-age` alto é difícil de
+  desfazer — ligar via `SECURE_HSTS_SECONDS` no `.env`, com decisão consciente.
+- **`SECRET_KEY` sem valor derruba a subida quando `DEBUG=False`.** Antes a aplicação
+  subia com a chave de desenvolvimento (que é versionada, pública) se o
+  `EnvironmentFile` do systemd falhasse em carregar — e com ela sessão e token
+  assinado ficam forjáveis, sem nada na tela indicando o problema.
+- **SQLite com `WAL` + `timeout=20`** (`SQLITE_OPTIONS` no `settings.py`): são 2
+  workers do gunicorn **mais** threads de background (mídia, IA, chatbot) gravando na
+  mesma base. No modo padrão, `database is locked` é questão de volume. Com
+  PostgreSQL (`DATABASE_URL`) nada disso é necessário.
 - **`DEBUG=False` no servidor** (já ativo — bom para segurança). **ARMADILHA CRÍTICA
   que já custou horas:** com `DEBUG=False`, o Django usa o `cached.Loader` e
   **guarda os templates compilados na memória de cada worker do gunicorn**. Um
@@ -692,6 +714,13 @@ sai por duas rotas do Django:
   ou montar a string em Python na view (strings não são localizadas).
 
 ### Fluxo de deploy
+
+`bash deploy/deploy.sh` faz, em ordem: `git pull` → dependências → **backup do
+`db.sqlite3`** (com `sqlite3 .backup`, consistente com o app no ar; mantém as 10
+cópias mais recentes em `backup/`) → `migrate` → `collectstatic` →
+**`check --deploy`** (informativo, não aborta) → restart do gunicorn **confirmando que
+os PIDs reciclaram**. O backup existe porque **com SQLite não há rollback de
+migration**: a única volta é o arquivo de antes.
 ```bash
 cd /var/www/beezap
 bash deploy/deploy.sh      # git pull + pip install + migrate + collectstatic + restart (RECOMENDADO)
@@ -1440,6 +1469,25 @@ Rotas: **`webhook/wapi/<empresa>/`** (recomendada — `wapi-webhook-company`) e 
 **Empresa inativa não recebe**: o webhook responde 404 e **nada** é criado (nem o
 evento bruto). O **token de webhook é validado por empresa** (`WapiConfiguration`
 daquele cliente), e a validação acontece **depois** de identificar a empresa.
+
+#### O `.env` não empresta credencial para cliente nenhum
+
+`WapiConfiguration.resolved_instance_id()` / `resolved_token()` /
+`resolved_webhook_token()` caem para `WAPI_INSTANCE_ID` / `WAPI_TOKEN` /
+`WAPI_WEBHOOK_TOKEN` **somente quando a empresa é a padrão**
+(`usa_credencial_do_ambiente`).
+
+Motivo: essas variáveis são herança da época de **um cliente único**, e a empresa
+padrão é a dona de tudo o que existia antes do multiempresa — para ela o fallback é o
+comportamento certo e mantém uma instalação antiga funcionando sem reconfigurar nada.
+Para **qualquer outra** empresa o fallback era perigoso: um cliente novo, ainda sem
+credencial cadastrada, mandaria mensagem pela instância do `.env` — **pelo WhatsApp de
+outro cliente**. Isso anulava justamente a garantia construída ao tornar `company`
+obrigatório em `wapi/client.py`. Sem credencial própria o certo é não enviar nada, e a
+tela Atendimento já mostra "WhatsApp ainda não configurado".
+
+O `manage.py check` avisa (**`beezap.W002`**) quando o `.env` tem essas variáveis
+preenchidas e existe mais de uma empresa cadastrada.
 
 #### `company` obrigatório no cliente da W-API
 

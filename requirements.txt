@@ -1,5 +1,5 @@
 # ============================================================================
-# BEEZAP — dependencias para o sistema rodar
+# BEEonBOARD — dependencias para o sistema rodar
 # ----------------------------------------------------------------------------
 # Requer: Python 3.12+
 # Instalar os pacotes pip:  pip install -r requirements.txt
@@ -23,7 +23,11 @@ psycopg[binary]>=3.2,<4.0     # driver PostgreSQL (se usar DATABASE_URL=postgres
 #              macOS:  brew install ffmpeg
 #              Windows (dev): baixar de https://ffmpeg.org e por no PATH
 #
-#   nginx    proxy reverso + serve /beezap/static/ e /beezap/media/ (producao).
+#   nginx    proxy reverso + serve /beeonboard/static/ (producao).
+#            ATENCAO: o Nginx NAO deve servir /beeonboard/media/ inteiro — a pasta
+#            media/whatsapp/ guarda os arquivos das conversas dos clientes e sairia
+#            sem login. So media/empresas/ (logos) e publicado. Ver docs/DEPLOY.md.
+#   sqlite3  (opcional) usado pelo deploy/deploy.sh para backup consistente do banco.
 #   git      deploy (git pull).
 #
 #   Ver docs/DEPLOY.md, docs/DEPLOY_VPS.md e docs/WAPI_MEDIA_INTEGRATION.md.

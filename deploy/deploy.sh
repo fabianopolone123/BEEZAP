@@ -1,9 +1,16 @@
 #!/usr/bin/env bash
-# Deploy padrao do BEEZAP no VPS.
+# Deploy padrao do BEEonBOARD no VPS.
 # Uso: bash deploy/deploy.sh
 #
+# O que ele faz, em ordem:
+#   git pull -> dependencias -> BACKUP DO BANCO -> migracoes -> collectstatic ->
+#   check --deploy -> restart do gunicorn COM VERIFICACAO de que os PIDs reciclaram.
+#
 # Publica alteracoes de codigo E de arquivos estaticos (CSS/JS/imagens).
-# Nao depende mais de `cp -r static/* staticfiles/` manual.
+# Nao depende de `cp -r static/* staticfiles/` manual.
+#
+# Os identificadores tecnicos seguem `beezap` de proposito (servico systemd, pasta
+# /var/www/beezap): renomea-los nao e necessario e arriscaria o ambiente no ar.
 set -e
 
 BASE="/var/www/beezap"
@@ -14,6 +21,26 @@ git pull
 
 echo ">> dependencias..."
 venv/bin/pip install -r requirements.txt
+
+echo ">> backup do banco (antes de migrar)..."
+# Com SQLite nao existe rollback de migration: se algo der errado no `migrate`, a
+# unica volta e o arquivo de antes. Guardamos as 10 copias mais recentes.
+if [ -f db.sqlite3 ]; then
+    mkdir -p backup
+    CARIMBO="$(date +%Y%m%d-%H%M%S)"
+    # `.backup` do sqlite3 e consistente com o app no ar (um `cp` pode pegar a base
+    # no meio de uma escrita). Se o binario nao existir, cai para o cp.
+    if command -v sqlite3 >/dev/null 2>&1; then
+        sqlite3 db.sqlite3 ".backup 'backup/db-${CARIMBO}.sqlite3'"
+    else
+        cp db.sqlite3 "backup/db-${CARIMBO}.sqlite3"
+    fi
+    echo "   backup/db-${CARIMBO}.sqlite3"
+    # Mantem so as 10 copias mais novas (a pasta nao pode crescer sem fim).
+    ls -1t backup/db-*.sqlite3 2>/dev/null | tail -n +11 | xargs -r rm -f
+else
+    echo "   (sem db.sqlite3 — provavelmente PostgreSQL; backup e do servidor de banco)"
+fi
 
 echo ">> migracoes..."
 venv/bin/python manage.py migrate --noinput
@@ -29,6 +56,12 @@ if ! command -v ffmpeg >/dev/null 2>&1; then
     echo "   AVISO: ffmpeg nao encontrado. O envio de audio gravado no navegador"
     echo "          vai falhar. Instale com: sudo apt install -y ffmpeg"
 fi
+
+echo ">> conferindo a configuracao de producao (check --deploy)..."
+# Nao aborta o deploy: alguns avisos sao decisoes conscientes (ex.: HSTS desligado
+# porque vale para o dominio inteiro). Mas fica registrado na saida do deploy, em vez
+# de so aparecer quando alguem lembra de rodar o comando a mao.
+venv/bin/python manage.py check --deploy 2>&1 | sed 's/^/   /' || true
 
 echo ">> reiniciando servico (com verificacao de restart)..."
 # ARMADILHA (ver docs/DEPLOY.md): com DEBUG=False o Django guarda os templates

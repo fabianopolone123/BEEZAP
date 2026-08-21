@@ -32,12 +32,32 @@ def env_list(name, default=None):
     return [item.strip() for item in value.split(',') if item.strip()]
 
 
+# Opcoes do SQLite em uso concorrente.
+#
+# O sistema tem 2 workers do gunicorn MAIS threads de background (download de midia,
+# IA, chatbot) gravando na mesma base. No modo padrao do SQLite, uma escrita bloqueia
+# as leituras e o `timeout` de 5s do driver estoura como `database is locked` — e
+# estouraria justamente na hora de responder um cliente.
+#
+#  - journal_mode=WAL: leitura e escrita deixam de se bloquear;
+#  - synchronous=NORMAL: seguro com WAL e bem mais rapido que FULL;
+#  - timeout=20: espera pela trava em vez de falhar na hora.
+#
+# Com PostgreSQL (DATABASE_URL) nada disso e necessario.
+SQLITE_OPTIONS = {
+    'timeout': 20,
+    'init_command': 'PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;',
+    'transaction_mode': 'IMMEDIATE',
+}
+
+
 def build_database_config():
     database_url = os.getenv('DATABASE_URL', '').strip()
     if not database_url:
         return {
             'ENGINE': 'django.db.backends.sqlite3',
             'NAME': BASE_DIR / 'db.sqlite3',
+            'OPTIONS': dict(SQLITE_OPTIONS),
         }
 
     parsed = urlparse(database_url)
@@ -48,6 +68,7 @@ def build_database_config():
         return {
             'ENGINE': 'django.db.backends.sqlite3',
             'NAME': db_path or BASE_DIR / 'db.sqlite3',
+            'OPTIONS': dict(SQLITE_OPTIONS),
         }
 
     if parsed.scheme in ('postgres', 'postgresql'):
@@ -64,6 +85,7 @@ def build_database_config():
     return {
         'ENGINE': 'django.db.backends.sqlite3',
         'NAME': BASE_DIR / 'db.sqlite3',
+        'OPTIONS': dict(SQLITE_OPTIONS),
     }
 
 
@@ -71,17 +93,59 @@ def build_database_config():
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.getenv(
-    'SECRET_KEY',
-    'django-insecure-local-dev-key-change-me',
-)
+CHAVE_DE_DESENVOLVIMENTO = 'django-insecure-local-dev-key-change-me'
+SECRET_KEY = os.getenv('SECRET_KEY', CHAVE_DE_DESENVOLVIMENTO)
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = env_bool('DEBUG', True)
 
+# FALHAR ALTO em vez de rodar inseguro em silencio.
+#
+# Se o EnvironmentFile do systemd nao carregar (arquivo renomeado, permissao errada,
+# unit editado), a aplicacao subia normalmente com a chave de desenvolvimento — que
+# esta versionada, publica. Com ela, sessao e token assinado ficam FORJAVEIS, e nada
+# na tela indicaria o problema. Melhor o servico nao subir.
+if not DEBUG and SECRET_KEY == CHAVE_DE_DESENVOLVIMENTO:
+    raise RuntimeError(
+        'SECRET_KEY nao configurada: com DEBUG=False o sistema nao sobe com a chave '
+        'de desenvolvimento (ela e publica, versionada). Defina SECRET_KEY no .env — '
+        'ver docs/DEPLOY.md.'
+    )
+
 ALLOWED_HOSTS = env_list('ALLOWED_HOSTS', ['localhost', '127.0.0.1', '[::1]'])
 CSRF_TRUSTED_ORIGINS = env_list('CSRF_TRUSTED_ORIGINS', [])
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+
+# COOKIES COM NOME PROPRIO — nao e detalhe, e um bug ja observavel.
+#
+# O VPS serve varios sistemas Django no MESMO dominio, cada um sob um prefixo de
+# caminho (/beeonboard/, /trade/, /tradeanalise/, /italiano-ti/, ...). Com o nome
+# padrao do Django (`sessionid`, `csrftoken`) no caminho `/`, os sistemas SOBRESCREVEM
+# a sessao um do outro: entrar num derruba o login do outro. Os vizinhos ja resolveram
+# assim (`italianoti_sessionid`, `italiano_sessionid`, `formdesenv_sessionid`).
+SESSION_COOKIE_NAME = os.getenv('SESSION_COOKIE_NAME', 'beeonboard_sessionid')
+CSRF_COOKIE_NAME = os.getenv('CSRF_COOKIE_NAME', 'beeonboard_csrftoken')
+# O cookie tambem fica restrito ao prefixo do app, quando ha prefixo.
+SESSION_COOKIE_PATH = os.getenv('SESSION_COOKIE_PATH') or (
+    (os.getenv('FORCE_SCRIPT_NAME') or '').rstrip('/') + '/'
+)
+CSRF_COOKIE_PATH = SESSION_COOKIE_PATH
+
+# Cookie so por HTTPS quando o site esta em producao (o dominio e servido por TLS).
+# Em desenvolvimento (DEBUG) fica False, senao o login local pararia de funcionar.
+SESSION_COOKIE_SECURE = env_bool('SESSION_COOKIE_SECURE', not DEBUG)
+CSRF_COOKIE_SECURE = env_bool('CSRF_COOKIE_SECURE', not DEBUG)
+SESSION_COOKIE_SAMESITE = 'Lax'
+CSRF_COOKIE_SAMESITE = 'Lax'
+
+# HSTS: desligado por PADRAO de proposito. Ele vale para o DOMINIO INTEIRO, nao so
+# para /beeonboard/, entao ligar aqui afetaria todos os outros sistemas do servidor —
+# e um `max-age` alto e dificil de desfazer. Ligar via .env, com decisao consciente.
+SECURE_HSTS_SECONDS = int(os.getenv('SECURE_HSTS_SECONDS', '0'))
+SECURE_HSTS_INCLUDE_SUBDOMAINS = env_bool('SECURE_HSTS_INCLUDE_SUBDOMAINS', False)
+SECURE_HSTS_PRELOAD = env_bool('SECURE_HSTS_PRELOAD', False)
+# O redirecionamento para HTTPS e feito pelo Nginx do dominio.
+SECURE_SSL_REDIRECT = env_bool('SECURE_SSL_REDIRECT', False)
 
 # Prefixo de caminho quando o app e servido sob um sub-caminho (ex.: /beeonboard/).
 # Com isso, reverse()/{% url %}/redirects geram URLs ja com o prefixo. O Nginx

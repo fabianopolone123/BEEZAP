@@ -305,21 +305,43 @@ class WapiConfiguration(models.Model):
         return cls.for_company(Company.get_default())
 
     @property
+    def usa_credencial_do_ambiente(self):
+        """Esta configuracao pode cair para as variaveis de ambiente?
+
+        SO A EMPRESA PADRAO pode. As variaveis `WAPI_INSTANCE_ID`/`WAPI_TOKEN` do
+        `.env` sao heranca da epoca de UM cliente unico, e a empresa padrao e a dona
+        de tudo o que existia antes do multiempresa — para ela o fallback e o
+        comportamento certo, e e o que mantem uma instalacao antiga funcionando sem
+        reconfigurar nada.
+
+        Para QUALQUER OUTRA empresa o fallback e perigoso: um cliente novo, ainda sem
+        credencial cadastrada, mandaria mensagem pela instancia do `.env` — ou seja,
+        **pelo WhatsApp de outro cliente**. Isso anularia justamente a garantia que a
+        Parte 2 do multiempresa construiu ao tornar `company` obrigatorio em todas as
+        funcoes de `wapi/client.py`. Sem credencial propria, o certo e nao enviar
+        nada e a tela avisar "WhatsApp ainda nao configurado".
+        """
+        return bool(getattr(self.company, 'is_default', False))
+
+    def _do_ambiente(self, valor_do_env):
+        return valor_do_env if self.usa_credencial_do_ambiente else ''
+
+    @property
     def has_token(self):
-        return bool(self.token or settings.WAPI_TOKEN)
+        return bool(self.token or self._do_ambiente(settings.WAPI_TOKEN))
 
     @property
     def has_webhook_token(self):
-        return bool(self.webhook_token or settings.WAPI_WEBHOOK_TOKEN)
+        return bool(self.webhook_token or self._do_ambiente(settings.WAPI_WEBHOOK_TOKEN))
 
     def resolved_instance_id(self):
-        return self.instance_id or settings.WAPI_INSTANCE_ID
+        return self.instance_id or self._do_ambiente(settings.WAPI_INSTANCE_ID)
 
     def resolved_token(self):
-        return self.token or settings.WAPI_TOKEN
+        return self.token or self._do_ambiente(settings.WAPI_TOKEN)
 
     def resolved_webhook_token(self):
-        return self.webhook_token or settings.WAPI_WEBHOOK_TOKEN
+        return self.webhook_token or self._do_ambiente(settings.WAPI_WEBHOOK_TOKEN)
 
     def __str__(self):
         return 'Configuracao W-API'

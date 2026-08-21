@@ -6069,3 +6069,115 @@ class DjangoAdminDoesNotExposeConversationsTests(TestCase):
                      'admin:accounts_contact_changelist'):
             with self.subTest(url=nome):
                 self.assertTrue(_reverse(nome))
+
+
+class WapiEnvFallbackOnlyForDefaultCompanyTests(TestCase):
+    """Credencial do `.env` NUNCA vale para um cliente que nao a cadastrou.
+
+    `WAPI_INSTANCE_ID`/`WAPI_TOKEN` sao heranca da epoca de um cliente unico. Sem
+    restringir o fallback, uma empresa nova ainda sem credencial enviaria mensagem
+    pela instancia do `.env` — ou seja, PELO WHATSAPP DE OUTRO CLIENTE. Isso anularia
+    a garantia que a Parte 2 do multiempresa construiu ao tornar `company`
+    obrigatorio em todas as funcoes de `wapi/client.py`.
+    """
+
+    def setUp(self):
+        from .models import Company, WapiConfiguration
+        self.padrao = Company.get_default()
+        self.nova = Company.objects.create(name='Cliente Novo', slug='cliente-novo')
+        self.config_padrao = WapiConfiguration.for_company(self.padrao)
+        self.config_nova = WapiConfiguration.for_company(self.nova)
+
+    def test_empresa_padrao_ainda_cai_para_o_ambiente(self):
+        """Instalacao antiga de um cliente unico continua funcionando."""
+        from django.test import override_settings
+        with override_settings(WAPI_INSTANCE_ID='DO-ENV', WAPI_TOKEN='TOKEN-ENV'):
+            self.assertEqual(self.config_padrao.resolved_instance_id(), 'DO-ENV')
+            self.assertEqual(self.config_padrao.resolved_token(), 'TOKEN-ENV')
+            self.assertTrue(self.config_padrao.has_token)
+
+    def test_cliente_novo_sem_credencial_nao_usa_a_do_ambiente(self):
+        from django.test import override_settings
+        with override_settings(WAPI_INSTANCE_ID='DO-ENV', WAPI_TOKEN='TOKEN-ENV'):
+            self.assertEqual(self.config_nova.resolved_instance_id(), '')
+            self.assertEqual(self.config_nova.resolved_token(), '')
+            self.assertFalse(self.config_nova.has_token)
+
+    def test_credencial_propria_sempre_vence(self):
+        from django.test import override_settings
+        self.config_nova.instance_id = 'PROPRIA'
+        self.config_nova.token = 'TOKEN-PROPRIO'
+        self.config_nova.save()
+        with override_settings(WAPI_INSTANCE_ID='DO-ENV', WAPI_TOKEN='TOKEN-ENV'):
+            self.assertEqual(self.config_nova.resolved_instance_id(), 'PROPRIA')
+            self.assertEqual(self.config_nova.resolved_token(), 'TOKEN-PROPRIO')
+
+    def test_envio_pelo_cliente_sem_credencial_nao_sai(self):
+        """O cliente da W-API aborta em vez de enviar pela instancia errada."""
+        from django.test import override_settings
+        from wapi.client import send_text_message
+        with override_settings(WAPI_INSTANCE_ID='DO-ENV', WAPI_TOKEN='TOKEN-ENV'):
+            resultado = send_text_message(
+                '5519999998888', 'oi', company=self.nova,
+            )
+        self.assertFalse(resultado.success)
+        self.assertIn('Configure a W-API', resultado.error)
+
+    def test_status_para_o_cliente_diz_nao_configurado(self):
+        from django.test import override_settings
+        from .views import build_service_status
+        with override_settings(WAPI_INSTANCE_ID='DO-ENV', WAPI_TOKEN='TOKEN-ENV'):
+            status = build_service_status(self.nova)
+        self.assertFalse(status['whatsapp_ok'])
+        self.assertIn('ainda não configurado', status['whatsapp_label'])
+
+    def test_webhook_token_do_ambiente_tambem_e_so_da_padrao(self):
+        from django.test import override_settings
+        with override_settings(WAPI_WEBHOOK_TOKEN='SEGREDO-ENV'):
+            self.assertEqual(
+                self.config_padrao.resolved_webhook_token(), 'SEGREDO-ENV'
+            )
+            self.assertEqual(self.config_nova.resolved_webhook_token(), '')
+            self.assertFalse(self.config_nova.has_webhook_token)
+
+    def test_check_avisa_quando_o_env_tem_credencial_com_varias_empresas(self):
+        from django.test import override_settings
+        from .checks import wapi_env_credentials_check
+        with override_settings(WAPI_INSTANCE_ID='DO-ENV', WAPI_TOKEN='TOKEN-ENV'):
+            avisos = wapi_env_credentials_check(None)
+        self.assertEqual([a.id for a in avisos], ['beezap.W002'])
+
+    def test_check_fica_calado_com_uma_empresa_so(self):
+        from django.test import override_settings
+        from .models import Company
+        from .checks import wapi_env_credentials_check
+        Company.objects.exclude(pk=self.padrao.pk).delete()
+        with override_settings(WAPI_INSTANCE_ID='DO-ENV', WAPI_TOKEN='TOKEN-ENV'):
+            self.assertEqual(wapi_env_credentials_check(None), [])
+
+    def test_check_fica_calado_sem_credencial_no_env(self):
+        from django.test import override_settings
+        from .checks import wapi_env_credentials_check
+        with override_settings(WAPI_INSTANCE_ID='', WAPI_TOKEN=''):
+            self.assertEqual(wapi_env_credentials_check(None), [])
+
+
+class ProductionSettingsTests(SimpleTestCase):
+    """Configuracao de producao: cookies proprios e chave obrigatoria."""
+
+    def test_cookie_de_sessao_tem_nome_proprio(self):
+        """O dominio serve varios sistemas Django; `sessionid` colide entre eles."""
+        from django.conf import settings
+        self.assertNotEqual(settings.SESSION_COOKIE_NAME, 'sessionid')
+        self.assertNotEqual(settings.CSRF_COOKIE_NAME, 'csrftoken')
+        self.assertIn('beeonboard', settings.SESSION_COOKIE_NAME)
+        self.assertIn('beeonboard', settings.CSRF_COOKIE_NAME)
+
+    def test_sqlite_roda_com_wal_e_timeout(self):
+        """2 workers + threads de background gravando na mesma base."""
+        from django.conf import settings
+        opcoes = settings.DATABASES['default'].get('OPTIONS') or {}
+        if 'sqlite' not in settings.DATABASES['default']['ENGINE']:
+            self.skipTest('so vale para SQLite')
+        self.assertGreaterEqual(opcoes.get('timeout', 0), 10)
+        self.assertIn('WAL', opcoes.get('init_command', ''))
