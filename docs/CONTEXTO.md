@@ -42,16 +42,33 @@ Leia também: `CODEX_PADROES.md`, `GIT.md`, `HISTORICO.md`, `DEPLOY.md`,
 
 ```
 config/            settings.py (env-driven), urls.py, wsgi.py
-accounts/          app principal: models, views, urls, forms, admin, middleware,
+accounts/          app principal: models, urls, forms, admin, middleware,
                    backends, permissions.py, tenancy.py (multiempresa),
                    export.py (ZIP de portabilidade do cliente),
                    context_processors.py (marca do cliente),
+                   checks.py, signals.py, test_runner.py,
+                   templatetags/beeonboard_assets.py ({% asset %}),
                    management/commands/, templates de accounts
+accounts/views/    PACOTE de views por assunto (era um arquivo de 3.875 linhas):
+                     common.py         imports, GUARDAS de acesso, helpers
+                     auth.py           entrar/sair/recuperar senha
+                     dashboard.py      indicadores da empresa
+                     conversations.py  Conversas, mensagens, mídia, atendimento
+                     contacts.py       agenda de contatos
+                     settings.py       IA, chatbot, WhatsApp, Permissões, Setores
+                     company.py        Marca, Meus dados, exportação (do cliente)
+                     master.py         Clientes, Gestores, Métricas (do master)
+                     webhook.py        porta de entrada da W-API
+                   `__init__.py` reexporta tudo: `from .views import X` não mudou.
+accounts/tests/    PACOTE de testes por assunto (era um arquivo de 6.701 linhas):
+                     base.py (imports + `default_company()`), acesso, permissoes,
+                     conversas, atendimento, wapi, master, infra
 wapi/              MÓDULO (não é app instalado): client.py, parser.py, services.py, formatting.py
 gpt/               MÓDULO (não é app): client.py, attendant.py (atendente virtual IA)
 chatbot/           MÓDULO (não é app): handler.py (chatbot de menu, sem IA)
 static/css/        CSS por página (dashboard.css, conversations.css, clients.css, ...)
 static/js/         conversations.js (o comportamento da tela Conversas)
+templates/accounts/_logout_form.html   botão Sair (POST + CSRF)
 templates/         base.html + accounts/*.html
                    (accounts/_sidebar.html = barra lateral única, incluída por todas)
 docs/              documentação (este arquivo, DEPLOY.md, etc.)
@@ -823,8 +840,19 @@ OPENAI_TIMEOUT=30
 ### Rodar os testes
 
 ```bash
-python manage.py test          # 371 testes, ~9 segundos
+python manage.py test                              # tudo (~480 testes, ~11 s)
+python manage.py test accounts.tests.master        # só um assunto
+python manage.py test accounts.tests.NomeDaClasse  # só uma classe
 ```
+
+Os testes são um **pacote** (`accounts/tests/`) dividido por assunto; `base.py` tem os
+imports comuns e o helper `default_company()`.
+
+> **Ao mexer em `accounts/views/`, cuidado com `patch()` nos testes**: patchear
+> `accounts.views.X` **não** afeta o nome ligado dentro do submódulo. O alvo é o
+> submódulo onde o nome é usado — `accounts.views.common.send_text_message` (recuperação
+> de senha), `accounts.views.conversations.send_text_message` (envio no chat),
+> `accounts.views.master.wapi_check_connection`, etc.
 
 O projeto usa um runner proprio, `accounts/test_runner.py`
 (`FastPasswordHasherRunner`), registrado em `settings.TEST_RUNNER`: ele troca o

@@ -1,0 +1,934 @@
+"""Atendimento automatico (IA e chatbot de menu), setores e
+atendentes.
+"""
+
+from .base import (
+    Attendant,
+    SimpleNamespace,
+    TestCase,
+    User,
+    _json,
+    check_password,
+    default_company,
+    get_messages,
+    patch,
+    reverse,
+)
+
+
+class AttendantsViewTests(TestCase):
+    def setUp(self):
+        self.admin_user = User.objects.create_user(company=default_company(),
+            email='admin@beezap.com',
+            password='1234',
+            role=User.Role.ADM,
+        )
+        self.common_user = User.objects.create_user(company=default_company(),
+            email='usuario@beezap.com',
+            password='1234',
+            role=User.Role.USUARIO,
+        )
+
+    def test_adm_can_access_attendants_page(self):
+        self.client.force_login(self.admin_user)
+
+        response = self.client.get(reverse('attendants'))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Atendentes')
+        self.assertContains(response, 'Novo atendente')
+
+    def test_common_user_cannot_access_attendants_page(self):
+        self.client.force_login(self.common_user)
+
+        response = self.client.get(reverse('attendants'))
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_create_attendant_creates_user_and_profile(self):
+        self.client.force_login(self.admin_user)
+
+        response = self.client.post(
+            reverse('attendants'),
+            {
+                'name': 'Maria Souza',
+                'email': 'maria@beezap.com',
+                'phone': '(11) 99999-9999',
+            },
+            follow=True,
+        )
+
+        self.assertRedirects(response, reverse('attendants'))
+        attendant = Attendant.objects.get(user__email='maria@beezap.com')
+        self.assertEqual(attendant.name, 'Maria Souza')
+        self.assertEqual(attendant.phone, '11999999999')
+        self.assertTrue(attendant.must_change_password)
+        self.assertTrue(attendant.user.check_password('1234'))
+        self.assertEqual(attendant.user.role, User.Role.USUARIO)
+        messages = [message.message for message in get_messages(response.wsgi_request)]
+        self.assertIn('Atendente cadastrado com sucesso.', messages)
+
+    def test_edit_attendant_updates_user_and_profile(self):
+        attendant_user = User.objects.create_user(company=default_company(),
+            email='joao@beezap.com',
+            password='1234',
+            role=User.Role.USUARIO,
+        )
+        attendant = Attendant.objects.create(company=default_company(),
+            user=attendant_user,
+            name='Joao Silva',
+            phone='11988887777',
+        )
+        self.client.force_login(self.admin_user)
+
+        response = self.client.post(
+            reverse('attendants'),
+            {
+                'attendant_id': attendant.id,
+                'name': 'Joao Pedro Silva',
+                'email': 'joaopedro@beezap.com',
+                'phone': '(11) 97777-6666',
+            },
+            follow=True,
+        )
+
+        self.assertRedirects(response, reverse('attendants'))
+        attendant.refresh_from_db()
+        self.assertEqual(attendant.name, 'Joao Pedro Silva')
+        self.assertEqual(attendant.phone, '11977776666')
+        self.assertEqual(attendant.user.email, 'joaopedro@beezap.com')
+        messages = [message.message for message in get_messages(response.wsgi_request)]
+        self.assertIn('Atendente atualizado com sucesso.', messages)
+
+    def test_duplicate_email_is_rejected(self):
+        existing_user = User.objects.create_user(company=default_company(),
+            email='ana@beezap.com',
+            password='1234',
+            role=User.Role.USUARIO,
+        )
+        Attendant.objects.create(company=default_company(),
+            user=existing_user,
+            name='Ana',
+            phone='11999999999',
+        )
+        self.client.force_login(self.admin_user)
+        count_before = Attendant.objects.count()
+
+        response = self.client.post(
+            reverse('attendants'),
+            {
+                'name': 'Ana Paula',
+                'email': 'ana@beezap.com',
+                'phone': '11911112222',
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        # O e-mail duplicado nao pode criar um novo atendente (o admin ja e atendente
+        # automaticamente, entao comparamos com a contagem anterior).
+        self.assertEqual(Attendant.objects.count(), count_before)
+        self.assertEqual(Attendant.objects.filter(user__email='ana@beezap.com').count(), 1)
+        self.assertContains(response, 'Ja existe um atendente com este e-mail.')
+
+    def test_attendant_with_initial_password_is_redirected_to_change_password(self):
+        attendant_user = User.objects.create_user(company=default_company(),
+            email='primeiroacesso@beezap.com',
+            password='1234',
+            role=User.Role.USUARIO,
+        )
+        Attendant.objects.create(company=default_company(),
+            user=attendant_user,
+            name='Primeiro Acesso',
+            phone='11999999999',
+            must_change_password=True,
+        )
+
+        login_ok = self.client.login(email='primeiroacesso@beezap.com', password='1234')
+        response = self.client.get(reverse('dashboard'))
+
+        self.assertTrue(login_ok)
+        self.assertRedirects(response, reverse('change-initial-password'))
+
+    def test_initial_password_change_rejects_mismatched_passwords(self):
+        attendant_user = User.objects.create_user(company=default_company(),
+            email='senhasdiferentes@beezap.com',
+            password='1234',
+            role=User.Role.USUARIO,
+        )
+        Attendant.objects.create(company=default_company(),
+            user=attendant_user,
+            name='Senhas Diferentes',
+            phone='11999999999',
+            must_change_password=True,
+        )
+        self.client.force_login(attendant_user)
+
+        response = self.client.post(
+            reverse('change-initial-password'),
+            {
+                'new_password': 'SenhaNova123',
+                'confirm_password': 'SenhaOutra123',
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'As senhas digitadas nao conferem.')
+
+    def test_initial_password_change_rejects_1234(self):
+        attendant_user = User.objects.create_user(company=default_company(),
+            email='senha1234@beezap.com',
+            password='1234',
+            role=User.Role.USUARIO,
+        )
+        Attendant.objects.create(company=default_company(),
+            user=attendant_user,
+            name='Senha Inicial',
+            phone='11999999999',
+            must_change_password=True,
+        )
+        self.client.force_login(attendant_user)
+
+        response = self.client.post(
+            reverse('change-initial-password'),
+            {
+                'new_password': '1234',
+                'confirm_password': '1234',
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Escolha uma senha diferente da senha inicial.')
+
+    def test_valid_initial_password_change_unlocks_user(self):
+        attendant_user = User.objects.create_user(company=default_company(),
+            email='trocasenha@beezap.com',
+            password='1234',
+            role=User.Role.USUARIO,
+        )
+        attendant = Attendant.objects.create(company=default_company(),
+            user=attendant_user,
+            name='Troca Senha',
+            phone='11999999999',
+            must_change_password=True,
+        )
+        self.client.force_login(attendant_user)
+
+        response = self.client.post(
+            reverse('change-initial-password'),
+            {
+                'new_password': 'SenhaNova123',
+                'confirm_password': 'SenhaNova123',
+            },
+            follow=True,
+        )
+
+        # O usuario comum nao tem Dashboard por padrao: apos trocar a senha ele cai
+        # na primeira tela disponivel (Conversas).
+        self.assertRedirects(response, reverse('conversations'))
+        attendant.refresh_from_db()
+        attendant_user.refresh_from_db()
+        self.assertFalse(attendant.must_change_password)
+        self.assertTrue(attendant_user.check_password('SenhaNova123'))
+        self.client.logout()
+        self.assertTrue(self.client.login(email='trocasenha@beezap.com', password='SenhaNova123'))
+        response = self.client.get(reverse('conversations'))
+        self.assertEqual(response.status_code, 200)
+
+    def test_admin_without_attendant_profile_is_not_forced_to_change_password(self):
+        self.client.force_login(self.admin_user)
+
+        response = self.client.get(reverse('dashboard'))
+
+        self.assertEqual(response.status_code, 200)
+class AiAttendantFlowTests(TestCase):
+    """Atendente virtual (IA/GPT): recepcao, roteamento e fallback.
+
+    O GPT e o envio pela W-API sao mockados — nenhum teste faz chamada externa."""
+
+    def setUp(self):
+        from accounts.models import Contact, Conversation, Message, OpenAiConfiguration, Sector
+
+        self.Conversation = Conversation
+        self.Message = Message
+        self.Sector = Sector
+
+        from accounts.models import MenuBotConfiguration
+        self.MenuBotConfiguration = MenuBotConfiguration
+        # A ativacao da IA vem do MODO mestre (mode == 'ai'), nao mais de enabled.
+        menubot = MenuBotConfiguration.for_company(default_company())
+        menubot.mode = MenuBotConfiguration.MODE_AI
+        menubot.save()
+
+        self.config = OpenAiConfiguration.get_solo()
+        self.config.api_key = 'sk-test'
+        self.config.model = 'gpt-4.1-nano'
+        self.config.max_turns = 3
+        self.config.save()
+
+        self.financeiro = Sector.objects.create(company=default_company(), name='Financeiro')
+        self.suporte = Sector.objects.create(company=default_company(), name='Suporte')
+        # O setor 'Geral' ja existe (criado pela migracao 0028); reaproveita.
+        self.geral, _ = Sector.objects.get_or_create(company=default_company(), name='Geral')
+
+        fab_user = User.objects.create_user(company=default_company(), email='fab@beezap.local', password='x', role='usuario')
+        self.fabiano = Attendant.objects.create(company=default_company(), user=fab_user, name='Fabiano')
+        self.fabiano.sectors.add(self.suporte)
+
+        self.contact = Contact.objects.create(company=default_company(), name='Cliente', phone='5516999990000')
+        self.conv = Conversation.objects.create(company=default_company(),
+            contact=self.contact, external_id='5516999990000', chat_type='private', status='open',
+        )
+        Message.objects.create(conversation=self.conv, direction='in', message_type='text',
+                               text='oi, preciso de ajuda')
+
+    def _gpt(self, mensagem='', setor='', atendente=''):
+        import json
+        from gpt.client import GptResult
+        payload = json.dumps({'mensagem': mensagem, 'setor': setor, 'atendente': atendente})
+        return GptResult(success=True, text=payload, model='gpt-4.1-nano', total_tokens=10)
+
+    def _run(self, gpt_result):
+        from gpt.attendant import handle_incoming_for_ai
+        send_ok = SimpleNamespace(success=True, message_id='wamid-1', error=None)
+        with patch('gpt.client.chat_completion', return_value=gpt_result) as mock_gpt, \
+             patch('wapi.client.send_text_message', return_value=send_ok) as mock_send:
+            handle_incoming_for_ai(self.conv.id)
+        return mock_gpt, mock_send
+
+    def test_routes_to_sector(self):
+        self._run(self._gpt(mensagem='Vou te transferir para o Financeiro.', setor='Financeiro'))
+        self.conv.refresh_from_db()
+        self.assertEqual(self.conv.sector_id, self.financeiro.id)
+        self.assertEqual(self.conv.status, 'pending')          # AGUARDANDO na fila do setor
+        self.assertIsNone(self.conv.assigned_attendant_id)     # sem atribuir a ninguem
+        # A IA responde ao cliente, mas NAO cria divisoria (o encaminhar e o mesmo
+        # atendimento, para o atendente ver o historico com a IA ao assumir).
+        self.assertTrue(self.Message.objects.filter(conversation=self.conv, direction='out', is_ai=True).exists())
+        self.assertFalse(self.Message.objects.filter(conversation=self.conv, message_type='system').exists())
+
+    def test_routes_to_attendant_goes_to_sector_queue(self):
+        # Cliente citou um atendente: vai para o SETOR dele, AGUARDANDO (sem atribuir
+        # a pessoa); a atribuicao acontece quando alguem clica em Assumir.
+        self._run(self._gpt(mensagem='Ja te encaminho pro Fabiano.', atendente='Fabiano'))
+        self.conv.refresh_from_db()
+        self.assertIsNone(self.conv.assigned_attendant_id)
+        self.assertEqual(self.conv.sector_id, self.suporte.id)  # setor do atendente citado
+        self.assertEqual(self.conv.status, 'pending')
+        self.assertFalse(self.Message.objects.filter(conversation=self.conv, message_type='system').exists())
+
+    def test_clarify_keeps_triage(self):
+        self._run(self._gpt(mensagem='Pode me dar mais detalhes do que precisa?'))
+        self.conv.refresh_from_db()
+        self.assertIsNone(self.conv.sector_id)
+        self.assertEqual(self.conv.ai_turns, 1)
+        self.assertEqual(self.conv.status, 'open')
+        self.assertTrue(self.Message.objects.filter(conversation=self.conv, direction='out', is_ai=True).exists())
+
+    def test_fallback_after_max_turns(self):
+        from gpt.attendant import HANDOFF_NOTICE
+        self.config.fallback_sector = self.geral
+        self.config.save()
+        self.conv.ai_turns = 2  # com max_turns=3, o proximo turno sem decisao estoura
+        self.conv.save(update_fields=['ai_turns'])
+        _, mock_send = self._run(self._gpt(mensagem='Ainda nao entendi, pode explicar?'))
+        self.conv.refresh_from_db()
+        self.assertEqual(self.conv.sector_id, self.geral.id)
+        self.assertEqual(self.conv.status, 'pending')
+        # SEMPRE avisa o cliente antes de transferir (nunca em silencio), e a mensagem
+        # e o aviso de handoff (nao a pergunta de esclarecimento do GPT).
+        mock_send.assert_called_once()
+        self.assertEqual(mock_send.call_args.args[1], HANDOFF_NOTICE)
+        last_out = self.Message.objects.filter(
+            conversation=self.conv, direction='out', is_ai=True
+        ).order_by('-created_at').first()
+        self.assertEqual(last_out.text, HANDOFF_NOTICE)
+
+    def test_handoff_creates_general_sector_when_no_fallback(self):
+        # Sem fallback configurado E sem setor "Geral": o handoff deve CRIAR o "Geral"
+        # e encaminhar a conversa para la (nunca deixar orfa/invisivel).
+        from gpt.attendant import HANDOFF_NOTICE
+        from accounts.models import Sector
+        self.config.fallback_sector = None
+        self.config.save()
+        self.geral.delete()  # remove o "Geral" pre-existente
+        self.assertFalse(Sector.objects.filter(name__iexact='Geral').exists())
+        self.conv.ai_turns = 2
+        self.conv.save(update_fields=['ai_turns'])
+        _, mock_send = self._run(self._gpt(mensagem='segue confuso'))
+        self.conv.refresh_from_db()
+        # Avisou o cliente com o handoff e encaminhou para o "Geral" recem-criado.
+        mock_send.assert_called_once()
+        self.assertEqual(mock_send.call_args.args[1], HANDOFF_NOTICE)
+        geral = Sector.objects.filter(name__iexact='Geral').first()
+        self.assertIsNotNone(geral)                     # foi criado
+        self.assertEqual(self.conv.sector_id, geral.id)  # conversa encaminhada
+        self.assertEqual(self.conv.status, 'pending')
+        self.assertIsNone(self.conv.assigned_attendant_id)
+
+    def test_handoff_routes_to_existing_general_when_no_fallback(self):
+        # Sem fallback configurado, mas com um "Geral" existente: encaminha para ele
+        # (nao cria duplicado).
+        from accounts.models import Sector
+        self.config.fallback_sector = None
+        self.config.save()
+        self.conv.ai_turns = 2
+        self.conv.save(update_fields=['ai_turns'])
+        self._run(self._gpt(mensagem='segue confuso'))
+        self.conv.refresh_from_db()
+        self.assertEqual(self.conv.sector_id, self.geral.id)
+        self.assertEqual(Sector.objects.filter(name__iexact='Geral').count(), 1)
+
+    def test_skips_group(self):
+        self.conv.chat_type = 'group'
+        self.conv.contact = None
+        self.conv.save(update_fields=['chat_type', 'contact'])
+        mock_gpt, _ = self._run(self._gpt(mensagem='x'))
+        mock_gpt.assert_not_called()
+
+    def test_skips_when_disabled(self):
+        # Modo mestre desligado: a IA nao atua.
+        menubot = self.MenuBotConfiguration.for_company(default_company())
+        menubot.mode = self.MenuBotConfiguration.MODE_OFF
+        menubot.save()
+        mock_gpt, _ = self._run(self._gpt(mensagem='x'))
+        mock_gpt.assert_not_called()
+
+    def test_skips_when_already_routed(self):
+        self.conv.sector = self.financeiro
+        self.conv.save(update_fields=['sector'])
+        mock_gpt, _ = self._run(self._gpt(mensagem='x'))
+        mock_gpt.assert_not_called()
+
+    def test_skips_when_human_replied(self):
+        self.Message.objects.create(conversation=self.conv, direction='out', message_type='text',
+                                    text='oi, sou o atendente', is_ai=False)
+        mock_gpt, _ = self._run(self._gpt(mensagem='x'))
+        mock_gpt.assert_not_called()
+
+    def test_skips_when_attendant_assigned(self):
+        # Conversa em atendimento humano (atendente assumiu): a IA nao interfere.
+        self.conv.assigned_attendant = self.fabiano
+        self.conv.status = 'open'
+        self.conv.save(update_fields=['assigned_attendant', 'status'])
+        mock_gpt, mock_send = self._run(self._gpt(mensagem='deveria ficar quieta'))
+        mock_gpt.assert_not_called()
+        mock_send.assert_not_called()
+
+    def test_skips_when_closed(self):
+        # Atendimento encerrado: enquanto fechado, a IA nao responde.
+        self.conv.status = 'closed'
+        self.conv.save(update_fields=['status'])
+        mock_gpt, _ = self._run(self._gpt(mensagem='x'))
+        mock_gpt.assert_not_called()
+
+    def test_time_since_previous_text(self):
+        from datetime import timedelta
+        from django.utils import timezone
+        from gpt.attendant import _time_since_previous_text
+        # So a mensagem atual -> primeira mensagem (apresente-se).
+        self.assertIn('primeira mensagem', _time_since_previous_text(self.conv))
+        # Mensagem anterior ha 2 dias -> a IA e avisada que vale reapresentar.
+        old = self.conv.messages.first()
+        self.Message.objects.filter(pk=old.pk).update(
+            created_at=timezone.now() - timedelta(days=2)
+        )
+        self.Message.objects.create(conversation=self.conv, direction='in',
+                                    message_type='text', text='oi de novo')
+        self.assertIn('dia(s)', _time_since_previous_text(self.conv))
+
+    def test_records_last_exchange(self):
+        import json as _json
+        from accounts.models import OpenAiConfiguration
+        from gpt import client as gpt_client
+
+        class _FakeResp:
+            status = 200
+            headers = {}
+
+            def __init__(self, body):
+                self._body = body.encode('utf-8')
+
+            def read(self):
+                return self._body
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+        body = _json.dumps({
+            'choices': [{'message': {'content': '{"mensagem":"oi","setor":"","atendente":""}'}}],
+            'usage': {'prompt_tokens': 5, 'completion_tokens': 3, 'total_tokens': 8},
+        })
+        with patch.object(gpt_client.request, 'urlopen', return_value=_FakeResp(body)):
+            result = gpt_client.chat_completion([{'role': 'user', 'content': 'ola tudo bem'}])
+        self.assertTrue(result.success)
+        cfg = OpenAiConfiguration.get_solo()
+        # O request guardado contem a mensagem enviada; o response guardado, o corpo cru.
+        self.assertIn('ola tudo bem', cfg.last_request)
+        self.assertIn('mensagem', cfg.last_response)
+        self.assertIsNotNone(cfg.last_exchange_at)
+
+    def test_history_scoped_to_current_segment(self):
+        # Mensagens antes da ultima divisoria (atendimento anterior) nao entram no contexto.
+        from datetime import timedelta
+        from django.utils import timezone
+        from gpt.attendant import build_history
+        from wapi.services import save_system_message
+        old = self.conv.messages.first()  # 'oi, preciso de ajuda' (do setUp)
+        divider = save_system_message(self.conv, 'Novo atendimento iniciado')  # divisoria
+        nova = self.Message.objects.create(conversation=self.conv, direction='in',
+                                           message_type='text', text='mensagem nova')
+        # O relogio do Windows tem baixa resolucao (chamadas seguidas retornam o
+        # mesmo instante), o que empataria created_at com a divisoria; garante que a
+        # mensagem nova e posterior (em producao ela chega segundos depois).
+        self.Message.objects.filter(pk=nova.pk).update(
+            created_at=divider.created_at + timedelta(seconds=1))
+        history = build_history(self.conv)
+        texts = [h['content'] for h in history]
+        self.assertIn('mensagem nova', texts)
+        self.assertNotIn(old.text, texts)  # mensagem do atendimento anterior fica de fora
+
+    def test_default_prompt_has_behavior_rules(self):
+        # Com o prompt padrao (instructions vazio), as REGRAS DE COMPORTAMENTO ficam
+        # no texto editavel (nao mais auto-injetadas).
+        from gpt.attendant import build_system_prompt
+        self.config.instructions = ''
+        self.config.save()
+        prompt = build_system_prompt(self.config, default_company()).lower()
+        self.assertIn('breve', prompt)
+        self.assertIn('nao use apenas "ola"', prompt)
+        self.assertIn('nunca invente', prompt)
+        self.assertIn('setor geral', prompt)
+
+    def test_system_prompt_auto_parts(self):
+        # O sistema anexa sempre os DADOS DINAMICOS + formato JSON, mesmo com prompt custom.
+        from gpt.attendant import build_system_prompt
+        self.config.instructions = 'Prompt custom curtinho.'
+        self.config.fallback_sector = self.geral
+        self.config.save()
+        prompt = build_system_prompt(self.config, default_company())
+        self.assertIn('Prompt custom curtinho.', prompt)
+        self.assertTrue(any(g in prompt for g in ('Bom dia', 'Boa tarde', 'Boa noite')))
+        self.assertIn('Setores disponiveis', prompt)
+        self.assertIn('Atendentes cadastrados', prompt)
+        self.assertIn('Geral', prompt)  # setor geral/curinga (dado dinamico)
+        self.assertIn('JSON', prompt)   # regra de formato (obrigatoria, automatica)
+class MenuBotFlowTests(TestCase):
+    """Chatbot de menu (sem IA): saudacao, escolha valida, opcao invalida, handoff.
+
+    O envio pela W-API e mockado — nenhum teste faz chamada externa."""
+
+    def setUp(self):
+        from accounts.models import (
+            Contact, Conversation, MenuBotConfiguration, MenuOption, Message, Sector,
+        )
+
+        self.Conversation = Conversation
+        self.Message = Message
+        self.MenuBotConfiguration = MenuBotConfiguration
+
+        self.financeiro = Sector.objects.create(company=default_company(), name='Financeiro')
+        self.vendas = Sector.objects.create(company=default_company(), name='Vendas')
+        # O setor 'Geral' ja existe (criado pela migracao 0028); reaproveita.
+        self.geral, _ = Sector.objects.get_or_create(company=default_company(), name='Geral')
+
+        self.config = MenuBotConfiguration.for_company(default_company())
+        self.config.mode = MenuBotConfiguration.MODE_MENU
+        self.config.max_attempts = 3
+        self.config.fallback_sector = self.geral
+        self.config.save()
+        MenuOption.objects.create(config=self.config, order=1, label='Financeiro', sector=self.financeiro)
+        MenuOption.objects.create(config=self.config, order=2, label='Vendas', sector=self.vendas)
+
+        self.contact = Contact.objects.create(company=default_company(), name='Cliente', phone='5516999990000')
+        self.conv = Conversation.objects.create(company=default_company(),
+            contact=self.contact, external_id='5516999990000', chat_type='private', status='open',
+        )
+
+    def _incoming(self, text):
+        return self.Message.objects.create(
+            conversation=self.conv, direction='in', message_type='text', text=text,
+        )
+
+    def _run(self):
+        from chatbot.handler import handle_incoming_for_menu
+        send_ok = SimpleNamespace(success=True, message_id='wamid-1', error=None)
+        with patch('wapi.client.send_text_message', return_value=send_ok) as mock_send:
+            handle_incoming_for_menu(self.conv.id)
+        return mock_send
+
+    def test_first_contact_sends_menu(self):
+        self._incoming('oi')
+        self._run()
+        # Uma mensagem automatica (menu) foi salva, sem encaminhar ainda.
+        out = self.Message.objects.filter(conversation=self.conv, direction='out', is_ai=True)
+        self.assertEqual(out.count(), 1)
+        self.assertIn('1 - Financeiro', out.first().text)
+        self.conv.refresh_from_db()
+        self.assertIsNone(self.conv.sector_id)
+
+    def test_valid_option_routes_to_sector(self):
+        # Menu ja apresentado, agora o cliente escolhe "1".
+        self.Message.objects.create(conversation=self.conv, direction='out',
+                                    message_type='text', text='menu...', is_ai=True)
+        self._incoming('1')
+        self._run()
+        self.conv.refresh_from_db()
+        self.assertEqual(self.conv.sector_id, self.financeiro.id)
+        self.assertEqual(self.conv.status, 'pending')          # AGUARDANDO na fila do setor
+        self.assertIsNone(self.conv.assigned_attendant_id)
+        # Nao cria divisoria (o atendente que assumir ve o historico do menu).
+        self.assertFalse(self.Message.objects.filter(
+            conversation=self.conv, message_type='system').exists())
+
+    def test_invalid_option_repeats_menu(self):
+        self.Message.objects.create(conversation=self.conv, direction='out',
+                                    message_type='text', text='menu...', is_ai=True)
+        self._incoming('abc')
+        self._run()
+        self.conv.refresh_from_db()
+        self.assertIsNone(self.conv.sector_id)
+        self.assertEqual(self.conv.ai_turns, 1)
+
+    def test_handoff_after_max_attempts(self):
+        # Ja houve o menu + 2 tentativas invalidas (ai_turns=2); a 3a estoura o limite.
+        self.Message.objects.create(conversation=self.conv, direction='out',
+                                    message_type='text', text='menu...', is_ai=True)
+        self.conv.ai_turns = 2
+        self.conv.save(update_fields=['ai_turns'])
+        self._incoming('xyz')
+        self._run()
+        self.conv.refresh_from_db()
+        self.assertEqual(self.conv.sector_id, self.geral.id)  # fallback
+        self.assertEqual(self.conv.status, 'pending')
+
+    def test_handoff_creates_general_when_no_fallback(self):
+        # Sem fallback e sem "Geral": o handoff CRIA o "Geral" e encaminha (nao deixa orfa).
+        from accounts.models import Sector
+        self.config.fallback_sector = None
+        self.config.save(update_fields=['fallback_sector'])
+        self.geral.delete()
+        self.Message.objects.create(conversation=self.conv, direction='out',
+                                    message_type='text', text='menu...', is_ai=True)
+        self.conv.ai_turns = 2
+        self.conv.save(update_fields=['ai_turns'])
+        self._incoming('xyz')
+        self._run()
+        self.conv.refresh_from_db()
+        geral = Sector.objects.filter(name__iexact='Geral').first()
+        self.assertIsNotNone(geral)
+        self.assertEqual(self.conv.sector_id, geral.id)
+        self.assertEqual(self.conv.status, 'pending')
+
+    def test_skips_when_mode_not_menu(self):
+        self.config.mode = self.MenuBotConfiguration.MODE_OFF
+        self.config.save(update_fields=['mode'])
+        self._incoming('oi')
+        mock_send = self._run()
+        mock_send.assert_not_called()
+
+    def test_skips_group(self):
+        self.conv.chat_type = 'group'
+        self.conv.contact = None
+        self.conv.save(update_fields=['chat_type', 'contact'])
+        self._incoming('oi')
+        mock_send = self._run()
+        mock_send.assert_not_called()
+
+    def test_skips_when_already_routed(self):
+        self.conv.sector = self.financeiro
+        self.conv.save(update_fields=['sector'])
+        self._incoming('oi')
+        mock_send = self._run()
+        mock_send.assert_not_called()
+
+    def test_skips_when_human_replied(self):
+        self.Message.objects.create(conversation=self.conv, direction='out',
+                                    message_type='text', text='sou o atendente', is_ai=False)
+        self._incoming('1')
+        mock_send = self._run()
+        mock_send.assert_not_called()
+class AdminAttendantTests(TestCase):
+    """O administrador vira atendente automaticamente, em todos os setores, e
+    consegue assumir atendimentos."""
+
+    def setUp(self):
+        from accounts.models import Sector
+        self.Sector = Sector
+        self.compras = Sector.objects.create(company=default_company(), name='Compras')  # setor antes do admin
+        self.admin = User.objects.create_user(company=default_company(),
+            email='adm@beezap.local', password='x', role=User.Role.ADM,
+            first_name='Ze', last_name='Admin',
+        )
+
+    def test_admin_gets_attendant_in_all_sectors(self):
+        att = getattr(self.admin, 'attendant_profile', None)
+        self.assertIsNotNone(att)
+        self.assertFalse(att.must_change_password)
+        self.assertIn(self.compras, att.sectors.all())
+
+    def test_new_sector_includes_admin(self):
+        novo = self.Sector.objects.create(company=default_company(), name='Vendas')  # criado DEPOIS do admin
+        self.assertIn(self.admin.attendant_profile, novo.attendants.all())
+
+    def test_admin_can_take_conversation(self):
+        from accounts.models import Contact, Conversation
+        contact = Contact.objects.create(company=default_company(), name='Cliente', phone='5516999990000')
+        conv = Conversation.objects.create(company=default_company(),
+            contact=contact, external_id='5516999990000', chat_type='private',
+            status='pending', sector=self.compras,
+        )
+        self.client.force_login(self.admin)
+        resp = self.client.post(reverse('conversation-take', args=[conv.id]))
+        self.assertEqual(resp.status_code, 200)
+        conv.refresh_from_db()
+        self.assertEqual(conv.assigned_attendant_id, self.admin.attendant_profile.id)
+        self.assertEqual(conv.status, 'open')
+class GeneralSectorTests(TestCase):
+    """Setor 'Geral' padrao: sempre existe, todos os atendentes fazem parte dele por
+    padrao, e ele nao pode ser excluido nem renomeado."""
+
+    def setUp(self):
+        from accounts.models import Sector
+        self.Sector = Sector
+        self.admin = User.objects.create_user(company=default_company(), email='adm@x.com', password='x', role=User.Role.ADM)
+        self.client.force_login(self.admin)
+
+    def test_ensure_general_creates_and_adds_all_attendants(self):
+        self.Sector.objects.filter(name__iexact='Geral').delete()
+        user = User.objects.create_user(company=default_company(), email='joao@x.com', password='x', role=User.Role.USUARIO)
+        att = Attendant.objects.create(company=default_company(), user=user, name='Joao', must_change_password=False)
+        geral = self.Sector.ensure_general()
+        self.assertTrue(geral.is_general)
+        self.assertIn(att, geral.attendants.all())            # atendente ja existente entrou
+        self.assertIn(self.admin.attendant_profile, geral.attendants.all())  # admin tambem
+
+    def test_new_attendant_auto_joins_general(self):
+        geral = self.Sector.ensure_general()
+        user = User.objects.create_user(company=default_company(), email='ana@x.com', password='x', role=User.Role.USUARIO)
+        att = Attendant.objects.create(company=default_company(), user=user, name='Ana', must_change_password=False)
+        self.assertIn(att, geral.attendants.all())
+
+    def test_general_cannot_be_deleted(self):
+        geral = self.Sector.ensure_general()
+        r = self.client.post(reverse('sectors'), {'action': 'delete', 'sector_id': str(geral.id)}, follow=True)
+        self.assertEqual(r.status_code, 200)
+        self.assertTrue(self.Sector.objects.filter(pk=geral.id).exists())  # continua existindo
+        msgs = [m.message for m in get_messages(r.wsgi_request)]
+        self.assertTrue(any('não pode ser excluído' in m for m in msgs))
+
+    def test_general_cannot_be_renamed(self):
+        geral = self.Sector.ensure_general()
+        self.client.post(reverse('sectors'), {
+            'sector_id': str(geral.id), 'name': 'Outro Nome', 'description': 'nova desc',
+        }, follow=True)
+        geral.refresh_from_db()
+        self.assertEqual(geral.name, 'Geral')                 # nome mantido
+        self.assertEqual(geral.description, 'nova desc')      # descricao pode mudar
+
+    def test_regular_sector_can_be_deleted(self):
+        outro = self.Sector.objects.create(company=default_company(), name='Financeiro')
+        self.client.post(reverse('sectors'), {'action': 'delete', 'sector_id': str(outro.id)}, follow=True)
+        self.assertFalse(self.Sector.objects.filter(pk=outro.id).exists())
+class AdminAttendantSignalIsQuietTests(TestCase):
+    """O sinal do atendente-admin so roda quando o perfil pode ter mudado.
+
+    Antes ele rodava em TODO save de usuario — inclusive `last_login` (a cada login)
+    e `password` (a cada troca de senha). Cada passada fazia `get_or_create` do
+    atendente mais `sectors.add(*todos_os_setores)`: consultas gastas em toda entrada
+    de admin no sistema, sem nunca mudar nada.
+    """
+
+    def setUp(self):
+        from ..models import Sector
+        self.company = default_company()
+        Sector.objects.create(company=self.company, name='Setor Sinal A')
+        Sector.objects.create(company=self.company, name='Setor Sinal B')
+        self.adm = User.objects.create_user(
+            email='adm-sinal@x.com', password='SenhaForte123',
+            role=User.Role.ADM, company=self.company,
+        )
+
+    def test_login_nao_dispara_o_provisionamento(self):
+        from unittest.mock import patch as _patch
+        with _patch('accounts.signals.ensure_admin_attendant') as provisiona:
+            self.adm.save(update_fields=['last_login'])
+        self.assertFalse(provisiona.called)
+
+    def test_troca_de_senha_nao_dispara_o_provisionamento(self):
+        from unittest.mock import patch as _patch
+        with _patch('accounts.signals.ensure_admin_attendant') as provisiona:
+            self.adm.save(update_fields=['password'])
+        self.assertFalse(provisiona.called)
+
+    def test_mudanca_de_perfil_dispara_o_provisionamento(self):
+        """O que importa continua funcionando: virar adm provisiona o atendente."""
+        from ..models import Attendant as Att, Sector
+        pessoa = User.objects.create_user(
+            email='virou-adm@x.com', password='SenhaForte123',
+            role=User.Role.USUARIO, company=self.company,
+        )
+        self.assertFalse(Att.objects.filter(user=pessoa).exists())
+        pessoa.role = User.Role.ADM
+        pessoa.save(update_fields=['role'])
+        atendente = Att.objects.get(user=pessoa)
+        # E entra em todos os setores da empresa (para poder Assumir qualquer fila).
+        self.assertEqual(
+            set(atendente.sectors.values_list('name', flat=True)),
+            set(Sector.objects.filter(company=self.company).values_list('name', flat=True)),
+        )
+
+    def test_save_completo_continua_provisionando(self):
+        from unittest.mock import patch as _patch
+        with _patch('accounts.signals.ensure_admin_attendant') as provisiona:
+            self.adm.save()
+        self.assertTrue(provisiona.called)
+class AutoReplyLockIsSharedBetweenProcessesTests(TestCase):
+    """A trava do atendimento automatico vale ENTRE PROCESSOS.
+
+    Antes era um `set()` na memoria do worker. Com `--workers 2`, cada worker tinha o
+    seu — uma rajada caindo em processos diferentes passava pelas duas travas e o
+    cliente recebia o menu (ou a resposta da IA) DUAS vezes.
+    """
+
+    def setUp(self):
+        from ..models import Contact, Conversation
+        self.company = default_company()
+        contato = Contact.objects.create(
+            company=self.company, name='Cliente Trava', phone='5519555554444',
+        )
+        self.conv = Conversation.objects.create(
+            company=self.company, contact=contato, external_id='5519555554444',
+            chat_type='private',
+        )
+
+    def test_segunda_tentativa_nao_toma_a_trava(self):
+        from wapi import autoreply_lock
+        self.assertTrue(autoreply_lock.acquire(self.conv.pk))
+        self.assertFalse(autoreply_lock.acquire(self.conv.pk))
+
+    def test_liberar_devolve_a_trava(self):
+        from wapi import autoreply_lock
+        autoreply_lock.acquire(self.conv.pk)
+        autoreply_lock.release(self.conv.pk)
+        self.assertTrue(autoreply_lock.acquire(self.conv.pk))
+
+    def test_trava_expira_para_worker_morto_nao_travar_a_conversa(self):
+        """O gunicorn mata worker no timeout; a conversa nao pode ficar presa."""
+        from datetime import timedelta as _td
+        from django.utils import timezone as _tz
+        from wapi import autoreply_lock
+        from ..models import Conversation
+        autoreply_lock.acquire(self.conv.pk)
+        antiga = _tz.now() - autoreply_lock.LOCK_TTL - _td(seconds=1)
+        Conversation.objects.filter(pk=self.conv.pk).update(auto_reply_lock_at=antiga)
+        self.assertTrue(autoreply_lock.acquire(self.conv.pk))
+
+    def test_travas_de_conversas_diferentes_nao_se_atrapalham(self):
+        from ..models import Contact, Conversation
+        from wapi import autoreply_lock
+        outro = Contact.objects.create(
+            company=self.company, name='Outro', phone='5519111112222',
+        )
+        conv2 = Conversation.objects.create(
+            company=self.company, contact=outro, external_id='5519111112222',
+            chat_type='private',
+        )
+        self.assertTrue(autoreply_lock.acquire(self.conv.pk))
+        self.assertTrue(autoreply_lock.acquire(conv2.pk))
+
+    def test_chatbot_reprocessa_quando_chega_mensagem_no_meio(self):
+        """A escolha digitada durante o processamento nao pode ser descartada."""
+        from unittest.mock import patch as _patch
+        from chatbot import handler
+        from ..models import Message
+
+        chamadas = []
+
+        def _finge_atendimento(conversation_id):
+            chamadas.append(conversation_id)
+            if len(chamadas) == 1:
+                # Simula o cliente mandando "1" enquanto o bot processava.
+                Message.objects.create(
+                    conversation=self.conv, direction='in',
+                    message_type='text', text='1',
+                )
+
+        Message.objects.create(
+            conversation=self.conv, direction='in', message_type='text', text='oi',
+        )
+        with _patch.object(handler, 'handle_incoming_for_menu', _finge_atendimento):
+            handler._processar_com_reprocesso(self.conv.pk)
+        self.assertEqual(len(chamadas), 2, 'deveria reprocessar a mensagem nova')
+
+    def test_reprocesso_para_quando_nao_chega_nada_novo(self):
+        from unittest.mock import patch as _patch
+        from chatbot import handler
+        chamadas = []
+        with _patch.object(handler, 'handle_incoming_for_menu',
+                           lambda cid: chamadas.append(cid)):
+            handler._processar_com_reprocesso(self.conv.pk)
+        self.assertEqual(len(chamadas), 1)
+class MenuOptionsSaveIsAtomicTests(TestCase):
+    """Salvar o menu do chatbot e tudo-ou-nada.
+
+    `_save_menu_options` apaga as opcoes antigas antes de criar as novas: uma falha no
+    meio deixaria o menu do cliente VAZIO, e o chatbot passaria a mandar um menu sem
+    opcao nenhuma para o cliente final dele.
+    """
+
+    def setUp(self):
+        from ..models import MenuBotConfiguration, MenuOption, Sector
+        self.company = default_company()
+        self.config = MenuBotConfiguration.for_company(self.company)
+        self.setor = Sector.objects.create(company=self.company, name='Financeiro Atomico')
+        MenuOption.objects.create(
+            config=self.config, order=1, label='Antiga', sector=self.setor,
+        )
+
+    def test_falha_no_meio_preserva_o_menu_antigo(self):
+        from unittest.mock import patch as _patch
+        from django.http import QueryDict
+        from ..models import MenuOption
+        from ..views import _save_menu_options
+
+        post = QueryDict(mutable=True)
+        post.setlist('option_label', ['Nova A', 'Nova B'])
+        post.setlist('option_sector', [str(self.setor.pk), str(self.setor.pk)])
+
+        with _patch('accounts.views.settings.MenuOption.objects.create',
+                    side_effect=RuntimeError('falhou no meio')):
+            with self.assertRaises(RuntimeError):
+                _save_menu_options(self.config, post)
+
+        # A opcao antiga voltou: nada foi perdido.
+        rotulos = list(MenuOption.objects.filter(config=self.config)
+                       .values_list('label', flat=True))
+        self.assertEqual(rotulos, ['Antiga'])
+
+    def test_salvamento_normal_substitui_as_opcoes(self):
+        from django.http import QueryDict
+        from ..models import MenuOption
+        from ..views import _save_menu_options
+        post = QueryDict(mutable=True)
+        post.setlist('option_label', ['Nova A', '', 'Nova B'])
+        post.setlist('option_sector', [str(self.setor.pk), '', str(self.setor.pk)])
+        _save_menu_options(self.config, post)
+        opcoes = list(MenuOption.objects.filter(config=self.config).order_by('order'))
+        self.assertEqual([o.label for o in opcoes], ['Nova A', 'Nova B'])
+        # Renumeradas na ordem enviada, ignorando a linha vazia.
+        self.assertEqual([o.order for o in opcoes], [1, 2])
+
+    def test_setor_com_id_invalido_nao_quebra(self):
+        from django.http import QueryDict
+        from ..models import MenuOption
+        from ..views import _save_menu_options
+        post = QueryDict(mutable=True)
+        post.setlist('option_label', ['Sem setor'])
+        post.setlist('option_sector', ['abc'])
+        _save_menu_options(self.config, post)
+        opcao = MenuOption.objects.get(config=self.config)
+        self.assertEqual(opcao.label, 'Sem setor')
+        self.assertIsNone(opcao.sector)
