@@ -11,24 +11,13 @@
 
 {% block content %}
 <main class="dashboard-shell">
-  <aside class="sidebar">
-    <div class="sidebar-brand">
-      <img src="{% static 'images/logo-beeonboard.png' %}" alt="BEEonBOARD" class="sidebar-logo">
-      <div>
-        <strong>BEEonBOARD</strong>
-        <span>Central de atendimento</span>
-      </div>
-    </div>
-
-    <nav class="sidebar-nav">
-      {% for item in nav_items %}
-        <a href="{% if item.href %}{% url item.href %}{% else %}#{% endif %}" class="nav-item {% if item.active %}active{% endif %}">
-          <span class="nav-dot"></span>
-          <span>{{ item.label }}</span>
-        </a>
-      {% endfor %}
-    </nav>
-  </aside>
+  {% comment %}
+  Esta tela tinha uma COPIA PROPRIA da barra lateral — ficou para tras quando as
+  outras 14 passaram a usar o include. Efeito: era a unica tela sem a marca do
+  contexto, e justamente a principal do master no modo suporte. Agora usa a fonte
+  unica.
+  {% endcomment %}
+  {% include "accounts/_sidebar.html" %}
 
   <section class="dashboard-main dashboard-main-wapi">
     <div class="wapi-settings-page">

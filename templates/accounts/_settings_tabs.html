@@ -19,9 +19,11 @@ active_subtab, reception_mode) e, na area Atendimento, o `mode_form`.
        class="settings-tab {% if settings_tabs.active_tab == 'whatsapp' %}active{% endif %}">WhatsApp</a>
   </nav>
 {% else %}
-  {# O cliente tem Atendimento (o chatbot e o modo), Marca (logo e cor que
-     aparecem no topo do menu) e Meus dados (portabilidade). Nenhuma das tres
-     aparece para o master: credencial e dele, negocio e do cliente. #}
+  {% comment %}
+  O cliente tem Atendimento (o chatbot e o modo), Marca (logo e cor que
+  aparecem no topo do menu) e Meus dados (portabilidade). Nenhuma das tres
+  aparece para o master: credencial e dele, negocio e do cliente.
+  {% endcomment %}
   <nav class="settings-tabs" aria-label="Configurações">
     <a href="{% url 'atendimento' %}"
        class="settings-tab {% if settings_tabs.active_tab == 'atendimento' %}active{% endif %}">Atendimento</a>

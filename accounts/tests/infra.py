@@ -365,3 +365,39 @@ class AuditarEmpresasCommandTests(TestCase):
         self._rodar()
         atendente.refresh_from_db()
         self.assertEqual(atendente.company_id, outra.pk)
+
+
+class TemplateCommentsDoNotLeakTests(SimpleTestCase):
+    """Comentario de template nao pode virar texto na tela.
+
+    O lexer do Django reconhece `{# ... #}` apenas quando abre e fecha na MESMA
+    linha (o regex de tokens nao usa DOTALL). Um comentario multilinha nao vira
+    token: sai como TEXTO LITERAL no HTML, e o usuario final LE o comentario.
+
+    Isso estava acontecendo de verdade em tres telas — na de Clientes, o cartao de
+    cada empresa exibia uma frase interna sobre exclusao de conversas. Para varias
+    linhas o certo e `{% comment %} ... {% endcomment %}`.
+    """
+
+    def test_nenhum_comentario_atravessa_linhas(self):
+        import glob
+        import re
+        abre = re.compile(r'\{#')
+        fecha = re.compile(r'#\}')
+        problemas = []
+        for caminho in sorted(glob.glob('templates/**/*.html', recursive=True)):
+            with open(caminho, encoding='utf-8') as arquivo:
+                aberto_em = None
+                for numero, linha in enumerate(arquivo, 1):
+                    if aberto_em is None:
+                        if abre.search(linha) and not fecha.search(linha):
+                            aberto_em = numero
+                    elif fecha.search(linha):
+                        problemas.append('%s:%d' % (caminho, aberto_em))
+                        aberto_em = None
+                if aberto_em is not None:
+                    problemas.append('%s:%d' % (caminho, aberto_em))
+        self.assertEqual(
+            problemas, [],
+            'comentario {# #} de varias linhas vaza para o HTML; use {% comment %}',
+        )
