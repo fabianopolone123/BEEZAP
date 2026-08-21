@@ -1511,7 +1511,7 @@ class AiAttendantFlowTests(TestCase):
         from accounts.models import MenuBotConfiguration
         self.MenuBotConfiguration = MenuBotConfiguration
         # A ativacao da IA vem do MODO mestre (mode == 'ai'), nao mais de enabled.
-        menubot = MenuBotConfiguration.get_solo()
+        menubot = MenuBotConfiguration.for_company(default_company())
         menubot.mode = MenuBotConfiguration.MODE_AI
         menubot.save()
 
@@ -1643,7 +1643,7 @@ class AiAttendantFlowTests(TestCase):
 
     def test_skips_when_disabled(self):
         # Modo mestre desligado: a IA nao atua.
-        menubot = self.MenuBotConfiguration.get_solo()
+        menubot = self.MenuBotConfiguration.for_company(default_company())
         menubot.mode = self.MenuBotConfiguration.MODE_OFF
         menubot.save()
         mock_gpt, _ = self._run(self._gpt(mensagem='x'))
@@ -1792,7 +1792,7 @@ class MenuBotFlowTests(TestCase):
         # O setor 'Geral' ja existe (criado pela migracao 0028); reaproveita.
         self.geral, _ = Sector.objects.get_or_create(company=default_company(), name='Geral')
 
-        self.config = MenuBotConfiguration.get_solo()
+        self.config = MenuBotConfiguration.for_company(default_company())
         self.config.mode = MenuBotConfiguration.MODE_MENU
         self.config.max_attempts = 3
         self.config.fallback_sector = self.geral
@@ -2566,7 +2566,7 @@ class GroupConversationTests(TestCase):
         from unittest.mock import patch
         from types import SimpleNamespace
         from accounts.models import WapiConfiguration, Message
-        cfg = WapiConfiguration.get_solo()
+        cfg = WapiConfiguration.for_company(default_company())
         cfg.instance_id = 'i'; cfg.token = 't'; cfg.save()
         self.client.force_login(self.u)
         send_ok = SimpleNamespace(success=True, message_id='w1', error=None)
@@ -2639,8 +2639,11 @@ class MultiCompanyModelTests(TestCase):
         self.assertNotEqual(wapi_a.pk, wapi_b.pk)
         self.assertEqual(WapiConfiguration.for_company(self.a).instance_id, 'INSTANCIA-A')
         self.assertEqual(WapiConfiguration.for_company(self.b).instance_id, 'INSTANCIA-B')
-        # get_solo() continua apontando para a empresa padrao (compatibilidade).
-        self.assertEqual(WapiConfiguration.get_solo().pk, wapi_a.pk)
+        # A empresa padrao continua alcancavel por for_company (o get_solo() de
+        # compatibilidade saiu: so os testes o usavam, e a API atual e for_company).
+        self.assertEqual(
+            WapiConfiguration.for_company(default_company()).pk, wapi_a.pk
+        )
 
         MenuBotConfiguration.for_company(self.b).save()
         self.assertNotEqual(
@@ -6246,3 +6249,239 @@ class AssetVersioningTests(TestCase):
                 self.assertTrue(links, 'nenhum CSS na tela %s' % rota)
                 for link in links:
                     self.assertIn('?v=', link, '%s sem versao em %s' % (link, rota))
+
+
+class PruneWapiEventsCommandTests(TestCase):
+    """Expurgo dos eventos antigos do webhook.
+
+    `WapiWebhookEvent` guarda o payload BRUTO de todo evento recebido e nada nunca
+    apagava nada — e a tabela que mais cresce, e o mesmo JSON ainda fica duplicado em
+    `Message.raw_payload` (que e o usado de verdade pelo retry de midia).
+    """
+
+    def setUp(self):
+        from datetime import timedelta as _td
+        from django.utils import timezone as _tz
+        from .models import Company, WapiWebhookEvent
+        self.company = Company.get_default()
+        self.outra = Company.objects.create(name='Outra', slug='outra-prune')
+        agora = _tz.now()
+
+        def _evento(dias, company=None, texto='oi'):
+            evento = WapiWebhookEvent.objects.create(
+                company=company or self.company, event_type='message',
+                message_text=texto, raw_payload={'grande': 'x' * 100},
+            )
+            WapiWebhookEvent.objects.filter(pk=evento.pk).update(
+                received_at=agora - _td(days=dias)
+            )
+            return evento
+
+        self.recente = _evento(1)
+        self.medio = _evento(120)
+        self.antigo = _evento(400)
+        self.de_outra = _evento(120, company=self.outra)
+
+    def _rodar(self, **kwargs):
+        from io import StringIO
+        from django.core.management import call_command
+        saida = StringIO()
+        call_command('prune_wapi_events', stdout=saida, **kwargs)
+        return saida.getvalue()
+
+    def test_dry_run_nao_altera_nada(self):
+        from .models import WapiWebhookEvent
+        saida = self._rodar()
+        self.assertIn('DRY-RUN', saida)
+        self.assertEqual(WapiWebhookEvent.objects.count(), 4)
+        self.antigo.refresh_from_db()
+        self.assertTrue(self.antigo.raw_payload)
+
+    def test_apply_esvazia_payload_antigo_e_preserva_a_linha(self):
+        from .models import WapiWebhookEvent
+        self._rodar(apply=True)
+        self.medio.refresh_from_db()
+        self.assertEqual(self.medio.raw_payload, {})
+        # A linha e as colunas ja extraidas continuam (o historico nao se perde).
+        self.assertEqual(self.medio.message_text, 'oi')
+        self.assertTrue(WapiWebhookEvent.objects.filter(pk=self.medio.pk).exists())
+
+    def test_apply_preserva_o_evento_recente_inteiro(self):
+        self._rodar(apply=True)
+        self.recente.refresh_from_db()
+        self.assertTrue(self.recente.raw_payload)
+
+    def test_apply_apaga_a_linha_muito_antiga(self):
+        from .models import WapiWebhookEvent
+        self._rodar(apply=True)
+        self.assertFalse(WapiWebhookEvent.objects.filter(pk=self.antigo.pk).exists())
+
+    def test_zero_em_dias_apagar_nao_apaga_nenhuma_linha(self):
+        from .models import WapiWebhookEvent
+        self._rodar(apply=True, dias_apagar=0)
+        self.assertTrue(WapiWebhookEvent.objects.filter(pk=self.antigo.pk).exists())
+        self.antigo.refresh_from_db()
+        self.assertEqual(self.antigo.raw_payload, {})
+
+    def test_escopo_por_empresa(self):
+        self._rodar(apply=True, empresa='outra-prune')
+        self.de_outra.refresh_from_db()
+        self.medio.refresh_from_db()
+        self.assertEqual(self.de_outra.raw_payload, {})
+        # A empresa que nao estava no escopo ficou intacta.
+        self.assertTrue(self.medio.raw_payload)
+
+    def test_empresa_inexistente_avisa_sem_quebrar(self):
+        from io import StringIO
+        from django.core.management import call_command
+        erros = StringIO()
+        call_command('prune_wapi_events', empresa='nao-existe', stderr=erros)
+        self.assertIn('nao encontrada', erros.getvalue())
+
+
+class AuditarEmpresasCommandTests(TestCase):
+    """Auditoria do vinculo de empresa: prova o isolamento em vez de supor.
+
+    As views filtram por empresa em cada ponto, entao na pratica nao aparece registro
+    cruzado — mas nada PROVAVA isso. O comando e somente leitura de proposito: mover
+    dado de cliente e decisao consciente, nao correcao automatica.
+    """
+
+    def _rodar(self, **kwargs):
+        from io import StringIO
+        from django.core.management import call_command
+        saida = StringIO()
+        call_command('auditar_empresas', stdout=saida, **kwargs)
+        return saida.getvalue()
+
+    def test_banco_coerente_passa_limpo(self):
+        saida = self._rodar()
+        self.assertIn('Nenhuma incoerencia', saida)
+
+    def test_detecta_atendente_com_empresa_diferente_do_usuario(self):
+        from .models import Attendant, Company
+        outra = Company.objects.create(name='Empresa B', slug='empresa-b-aud')
+        user = User.objects.create_user(
+            email='cruzado@x.com', password='SenhaForte123',
+            role=User.Role.USUARIO, company=default_company(),
+        )
+        atendente = Attendant.objects.create(
+            company=default_company(), user=user, name='Cruzado',
+        )
+        # Simula o estado torto: a empresa do atendente diverge da do usuario.
+        Attendant.objects.filter(pk=atendente.pk).update(company=outra)
+        saida = self._rodar()
+        self.assertIn('Attendant com empresa diferente', saida)
+        self.assertIn('[1]', saida)
+
+    def test_detecta_conversa_com_setor_de_outra_empresa(self):
+        from .models import Company, Contact, Conversation, Sector
+        outra = Company.objects.create(name='Empresa C', slug='empresa-c-aud')
+        setor_de_fora = Sector.objects.create(company=outra, name='Estranho')
+        contato = Contact.objects.create(
+            company=default_company(), name='X', phone='5519000001111',
+        )
+        conv = Conversation.objects.create(
+            company=default_company(), contact=contato,
+            external_id='5519000001111', chat_type='private',
+        )
+        Conversation.objects.filter(pk=conv.pk).update(sector=setor_de_fora)
+        saida = self._rodar()
+        self.assertIn('Conversation com setor de outra empresa', saida)
+
+    def test_detecta_usuario_operacional_sem_empresa(self):
+        user = User.objects.create_user(
+            email='sem-empresa@x.com', password='SenhaForte123',
+            role=User.Role.USUARIO, company=default_company(),
+        )
+        User.objects.filter(pk=user.pk).update(company=None)
+        saida = self._rodar()
+        self.assertIn('Usuario operacional SEM empresa', saida)
+
+    def test_detalhe_lista_os_ids(self):
+        user = User.objects.create_user(
+            email='sem-empresa2@x.com', password='SenhaForte123',
+            role=User.Role.USUARIO, company=default_company(),
+        )
+        User.objects.filter(pk=user.pk).update(company=None)
+        saida = self._rodar(detalhe=True)
+        self.assertIn('ids: [%d]' % user.pk, saida)
+
+    def test_nao_corrige_nada(self):
+        """Somente leitura: o comando nao pode mexer no vinculo por conta propria."""
+        from .models import Attendant, Company
+        outra = Company.objects.create(name='Empresa D', slug='empresa-d-aud')
+        user = User.objects.create_user(
+            email='intocado@x.com', password='SenhaForte123',
+            role=User.Role.USUARIO, company=default_company(),
+        )
+        atendente = Attendant.objects.create(
+            company=default_company(), user=user, name='Intocado',
+        )
+        Attendant.objects.filter(pk=atendente.pk).update(company=outra)
+        self._rodar()
+        atendente.refresh_from_db()
+        self.assertEqual(atendente.company_id, outra.pk)
+
+
+class MenuOptionsSaveIsAtomicTests(TestCase):
+    """Salvar o menu do chatbot e tudo-ou-nada.
+
+    `_save_menu_options` apaga as opcoes antigas antes de criar as novas: uma falha no
+    meio deixaria o menu do cliente VAZIO, e o chatbot passaria a mandar um menu sem
+    opcao nenhuma para o cliente final dele.
+    """
+
+    def setUp(self):
+        from .models import MenuBotConfiguration, MenuOption, Sector
+        self.company = default_company()
+        self.config = MenuBotConfiguration.for_company(self.company)
+        self.setor = Sector.objects.create(company=self.company, name='Financeiro Atomico')
+        MenuOption.objects.create(
+            config=self.config, order=1, label='Antiga', sector=self.setor,
+        )
+
+    def test_falha_no_meio_preserva_o_menu_antigo(self):
+        from unittest.mock import patch as _patch
+        from django.http import QueryDict
+        from .models import MenuOption
+        from .views import _save_menu_options
+
+        post = QueryDict(mutable=True)
+        post.setlist('option_label', ['Nova A', 'Nova B'])
+        post.setlist('option_sector', [str(self.setor.pk), str(self.setor.pk)])
+
+        with _patch('accounts.views.MenuOption.objects.create',
+                    side_effect=RuntimeError('falhou no meio')):
+            with self.assertRaises(RuntimeError):
+                _save_menu_options(self.config, post)
+
+        # A opcao antiga voltou: nada foi perdido.
+        rotulos = list(MenuOption.objects.filter(config=self.config)
+                       .values_list('label', flat=True))
+        self.assertEqual(rotulos, ['Antiga'])
+
+    def test_salvamento_normal_substitui_as_opcoes(self):
+        from django.http import QueryDict
+        from .models import MenuOption
+        from .views import _save_menu_options
+        post = QueryDict(mutable=True)
+        post.setlist('option_label', ['Nova A', '', 'Nova B'])
+        post.setlist('option_sector', [str(self.setor.pk), '', str(self.setor.pk)])
+        _save_menu_options(self.config, post)
+        opcoes = list(MenuOption.objects.filter(config=self.config).order_by('order'))
+        self.assertEqual([o.label for o in opcoes], ['Nova A', 'Nova B'])
+        # Renumeradas na ordem enviada, ignorando a linha vazia.
+        self.assertEqual([o.order for o in opcoes], [1, 2])
+
+    def test_setor_com_id_invalido_nao_quebra(self):
+        from django.http import QueryDict
+        from .models import MenuOption
+        from .views import _save_menu_options
+        post = QueryDict(mutable=True)
+        post.setlist('option_label', ['Sem setor'])
+        post.setlist('option_sector', ['abc'])
+        _save_menu_options(self.config, post)
+        opcao = MenuOption.objects.get(config=self.config)
+        self.assertEqual(opcao.label, 'Sem setor')
+        self.assertIsNone(opcao.sector)

@@ -856,9 +856,10 @@ def openai_settings_view(request):
             'usage_completion_tokens': _fmt_int(config.total_completion_tokens),
             'usage_requests': _fmt_int(config.total_requests),
             # Quantas empresas estao com a IA ligada (o master ve o alcance da chave).
+            # `select_related` nao faz nada junto com `count()` — so a contagem.
             'companies_using_ai': MenuBotConfiguration.objects.filter(
                 mode=MenuBotConfiguration.MODE_AI, company__is_active=True
-            ).select_related('company').count(),
+            ).count(),
             # Pre-visualizacao do prompt (os setores/atendentes sao anexados na hora
             # da conversa, com os dados DA EMPRESA daquele atendimento).
             'preview_instructions': resolved_instructions(config),
@@ -958,21 +959,31 @@ def atendimento_view(request):
 
 def _save_menu_options(config, post):
     """Reconstroi as opcoes do menu a partir dos arrays do formulario (rotulo +
-    setor por linha). Ignora linhas sem rotulo; numera na ordem enviada."""
+    setor por linha). Ignora linhas sem rotulo; numera na ordem enviada.
+
+    TUDO DENTRO DE UMA TRANSACAO: a funcao apaga as opcoes antigas antes de criar as
+    novas, entao uma falha no meio deixaria o menu do cliente VAZIO — e o chatbot
+    passaria a mandar um menu sem nenhuma opcao para o cliente final dele.
+    """
     labels = post.getlist('option_label')
     sector_ids = post.getlist('option_sector')
-    config.options.all().delete()
-    order = 0
-    for label, sector_id in zip(labels, sector_ids):
-        label = (label or '').strip()
-        if not label:
-            continue
-        order += 1
-        sector = (
-            Sector.objects.filter(company=config.company_id, pk=sector_id).first()
-            if sector_id else None
-        )
-        MenuOption.objects.create(config=config, order=order, label=label, sector=sector)
+    with transaction.atomic():
+        config.options.all().delete()
+        order = 0
+        for label, sector_id in zip(labels, sector_ids):
+            label = (label or '').strip()
+            if not label:
+                continue
+            order += 1
+            sector = (
+                Sector.objects.filter(
+                    company_id=config.company_id, pk=id_valido(sector_id)
+                ).first()
+                if sector_id else None
+            )
+            MenuOption.objects.create(
+                config=config, order=order, label=label, sector=sector
+            )
 
 
 @login_required
@@ -992,15 +1003,9 @@ def atendimento_set_mode_view(request):
     if form.is_valid():
         config.mode = form.cleaned_data['mode']
         config.save(update_fields=['mode', 'updated_at'])
-        # `OpenAiConfiguration.enabled` e vestigial (a ativacao real vem do `mode`
-        # de cada empresa), mas como a config do GPT e UMA da plataforma, ele nao
-        # pode ser desligado so porque UM cliente saiu da IA: reflete se ALGUMA
-        # empresa ativa esta usando a IA.
-        ai = OpenAiConfiguration.get_solo()
-        ai.enabled = MenuBotConfiguration.objects.filter(
-            mode=MenuBotConfiguration.MODE_AI, company__is_active=True
-        ).exists()
-        ai.save(update_fields=['enabled', 'updated_at'])
+        # Nao existe mais nada a espelhar na configuracao da plataforma: o `mode` de
+        # cada empresa E a fonte unica da verdade (o antigo
+        # `OpenAiConfiguration.enabled` era escrito aqui e nunca lido por ninguem).
         messages.success(request, 'Modo de atendimento atualizado.')
     # A tela de IA saiu da area do cliente (virou da plataforma), então o retorno e
     # sempre para o Atendimento.
@@ -2493,8 +2498,14 @@ def clients_view(request):
                 # Apagar a empresa em cascata remove as linhas do banco, mas o Django
                 # NAO apaga o arquivo em disco: sem isto, as fotos e os documentos do
                 # cliente ficariam no servidor para sempre depois de ele sair.
+                #
+                # Os arquivos saem ANTES e o `delete()` vem numa transacao: se o
+                # delete falhar, a empresa continua no banco sem os arquivos — ruim,
+                # mas recuperavel; a ordem inversa deixaria arquivos orfaos sem
+                # nenhuma linha apontando para eles, que nao da para limpar depois.
                 removidos = _delete_company_media_files(target)
-                target.delete()
+                with transaction.atomic():
+                    target.delete()
                 messages.success(
                     request,
                     f'A empresa "{name}" foi excluída ({removidos} arquivo(s) de mídia apagados).',
@@ -3686,28 +3697,33 @@ def sectors_save_organization_view(request):
     # outro cliente nao e encontrado e e simplesmente ignorado.
     company = request_company(request)
     try:
-        for sector_id_str, attendant_ids in sectors_data.items():
-            try:
-                sector_id = int(sector_id_str)
-            except (ValueError, TypeError):
-                continue
-            sector_obj = Sector.objects.filter(company=company, pk=sector_id).first()
-            if not sector_obj:
-                continue
-            if not isinstance(attendant_ids, list):
-                continue
-            valid_ids = list(
-                Attendant.objects
-                .filter(company=company, pk__in=attendant_ids)
-                .values_list('id', flat=True)
-            )
-            sector_obj.attendants.set(valid_ids)
-        # O admin faz parte de TODOS os setores DA EMPRESA dele: re-inclui apos o
-        # set() do arrastar-e-soltar (senao seria removido das filas nao listadas).
-        admins = list(Attendant.objects.filter(company=company, user__role='adm'))
-        if admins:
-            for sector_obj in Sector.objects.filter(company=company):
-                sector_obj.attendants.add(*admins)
+        # TRANSACAO: a organizacao e um conjunto de `set()` que se substituem. Uma
+        # falha no meio deixava metade dos setores com a lista nova e metade com a
+        # antiga — e o atendente podia acabar fora de toda fila, sem ninguem notar.
+        with transaction.atomic():
+            for sector_id_str, attendant_ids in sectors_data.items():
+                sector_id = id_valido(sector_id_str)
+                if sector_id is None:
+                    continue
+                sector_obj = Sector.objects.filter(company=company, pk=sector_id).first()
+                if not sector_obj:
+                    continue
+                if not isinstance(attendant_ids, list):
+                    continue
+                valid_ids = list(
+                    Attendant.objects
+                    .filter(company=company, pk__in=[
+                        i for i in (id_valido(a) for a in attendant_ids) if i
+                    ])
+                    .values_list('id', flat=True)
+                )
+                sector_obj.attendants.set(valid_ids)
+            # O admin faz parte de TODOS os setores DA EMPRESA dele: re-inclui apos o
+            # set() do arrastar-e-soltar (senao seria removido das filas nao listadas).
+            admins = list(Attendant.objects.filter(company=company, user__role='adm'))
+            if admins:
+                for sector_obj in Sector.objects.filter(company=company):
+                    sector_obj.attendants.add(*admins)
     except Exception:
         return JsonResponse(
             {'ok': False, 'error': 'Não foi possível salvar a organização. Tente novamente.'},

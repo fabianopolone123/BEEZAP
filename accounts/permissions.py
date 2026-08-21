@@ -141,9 +141,11 @@ def user_can_access(user, key):
     if not getattr(user, 'is_authenticated', False):
         return False
     role = getattr(user, 'role', None)
-    # Telas da PLATAFORMA (gestao de clientes e configuracao do GPT): so o master, e
-    # nenhum perfil de cliente as acessa.
-    if key in ('clients', 'platform_ai', 'masters'):
+    # Telas da PLATAFORMA (gestao de clientes e dos proprios gestores): so o master,
+    # e nenhum perfil de cliente as acessa. A tela de IA nao entra nesta matriz —
+    # quem a protege e `views.require_master` (era a chave `platform_ai`, que nenhuma
+    # view chegou a usar).
+    if key in ('clients', 'masters'):
         return role == 'master'
     # O master nao tem NENHUMA feature da empresa, nem dentro do painel do cliente
     # (modo suporte): a unica tela que ele alcanca la e a do WhatsApp, protegida por

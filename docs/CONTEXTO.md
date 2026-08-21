@@ -60,7 +60,7 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
 > `wapi/` é um módulo Python comum (importa `accounts.models`); **não** está em
 > `INSTALLED_APPS`, por isso os models ficam em `accounts/models.py`.
 
-## 3. Modelos (`accounts/models.py`) — migração atual: `0037`
+## 3. Modelos (`accounts/models.py`) — migração atual: `0038`
 
 > **Índices (migração `0036`)**: até ela, o único `db_index` do projeto era
 > `Conversation.external_id`. As FKs ganham índice sozinhas, mas as consultas reais
@@ -94,8 +94,9 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
   os admins. `conversation_take_view` também provisiona na hora (rede de segurança) e
   a edição de atendente **não rebaixa** um adm.
 - **RoleMenuPermission** / **UserMenuPermission**: permissões de menu (quais botões
-  cada perfil vê/acessa, e personalização por usuário) + `full_history` (ver a
-  conversa inteira ou só o atendimento atual). Ver seção 15.
+  cada perfil vê/acessa, e personalização por usuário). Ver seção 15. *(O antigo
+  campo `full_history` saiu na migração `0038`: o controle de "ver conversa inteira"
+  migrou para `Sector.view_full_history` / `UserConversationView.view_full_history`.)*
 - **GroupAccess**: quem pode ver um grupo do WhatsApp (M2M com setores e usuários).
   Sem regra, o grupo só aparece para o admin. Ver seção 15.
 - **Sector** (setores; M2M com Attendant; usado em transferência/roteamento manual).
@@ -130,9 +131,13 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
   ambiente **apenas na empresa padrão** (`usa_credencial_do_ambiente`) — ver a nota
   na seção 16.
   `get_solo()` sobrevive só como compatibilidade (empresa padrão). Ver seção 16.
-- **WapiWebhookEvent**: todo evento recebido do webhook (com `raw_payload`).
+- **WapiWebhookEvent**: todo evento recebido do webhook (com `raw_payload`). É a
+  tabela que mais cresce do sistema — a **retenção** fica no comando
+  `prune_wapi_events` (seção 9). *(Os campos `processed`/`processing_error` saíram na
+  migração `0038`: nunca foram escritos, e por isso o `status_label` respondia sempre
+  "Recebido".)*
 - **OpenAiConfiguration** (**UMA para toda a PLATAFORMA**, `get_solo()` — **não é
-  por empresa**): `api_key`, `model` (padrão `gpt-4.1-nano`), `enabled`. Guarda a
+  por empresa**): `api_key`, `model` (padrão `gpt-4.1-nano`). Guarda a
   **API Key do GPT no banco** (editada na tela **Inteligência (IA)**, exclusiva do
   gestor master; nunca no código e não reexibida após salva).
   `resolved_api_key()`/`resolved_model()` caem para env
@@ -143,9 +148,11 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
   na falta dele, o setor Geral dela). **Contador de tokens**: `total_requests`, `total_prompt_tokens`,
   `total_completion_tokens`, `total_tokens`, `usage_since`, `last_used_at` —
   somados de forma atômica por `record_usage()` a cada chamada; `reset_usage()`
-  zera. Ver seções 13 e 16. **`enabled` ficou vestigial**: a ativação da IA vem do
-  **modo mestre** `MenuBotConfiguration.mode == 'ai'` de **cada empresa** (ver seção
-  14); `enabled` só reflete se **alguma** empresa ativa está usando a IA.
+  zera. Ver seções 13 e 16. **Não existe mais um campo `enabled`**: a ativação da IA
+  vem do **modo mestre** `MenuBotConfiguration.mode == 'ai'` de **cada empresa** (ver
+  seção 14), que é a fonte única da verdade. O `enabled` sobrevivia só sendo
+  **escrito** — nenhum código o lia — e uma flag de plataforma não poderia mesmo
+  decidir por cada cliente.
 - **CompanyAiUsage** (**uma linha por empresa e por MÊS**): consumo de IA daquela
   empresa — `total_requests`, `total_prompt_tokens`, `total_completion_tokens`,
   `total_tokens`, `first_used_at`, `last_used_at`, único por
@@ -205,7 +212,8 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
   (`text/image/audio/video/document/sticker/gif/reaction/location/contact/unknown/system`;
   `system` = **divisória** de atendimento no meio do chat),
   `text`, `sender_name`, `sender_id`/`participant_id` (quem enviou; em grupo é o
-  participante), `is_group`, `from_me`, `is_ai` (marca falas do atendente
+  participante; **não existe mais um campo `phone`** — era gravado em todos os pontos
+  de criação e nunca lido, numa tabela que cresce com o volume de mensagens), `is_group`, `from_me`, `is_ai` (marca falas do atendente
   virtual, para detectar quando um humano assume), `external_message_id` (id real da W-API,
   serve de `wapi_message_id`), `media_file`, `media_url`, `media_mimetype`,
   `media_status` (`none/pending/ok/unavailable`), `raw_payload`.
@@ -824,7 +832,26 @@ cleanup_pushname_contacts [--apply]     # limpa nome herdado do pushName (contat
 link_lid_contacts [--apply]             # conversas diretas @lid antigas: acha o telefone real no histórico e anexa o Contato
 merge_contact_conversations [--apply]   # unifica conversas picotadas em 1 chat por pessoa/grupo (dry-run)
 seed_demo_data [--no-clear]             # popula DEMO: 5 setores/atendentes + conversas 7 dias (preserva admin/config)
+prune_wapi_events [--dias 90] [--dias-apagar 365] [--empresa X] [--apply]
+                                        # RETENCAO: esvazia o payload bruto de eventos antigos e apaga os muito velhos
+auditar_empresas [--detalhe]            # AUDITORIA (só leitura): acha registro apontando para a empresa errada
 ```
+> **`prune_wapi_events`** existe porque `WapiWebhookEvent` guardava o payload bruto de
+> **todo** evento recebido e nada nunca apagava nada — é a tabela que mais cresce, e o
+> mesmo JSON ainda fica duplicado em `Message.raw_payload` (que é o usado de verdade
+> pelo retry de mídia e pelo nome do documento). Trabalha em dois níveis: **esvaziar o
+> payload** dos mais velhos que `--dias` (mantendo a linha e as colunas já extraídas,
+> então as Métricas não mudam) e **apagar a linha** dos mais velhos que
+> `--dias-apagar`. Dry-run por padrão.
+>
+> **`auditar_empresas`** confere se o vínculo de empresa está coerente em todo o banco
+> (atendente com empresa diferente da do usuário, conversa com setor/contato/atendente
+> de outra empresa, mensagem com setor de fora, opção de menu apontando para setor de
+> outro cliente, grupo liberado para setor/usuário de fora, usuário operacional sem
+> empresa…). As views já filtram por empresa em cada ponto, mas **nada provava isso**.
+> É **somente leitura** de propósito: mover dado de cliente é decisão consciente, não
+> correção automática. Vale rodar depois de cada migração grande.
+
 > Os `cleanup_*` e o `inspect_*` são **dry-run por padrão** (só listam); `--delete`
 > (ou `--apply`, no `cleanup_pushname_contacts`) aplica. Úteis para limpar lixo antigo
 > (status/canal/sistema) após um deploy do fix.
@@ -1253,7 +1280,8 @@ esconder o botão também bloqueia a URL.
   (`UserConversationView.view_full_history`, se definida) > algum setor dele com
   `Sector.view_full_history=True` > padrão `False`. *(Antes vinha de
   `RoleMenuPermission`/`UserMenuPermission.full_history`; essas colunas ficaram
-  legadas/sem uso — o controle migrou para a aba Visualização de conversas.)*
+  removidas na migração `0038` — o controle migrou para a aba Visualização de
+  conversas.)*
 
 ## 16. MULTIEMPRESA (SaaS): empresas clientes + gestor master
 

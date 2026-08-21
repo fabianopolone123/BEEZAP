@@ -131,7 +131,7 @@ class Command(BaseCommand):
             )
             msg_in = Message.objects.create(
                 conversation=conv, sector=sector, direction='in', message_type='text',
-                text=client_text, phone=contact.phone, status='received',
+                text=client_text, status='received',
             )
             Message.objects.filter(pk=msg_in.pk).update(created_at=base)
             last_at = base

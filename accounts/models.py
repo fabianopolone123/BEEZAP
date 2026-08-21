@@ -295,15 +295,6 @@ class WapiConfiguration(models.Model):
         config, _ = cls.objects.get_or_create(company=company)
         return config
 
-    @classmethod
-    def get_solo(cls):
-        """Compatibilidade: configuracao da EMPRESA PADRAO.
-
-        Continua existindo enquanto as telas/servicos nao recebem a empresa do
-        contexto (Parte 2 do multiempresa). Codigo novo deve usar `for_company`.
-        """
-        return cls.for_company(Company.get_default())
-
     @property
     def usa_credencial_do_ambiente(self):
         """Esta configuracao pode cair para as variaveis de ambiente?
@@ -362,12 +353,15 @@ class OpenAiConfiguration(models.Model):
     A API Key fica salva AQUI (no banco), editada na tela Inteligencia (IA) — nunca
     fica no codigo e nunca e exibida de novo depois de salva (mesmo padrao do token
     da W-API). `resolved_api_key()` cai para a variavel de ambiente OPENAI_API_KEY
-    quando o campo esta vazio. `enabled` e um interruptor mestre: enquanto False,
-    nada usa a IA.
+    quando o campo esta vazio.
+
+    NAO existe mais um campo `enabled` aqui: a ativacao da IA e do MODO de primeiro
+    atendimento de cada empresa (`MenuBotConfiguration.mode == 'ai'`), que e a fonte
+    unica da verdade. O `enabled` sobrevivia so sendo ESCRITO — nenhum codigo o lia —
+    e uma flag de plataforma nao poderia mesmo decidir por cada cliente.
     """
     api_key = models.CharField(max_length=255, blank=True)
     model = models.CharField(max_length=80, blank=True, default='gpt-4.1-nano')
-    enabled = models.BooleanField(default=False)
     # Prompt/persona do atendente virtual (editavel na tela). Os setores, os
     # atendentes e as ultimas mensagens sao anexados automaticamente pelo codigo.
     instructions = models.TextField(blank=True, default='')
@@ -673,11 +667,6 @@ class MenuBotConfiguration(models.Model):
         config, _ = cls.objects.get_or_create(company=company)
         return config
 
-    @classmethod
-    def get_solo(cls):
-        """Compatibilidade: configuracao da EMPRESA PADRAO (ver WapiConfiguration)."""
-        return cls.for_company(Company.get_default())
-
     def ordered_options(self):
         # Instancia nao salva (ver `for_company` sem empresa) nao tem opcoes.
         if self.pk is None:
@@ -725,9 +714,6 @@ class RoleMenuPermission(models.Model):
     )
     role = models.CharField(max_length=20)
     allowed_keys = models.JSONField(default=list)
-    # Ao abrir uma conversa, ve a conversa inteira (True) ou so o atendimento atual
-    # (False, padrao) — o trecho apos a ultima divisoria.
-    full_history = models.BooleanField(default=False)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -749,7 +735,6 @@ class UserMenuPermission(models.Model):
     A existencia da linha significa que o usuario tem um conjunto proprio de botoes."""
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='menu_permission')
     allowed_keys = models.JSONField(default=list)
-    full_history = models.BooleanField(default=False)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -794,8 +779,6 @@ class WapiWebhookEvent(models.Model):
     from_me = models.BooleanField(default=False)
     raw_payload = models.JSONField(default=dict)
     received_at = models.DateTimeField(auto_now_add=True)
-    processed = models.BooleanField(default=False)
-    processing_error = models.TextField(blank=True, default='')
 
     class Meta:
         ordering = ('-received_at',)
@@ -808,10 +791,6 @@ class WapiWebhookEvent(models.Model):
             models.Index(fields=['company', '-received_at'], name='evento_empresa_data_idx'),
             models.Index(fields=['instance_id'], name='evento_instancia_idx'),
         ]
-
-    @property
-    def status_label(self):
-        return 'Processado' if self.processed else 'Recebido'
 
     @property
     def short_text(self):
@@ -1178,7 +1157,6 @@ class Message(models.Model):
     direction = models.CharField(max_length=10, choices=DIRECTION_CHOICES)
     message_type = models.CharField(max_length=20, choices=TYPE_CHOICES, default='text')
     text = models.TextField(blank=True, default='')
-    phone = models.CharField(max_length=30, blank=True, default='')
     sender_name = models.CharField(max_length=150, blank=True, default='')
     # Quem enviou: em grupo e o participante; em conversa direta e o proprio chat.
     sender_id = models.CharField(max_length=80, blank=True, default='')

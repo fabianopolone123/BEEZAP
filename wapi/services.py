@@ -423,10 +423,6 @@ def _reopen_for_new_service(conversation):
     conversation.save(update_fields=['status', 'assigned_attendant', 'sector', 'ai_turns', 'updated_at'])
 
 
-def _ext_for_mime(mimetype):
-    return _MIME_EXT.get((mimetype or '').split(';')[0].strip().lower(), 'bin')
-
-
 def _ext_from_filename(filename):
     """Extensao a partir do nome original (ex.: 'contrato.docx' -> 'docx')."""
     name = (filename or '').strip()
@@ -793,20 +789,12 @@ def save_incoming_message(conversation, ctx, message_type='text', text='',
     direction = 'out' if from_me else 'in'
     status = 'sent' if from_me else 'received'
 
-    if is_group:
-        msg_phone = ctx.get('sender_id') or ''
-    else:
-        msg_phone = normalize_phone(ctx.get('chat_id') or '') or (
-            conversation.contact.phone if conversation.contact_id else ''
-        )
-
     message = Message.objects.create(
         conversation=conversation,
         sector_id=conversation.sector_id,
         direction=direction,
         message_type=message_type,
         text=text or '',
-        phone=msg_phone,
         sender_name=(ctx.get('sender_name') or '').strip(),
         sender_id=ctx.get('sender_id') or '',
         participant_id=ctx.get('participant_id') or '',
@@ -1045,7 +1033,6 @@ def save_outgoing_media_message(conversation, message_type, uploaded_file, capti
         direction='out',
         message_type=message_type,
         text=caption or '',
-        phone=conversation.recipient,
         is_group=conversation.is_group,
         sender_name=(sender_name or '').strip(),
         status='sent',
@@ -1075,7 +1062,6 @@ def save_outgoing_message(conversation, message_type='text', text='', external_m
         direction='out',
         message_type=message_type,
         text=text or '',
-        phone=conversation.recipient,
         is_group=conversation.is_group,
         sender_name=(sender_name or '').strip(),
         external_message_id=external_message_id or '',
