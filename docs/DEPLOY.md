@@ -204,8 +204,9 @@ grep -cF '[hidden]' /var/www/beezap/static/css/conversations.css       # fonte
 grep -cF '[hidden]' /var/www/beezap/staticfiles/css/conversations.css
 ```
 No navegador, sempre validar em **aba anônima** ou com **Ctrl + F5** (o CSS pode
-ficar em cache do navegador). Os links de CSS da tela Conversas usam `?v=` para
-ajudar a furar cache quando o arquivo muda.
+ficar em cache do navegador). O cache-busting é **automático**: todo link de CSS/JS
+usa a tag `{% asset 'css/arquivo.css' %}`, que deriva a versão da **data de
+modificação do arquivo** — não existe mais `?v=N` na mão (ver `CONTEXTO.md`, seção 6).
 
 ## Reconciliar o settings.py editado à mão (uma vez)
 

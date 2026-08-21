@@ -597,7 +597,7 @@ sai por duas rotas do Django:
 - Rota `clientes/` (`clients_view`, nome de rota `clients`), **exclusiva do gestor
   master**: cadastra e administra as **empresas clientes** (dados, CNPJ, logo, cor de
   destaque, ativar/desativar, excluir). Detalhes completos na **seção 16**.
-- Cada cartão tem o botão **Métricas**, que leva à tela da seção 5.3.
+- Cada cartão tem o botão **Métricas**, que leva à tela da seção 5.0.1.
 
 ## 5.0.1. Tela Métricas do cliente (`templates/accounts/client_metrics.html` + `client_metrics.css`)
 
@@ -605,7 +605,8 @@ sai por duas rotas do Django:
   **exclusiva do gestor master** (`require_master`; o ADM do cliente recebe **403**).
 - **Só números, datas e estado do canal** — é a tela que responde "qual o tamanho
   deste cliente e ele está usando o sistema?", sem violar a regra de que o master não
-  lê o atendimento. Dados de `build_company_metrics(company)` (em `views.py`):
+  lê o atendimento. Dados de `build_company_metrics(company)` (em
+  `accounts/views/master.py`):
   - **Canal**: credenciais configuradas (sim/não — **nunca** o Instance ID ou o
     token), modo de primeiro atendimento, último evento de webhook e total de eventos.
   - **Mensagens**: enviadas e recebidas (total, 7 e 30 dias), respostas automáticas
@@ -633,7 +634,7 @@ sai por duas rotas do Django:
   (`PLATFORM_METRICS_ITEM`, entre Clientes e Inteligência (IA)).
 - É o **um lugar só** para acompanhar a carteira: **todos os clientes lado a lado**
   em vez de abrir empresa por empresa. Dados de `build_platform_metrics()` (em
-  `views.py`):
+  `accounts/views/master.py`):
   - **Resumo da plataforma**: clientes ativos, canais configurados, conversas ativas
     e aguardando, mensagens em 30 dias, respostas automáticas, **tokens de IA no mês**
     e o acumulado por cliente.
@@ -673,7 +674,8 @@ sai por duas rotas do Django:
 
 - Rota `dashboard/` (`dashboard_view`). **Só quem tem o botão Dashboard** (por padrão,
   só ADM — ver seção 15); quem não tem cai na 1ª tela disponível (`first_landing_url_name`).
-- **Dados 100% reais** do banco, calculados em `build_dashboard_context()` (views):
+- **Dados 100% reais** do banco, calculados em `build_dashboard_context()`
+  (`accounts/views/dashboard.py`):
   - **Cards**: Conversas ativas (não fechadas), Novas conversas (criadas nos últimos
     7 dias), Atendimentos finalizados (fechadas), Tempo médio de resposta (1ª resposta
     do atendente após a 1ª mensagem do cliente, média dos últimos 30 dias — calculado
@@ -861,7 +863,7 @@ OPENAI_TIMEOUT=30
 ### Rodar os testes
 
 ```bash
-python manage.py test                              # tudo (~480 testes, ~11 s)
+python manage.py test                              # tudo (495 testes, ~13 s)
 python manage.py test accounts.tests.master        # só um assunto
 python manage.py test accounts.tests.NomeDaClasse  # só uma classe
 ```
@@ -1045,16 +1047,20 @@ auditar_empresas [--detalhe]            # AUDITORIA (só leitura): acha registro
   não só a divisória. Ver seção 15.
 - **Front**: `buildMessageEl` renderiza `kind='system'` como uma **pílula centralizada**
   (`.conv-divider`); a pílula mostra o texto + **data e hora** (ex.: "Atendimento
-  encerrado · 14/07/2026 18:44"). CSS em `conversations.css?v=27`.
+  encerrado · 14/07/2026 18:44"). CSS em `conversations.css`.
 - **Chats já picotados** (do comportamento antigo de fork) são unificados pelo comando
   `merge_contact_conversations` (ver seção 9 / comandos de management).
 
 ## 13. Inteligência (IA) / GPT — integração com o OpenAI
 
 > A IA foi recomeçada **do zero** usando a **API do OpenAI (GPT)** — nada de
-> Ollama local (o antigo `ai_engine` foi removido; ver seção 12). Esta é a **base**:
-> cadastro/validação da API Key. **A IA vem DESLIGADA** e ainda **não está ligada
-> a nenhum fluxo** (recepção/resposta automática) — o comportamento vem depois.
+> Ollama local (o antigo `ai_engine` foi removido; ver seção 12). Ela **está ligada
+> ao fluxo de recepção**: quando o **modo mestre** da empresa é `ai`
+> (`MenuBotConfiguration.mode`, seção 14), `wapi.services._maybe_trigger_reception`
+> dispara o **atendente virtual** (`gpt/attendant.py`) a cada mensagem recebida de
+> conversa direta. A configuração do GPT (API Key, modelo, prompt, consumo) é **UMA
+> da plataforma**; cada empresa só decide **se** o primeiro atendimento dela usa IA,
+> chatbot de menu ou nada — ver a seção 16, "O que é técnico não fica com o cliente".
 
 - **Credencial no banco**: model `OpenAiConfiguration` (singleton, seção 3). A
   **API Key** é cadastrada na tela e salva no banco; nunca fica no código nem é
@@ -1068,14 +1074,17 @@ auditar_empresas [--detalhe]            # AUDITORIA (só leitura): acha registro
   recusada, 429/quota → sem créditos, modelo indisponível, etc.); log seguro no
   logger `beezap.gpt` (nunca expõe API Key/corpo/traceback). Nunca levanta exceção.
 - **Tela "Inteligência (IA)"** (`templates/accounts/openai_settings.html` +
-  `openai_settings.css`, escopo `.openai-settings-page`): agora é a **sub-aba IA da
-  área Atendimento** (não é mais item solto na barra lateral), rota `configuracoes/ia/`
-  (`openai-settings`), **só ADM** (`openai_settings_view`). Campos (form
+  `openai_settings.css`, escopo `.openai-settings-page`): é um **item da barra lateral
+  do gestor master** (`AI_ITEM` em `accounts/permissions.py`), rota `configuracoes/ia/`
+  (`openai-settings`), **exclusiva do master** — `openai_settings_view` usa
+  `require_master`, então o ADM do cliente leva **403**, inclusive por POST forjado.
+  **Não é aba de Configurações do cliente**: a barra `_settings_tabs.html` não tem
+  sub-aba de IA (ver seções 14 e 16). Campos (form
   `OpenAiConfigurationForm`): **API Key** (oculta) e **Modelo** (select: `gpt-4.1-nano`
   [padrão, mais barato] / `gpt-4o-mini` / `gpt-4.1-mini` / `gpt-4o`). **A ativação
-  (ligar a IA) NÃO é mais um checkbox aqui** — vem do **seletor de modo** no topo da
-  área Atendimento (ver seção 14). Card de **status** (API Key / modelo / ativa) +
-  botão **Testar conexão** (`form_type=test` → `gpt.client.test_connection`).
+  (ligar a IA) não é um checkbox aqui** — vem do **seletor de modo** no topo da tela
+  **Atendimento de cada empresa** (ver seção 14). Card de **status** (API Key / modelo /
+  ativa) + botão **Testar conexão** (`form_type=test` → `gpt.client.test_connection`).
 - **Consumo por empresa (medição)**: `chat_completion(..., company=<empresa>)` — o
   parâmetro é **opcional** e serve só para **medir**: quando vem, o mesmo consumo
   também é somado em `CompanyAiUsage` (por empresa e por mês, seção 3), que é o que
@@ -1090,15 +1099,17 @@ auditar_empresas [--detalhe]            # AUDITORIA (só leitura): acha registro
   (soma atômica com `F()`, segura para chamadas concorrentes). A tela mostra um card
   **"Consumo de tokens"** (total, entrada, saída, nº de chamadas, "contando desde" /
   "último uso") com botão **"Zerar contador"** (`form_type=reset-usage`). O teste de
-  conexão também conta (gasto mínimo). CSS `openai_settings.css?v=7`.
+  conexão também conta (gasto mínimo). CSS `openai_settings.css`.
 
 ### Atendente virtual (recepção/triagem) — `gpt/attendant.py`
 
 A IA faz o **primeiro atendimento** de conversas **diretas** que ainda **não têm
 setor nem atendente**: cumprimenta conforme o horário, entende o pedido e
 **encaminha** para o setor certo (ou para o atendente citado). Ao encaminhar, sai
-de cena e a conversa fica em aberto para o setor pegar. **Só atua com `enabled`
-ligado.** Roda **sempre em background** (thread), nunca trava o webhook.
+de cena e a conversa fica em aberto para o setor pegar. **Só atua quando o modo
+mestre da empresa é `ai`** (`MenuBotConfiguration.mode`, seção 14 — o antigo
+`OpenAiConfiguration.enabled` não existe mais; ver `_should_handle`). Roda **sempre em
+background** (thread), nunca trava o webhook.
 
 - **Disparo**: `save_incoming_message`/`ingest_wapi_payload` chamam
   `handle_incoming_for_ai_async(conversation_id)` para cada mensagem **recebida**
@@ -1214,9 +1225,12 @@ background, trava por conversa no banco, nunca levanta exceção):
   detecta se o menu já foi enviado (mensagem `out` automática `is_ai=True`).
 
 **Telas (área Configurações → abas):** a barra `_settings_tabs.html` (+ `settings_tabs.css`)
-dá as abas **[WhatsApp] [Atendimento]**; a aba Atendimento tem o **seletor de modo**
-no topo (endpoint `atendimento-mode`, POST) e as sub-abas **[Chatbot de menu]
-[Inteligência (IA)]**. A tela do chatbot (`atendimento_view`, `configuracoes/atendimento/`,
+mostra abas **diferentes por perfil**: para o **cliente (ADM)**, **[Atendimento]
+[Marca] [Meus dados]**; para o **gestor master** dentro do painel do cliente, apenas
+**[WhatsApp]** (seção 16, "O que é técnico não fica com o cliente"). **Não existe
+sub-aba de IA**: a configuração do GPT é da plataforma e fica no menu do master
+(seção 13). A aba Atendimento tem o **seletor de modo** no topo (endpoint
+`atendimento-mode`, POST). A tela do chatbot (`atendimento_view`, `configuracoes/atendimento/`,
 `chatbot_settings.html` + `chatbot_settings.css`, escopo `.chatbot-settings-page`, **só
 ADM**) edita saudação/intro/opções (editor de linhas rótulo+setor com add/remove/renumerar
 por JS)/mensagens/tentativas/fallback e mostra a **prévia do menu**. Tem o botão
@@ -1324,7 +1338,7 @@ esconder o botão também bloqueia a URL.
 - **Frontend:** `conversations_view`/`contacts_view` passam `read_only` ao template.
   Em Conversas, `.conv-body.is-readonly` esconde o **composer**, a caixa de
   **transferência** e os botões **Assumir/Encerrar**, e mostra uma barra
-  "👁️ Perfil somente leitura" (`conversations.css?v=27`). Em Contatos, somem
+  "👁️ Perfil somente leitura" (`conversations.css`). Em Contatos, somem
   **Novo contato** e as ações **Editar/Excluir**.
 - Quais **botões** o leitor vê continua vindo de "Botões do perfil" (o admin habilita).
   Ou seja: o admin escolhe **onde** o leitor entra; o perfil garante que ali ele
@@ -1447,8 +1461,9 @@ suporte, guardada na sessão — uso efetivo na Parte 2), `scoped(queryset, comp
 (**sem empresa não devolve nada** — a falta de empresa nunca pode virar "ver tudo"),
 `require_master(request)` e `deny_master_json(request)`.
 
-Em `views.py`, `request_company(request)` é o atalho usado em todo ponto de criação
-(retaguarda para a empresa padrão, para nunca gravar registro sem empresa).
+Em `accounts/views/common.py`, `request_company(request)` é o atalho usado em todo
+ponto de criação (retaguarda para a empresa padrão, para nunca gravar registro sem
+empresa).
 
 ### Perfil `master` (`accounts/permissions.py`)
 
@@ -1508,7 +1523,7 @@ Em `views.py`, `request_company(request)` é o atalho usado em todo ponto de cri
   **contexto** (`brand.support_company`), não como identidade.
 - A barra lateral estava **copiada em 8 templates**; virou o include
   **`templates/accounts/_sidebar.html`** (única fonte). `.sidebar-initials` em
-  `dashboard.css?v=6`.
+  `dashboard.css`.
 - **Contraste das iniciais**: a cor do texto **não** é fixa no CSS — vem de
   `Company.accent_text_color`, que usa `readable_text_color()` (em
   `accounts/models.py`) para escolher entre texto claro e escuro pelo **maior
@@ -1690,7 +1705,7 @@ não grava credencial nenhuma — há teste para os dois casos.
 avisos na tela Atendimento: **"WhatsApp conectado"** / *"ainda não configurado"* e
 **"Inteligência (IA) disponível"** / *"indisponível"*, com a orientação de falar com o
 administrador da plataforma. Verde = pronto, âmbar = pendente
-(`.service-status` em `settings_tabs.css?v=2`). Nenhum Instance ID, token ou API Key
+(`.service-status` em `settings_tabs.css`). Nenhum Instance ID, token ou API Key
 aparece ali — há teste garantindo isso.
 
 #### Telas escopadas por empresa

@@ -56,7 +56,7 @@ Campos de mídia no model: `media_file` (arquivo salvo localmente), `media_url`
 
 ## 4. Recebimento e download de mídia
 
-Fluxo no webhook ([accounts/views.py](../accounts/views.py) →
+Fluxo no webhook ([accounts/views/webhook.py](../accounts/views/webhook.py) →
 [wapi/services.py](../wapi/services.py)):
 
 1. `parse_wapi_media()` identifica o tipo pela chave de conteúdo
@@ -100,7 +100,8 @@ Fluxo:
 1. O atendente escolhe o tipo e seleciona o arquivo.
 2. O frontend faz `POST` (multipart) para
    `conversas/<id>/enviar-midia/` com `file` e `media_type`.
-3. O backend ([accounts/views.py](../accounts/views.py) `conversation_send_media_view`):
+3. O backend ([accounts/views/conversations.py](../accounts/views/conversations.py)
+   `conversation_send_media_view`):
    - valida conversa/telefone/tipo/mimetype e **tamanho** (`WAPI_MEDIA_MAX_MB`, padrão 16 MB);
    - salva o arquivo em `MEDIA/whatsapp/outgoing/` com **nome único** (uuid — nunca
      usa o nome do usuário, evita traversal/sobrescrita);

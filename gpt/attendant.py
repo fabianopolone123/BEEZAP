@@ -14,7 +14,9 @@ Contexto enviado ao GPT (montado automaticamente):
   - a mensagem atual do cliente (ultima do historico).
 
 Roda SEMPRE em background (thread) para nunca travar o recebimento do webhook.
-Nunca levanta excecao para fora. A IA so atua com o interruptor `enabled` ligado.
+Nunca levanta excecao para fora. A IA so atua quando o MODO mestre da empresa e `ai`
+(`MenuBotConfiguration.mode`) — ver `_should_handle`; o antigo interruptor
+`OpenAiConfiguration.enabled` nao existe mais.
 """
 
 import json
