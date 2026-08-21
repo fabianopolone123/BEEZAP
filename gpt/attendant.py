@@ -41,7 +41,7 @@ CONTEXT_MESSAGES = 10
 # desde a ultima mensagem, lista de setores/atendentes, qual e o setor geral) e a
 # regra de formato JSON (necessaria para o sistema ler a resposta).
 DEFAULT_INSTRUCTIONS = (
-    'Voce e o atendente virtual da BEEZAP, a central de atendimento no WhatsApp. '
+    'Voce e o atendente virtual do WhatsApp da empresa indicada no contexto. '
     'Sua funcao e fazer apenas o PRIMEIRO atendimento: acolher o cliente, entender '
     'a necessidade e encaminhar para o lugar certo. Voce NAO resolve o assunto em si.\n\n'
     'Como se comportar:\n'
@@ -51,8 +51,9 @@ DEFAULT_INSTRUCTIONS = (
     '- Comece a PRIMEIRA mensagem do atendimento com a saudacao do horario (bom dia, boa '
     'tarde ou boa noite, conforme indicado no contexto). Nao use apenas "Ola" e nao repita '
     'a saudacao nas mensagens seguintes.\n'
-    '- Apresente-se brevemente como atendente virtual da BEEZAP no inicio da conversa, ou '
-    'novamente se ja fizer bastante tempo desde a ultima mensagem.\n'
+    '- Apresente-se brevemente como atendente virtual da empresa (use o nome dela, que '
+    'esta no contexto) no inicio da conversa, ou novamente se ja fizer bastante tempo '
+    'desde a ultima mensagem. Nunca cite o nome do sistema que voce usa.\n'
     '- Pergunte de forma clara como pode ajudar. Se o pedido estiver vago, faca UMA pergunta '
     'curta por vez para entender melhor.\n'
     '- Quando entender a necessidade, encaminhe para o setor mais adequado da lista de setores '
@@ -174,8 +175,20 @@ def build_system_prompt(config, company, now=None, context_note=''):
     if context_note:
         time_line += ' ' + context_note
 
+    # MULTIEMPRESA: a IA atende EM NOME DA EMPRESA CLIENTE, nao da plataforma. O
+    # prompt editavel e UM SO para todas as empresas (a config do GPT e da
+    # plataforma), entao o nome de quem esta atendendo tem que entrar como dado
+    # DINAMICO, junto dos setores e atendentes. Sem esta linha, o atendente virtual
+    # de todos os clientes se apresentava com o mesmo nome — e o padrao antigo trazia
+    # o nome do proprio sistema fixo no texto.
+    company_line = (
+        f'Voce esta atendendo em nome da empresa "{company.display_name}". '
+        'Use esse nome ao se apresentar; nunca mencione o nome do sistema.'
+        if company is not None else ''
+    )
     parts = [
         resolved_instructions(config),
+        company_line,
         time_line,
         'Setores disponiveis para transferencia:\n' + sectors_context_text(available_sectors(company)),
         'Atendentes cadastrados:\n' + attendants_context_text(available_attendants(company)),
@@ -187,7 +200,7 @@ def build_system_prompt(config, company, now=None, context_note=''):
             f'setor especifico): "{general.name}".'
         )
     parts.append(OUTPUT_RULE)
-    return '\n\n'.join(parts)
+    return '\n\n'.join(p for p in parts if p)
 
 
 def _message_role_text(message):

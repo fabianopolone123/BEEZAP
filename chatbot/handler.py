@@ -24,9 +24,16 @@ from accounts.models import Conversation, MenuBotConfiguration
 
 bot_logger = logging.getLogger('beezap.chatbot')
 
-# Textos padrao do menu (editaveis na tela Atendimento). {saudacao} vira a saudacao
-# do horario; {setor}, na confirmacao, vira o nome do setor escolhido.
-DEFAULT_GREETING = 'Ola, {saudacao}! Seja bem-vindo(a) a BEEZAP. 😊'
+# Textos padrao do menu (editaveis na tela Atendimento). Placeholders trocados na
+# hora do envio: {saudacao} vira Bom dia/tarde/noite; {empresa} vira o nome da
+# EMPRESA CLIENTE daquela conversa; {setor}, na confirmacao, o setor escolhido.
+#
+# MULTIEMPRESA: quem fala com o cliente final e a EMPRESA, nao a plataforma. O texto
+# padrao trazia o nome do sistema fixo ('Seja bem-vindo a BEEZAP'), entao o cliente
+# final de cada empresa era recebido com o nome de um produto que ele nao conhece —
+# e, depois da troca de marca, com o nome ANTIGO do produto. Por isso o padrao usa
+# {empresa}: no primeiro contato quem se apresenta e o negocio do cliente.
+DEFAULT_GREETING = 'Ola, {saudacao}! Seja bem-vindo(a) a {empresa}. 😊'
 DEFAULT_MENU_INTRO = (
     'Para agilizar o seu atendimento, digite o numero da opcao desejada:'
 )
@@ -84,6 +91,38 @@ def _options_text(config):
     return '\n'.join(lines)
 
 
+def company_name_for(config):
+    """Nome da EMPRESA CLIENTE dona deste chatbot (para o placeholder {empresa}).
+
+    Quem se apresenta ao cliente final e a empresa, nao a plataforma. Cai para
+    string vazia se, por algum motivo, a config estiver sem empresa — melhor uma
+    frase sem nome do que o nome errado.
+    """
+    company = getattr(config, 'company', None)
+    return company.display_name if company is not None else ''
+
+
+def render_placeholders(text, config, now=None, sector=None):
+    """Troca os placeholders dos textos do chatbot pelo valor real.
+
+    {saudacao} -> Bom dia/tarde/noite conforme a hora;
+    {empresa}  -> nome da empresa cliente daquela conversa;
+    {setor}    -> setor escolhido (quando houver).
+
+    Fica num lugar so para que qualquer texto editado na tela aceite os tres — antes
+    cada mensagem trocava o seu placeholder na mao, e {empresa} nao existia.
+    """
+    from django.utils import timezone
+
+    now = now or timezone.localtime()
+    return (
+        (text or '')
+        .replace('{saudacao}', _greeting_for(now))
+        .replace('{empresa}', company_name_for(config))
+        .replace('{setor}', sector.name if sector is not None else '')
+    )
+
+
 def build_menu_text(config, now=None, include_greeting=True):
     """Monta o texto enviado ao cliente: saudacao (opcional) + intro + opcoes."""
     from django.utils import timezone
@@ -91,17 +130,17 @@ def build_menu_text(config, now=None, include_greeting=True):
     now = now or timezone.localtime()
     parts = []
     if include_greeting:
-        greeting = resolved_greeting(config).replace('{saudacao}', _greeting_for(now))
-        parts.append(greeting)
-    intro = resolved_menu_intro(config)
+        parts.append(render_placeholders(resolved_greeting(config), config, now))
+    intro = render_placeholders(resolved_menu_intro(config), config, now)
     options = _options_text(config)
     parts.append(f'{intro}\n\n{options}' if options else intro)
     return '\n\n'.join(p for p in parts if p.strip())
 
 
 def render_confirmation(config, sector):
-    text = resolved_confirmation_message(config)
-    return text.replace('{setor}', sector.name if sector else '')
+    return render_placeholders(
+        resolved_confirmation_message(config), config, sector=sector
+    )
 
 
 def _match_option(config, text):
@@ -216,7 +255,7 @@ def _handoff(conversation, config):
     fallback, a conversa ficava `pending` SEM setor (invisivel/fora de fila).
     Sem divisoria (ver _route_to_sector)."""
     from accounts.models import Sector
-    _send_reply(conversation, resolved_handoff_message(config))
+    _send_reply(conversation, render_placeholders(resolved_handoff_message(config), config))
     fallback = config.fallback_sector or Sector.ensure_general(conversation.company)
     Conversation.objects.filter(pk=conversation.id).update(
         sector=fallback, assigned_attendant=None, status='pending', ai_turns=0,
@@ -280,7 +319,8 @@ def handle_incoming_for_menu(conversation_id):
     else:
         _send_reply(
             conversation,
-            resolved_invalid_message(config) + '\n\n' + build_menu_text(config, include_greeting=False),
+            render_placeholders(resolved_invalid_message(config), config)
+            + '\n\n' + build_menu_text(config, include_greeting=False),
         )
         Conversation.objects.filter(pk=conversation.id).update(ai_turns=new_attempts)
 

@@ -112,7 +112,10 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
   vem do `Attendant` de quem pede; o **gestor master** não tem atendente, então usa
   `User.recovery_phone` (tela Gestores) e o código sai pela instância da **empresa
   padrão** — ver `create_and_send_password_recovery_code` e a seção 16.
-- **WapiConfiguration** (**uma por empresa**, `for_company(company)`): `instance_id`,
+- **WapiConfiguration** (**uma por empresa**, `for_company(company)` — **sem empresa
+  devolve instância vazia e não salva**, em vez de estourar `IntegrityError`: o campo
+  é obrigatório, e quem pergunta "tem credencial?" deve receber "não", não um erro de
+  banco. Idem `MenuBotConfiguration.for_company`, onde config vazia = modo `off`): `instance_id`,
   `token`, `webhook_token`. Credenciais reais ficam **aqui (no banco)**, editadas na
   tela Configurações → WhatsApp/W-API. `resolved_*()` cai para env se vazio.
   `get_solo()` sobrevive só como compatibilidade (empresa padrão). Ver seção 16.
@@ -148,9 +151,11 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
 - **MenuBotConfiguration** (**uma por empresa**, `for_company(company)`): config do **chatbot de menu**
   (atendimento automático **sem IA**) **e** o **MODO MESTRE** de primeiro atendimento
   `mode` (`off`/`menu`/`ai`) — fonte única da verdade de qual motor atua. Campos de
-  texto editáveis (`greeting` com `{saudacao}`, `menu_intro`, `confirmation_message`
-  com `{setor}`, `invalid_message`, `handoff_message`), `max_attempts` (tentativas
-  inválidas antes do handoff) e `fallback_sector`. Ver seção 14.
+  texto editáveis (`greeting`, `menu_intro`, `confirmation_message`,
+  `invalid_message`, `handoff_message` — **todos** aceitam os placeholders
+  `{saudacao}`, `{empresa}` e `{setor}`, resolvidos por `render_placeholders`),
+  `max_attempts` (tentativas inválidas antes do handoff) e `fallback_sector`.
+  Ver seção 14.
 - **MenuOption**: uma opção do menu (`config` FK, `order` = número que o cliente
   digita, `label`, `sector` FK). `key` = `order`.
 - **Contact**: `name`, `phone` (único, guardado **só em dígitos**), `display_name`,
@@ -903,11 +908,19 @@ ligado.** Roda **sempre em background** (thread), nunca trava o webhook.
   anterior** (`_time_since_previous_text`: "primeira mensagem" / "há poucos minutos" /
   "há X hora(s)" / "há X dia(s) — nova conversa") + **setores** (nome + descrição) +
   **atendentes** (nome + setor) + **qual é o setor geral/curinga** (fallback) + a
-  **regra de formato JSON** (obrigatória para o parsing) + o **histórico** do
+  **regra de formato JSON** (obrigatória para o parsing) + o **nome da EMPRESA em
+  nome de quem ela atende** + o **histórico** do
   **atendimento atual** (`build_history` pega só as mensagens **após a última
   divisória**, até `CONTEXT_MESSAGES=10`) em turnos `user`/`assistant`, terminando
   na mensagem atual — ao Encerrar/reabrir, o contexto começa limpo. A tela tem botão
   **"Restaurar prompt padrão"**.
+- **A IA atende em nome da EMPRESA, não da plataforma**: como a configuração do GPT
+  (e portanto o prompt editável) é **uma só** para todos os clientes, o nome de quem
+  está atendendo entra como **dado dinâmico** em `build_system_prompt` — uma linha
+  "Você está atendendo em nome da empresa X. Use esse nome ao se apresentar; nunca
+  mencione o nome do sistema". Sem isso, o atendente virtual de **todos** os clientes
+  se apresentava igual, e o prompt padrão ainda trazia o nome do sistema fixo no
+  texto. Sem empresa, a linha simplesmente não entra (nunca um nome errado).
 - **Decisão via JSON** (`response_format={'type':'json_object'}`): o modelo devolve
   `{"mensagem", "setor", "atendente"}`. Em ambos os casos o encaminhamento vai para
   um **SETOR** e a conversa fica **AGUARDANDO** (`pending`, **sem atribuir a ninguém**):
@@ -959,7 +972,16 @@ O **primeiro atendimento** de conversas **diretas** sem setor/atendente é feito
 **Chatbot de menu** (`chatbot/handler.py`, espelha o `gpt/attendant.py` — thread em
 background, lock por conversa, nunca levanta exceção):
 - 1º contato do atendimento → envia **saudação + menu** (`build_menu_text`: `{saudacao}`
-  vira Bom dia/tarde/noite; opções numeradas "1 - Financeiro").
+  vira Bom dia/tarde/noite, **`{empresa}` vira o nome da empresa cliente**; opções
+  numeradas "1 - Financeiro").
+  > **Quem se apresenta ao cliente final é a EMPRESA, não a plataforma.** O texto
+  > padrão trazia o nome do sistema fixo ("Seja bem-vindo(a) a BEEZAP"), o que estava
+  > errado duas vezes: era o nome **antigo** do produto depois da troca de marca, e
+  > era o nome de um produto que o cliente final não conhece. Hoje o padrão usa
+  > `{empresa}`, e a migração `0035` trocou o nome do sistema por `{empresa}` nos
+  > textos **já salvos** no banco de cada cliente (só onde o nome aparecia — saudação
+  > escrita pelo ADM fica intacta). `render_placeholders` é o único lugar que resolve
+  > os três placeholders, então **todos** os textos da tela aceitam **todos** eles.
 - Mensagens seguintes → `_match_option` interpreta o **número** digitado (ou o nome
   exato do rótulo/setor): opção válida → envia a **confirmação** (`{setor}`) e
   **encaminha para o setor** (`pending`/**aguardando**, sem atribuir a ninguém, **sem

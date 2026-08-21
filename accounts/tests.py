@@ -5256,3 +5256,87 @@ class MasterCannotTouchClientAttendanceTests(TestCase):
             with self.subTest(endpoint=nome):
                 response = self.client.post(reverse(nome, args=[self.conversation.id]))
                 self.assertEqual(response.status_code, 403)
+
+
+class AutomaticTextsUseClientBrandTests(TestCase):
+    """Quem se apresenta ao cliente final e a EMPRESA, nunca o nome do sistema.
+
+    Regressao dupla: os textos padrao do chatbot e da IA traziam 'BEEZAP' fixo, ou
+    seja (a) o nome ANTIGO do produto depois da troca de marca e (b) o nome de um
+    produto que o cliente final nao conhece — quem fala com ele e a empresa dele.
+    """
+
+    def setUp(self):
+        from .models import Company, MenuBotConfiguration
+        self.company = Company.objects.create(name='PPM Servicos', slug='ppm-servicos')
+        self.config = MenuBotConfiguration.for_company(self.company)
+
+    def test_saudacao_padrao_usa_o_nome_da_empresa(self):
+        from chatbot.handler import build_menu_text
+        texto = build_menu_text(self.config)
+        self.assertIn('PPM Servicos', texto)
+        self.assertNotIn('{empresa}', texto)
+        self.assertNotIn('BEEZAP', texto)
+        self.assertNotIn('BEEonBOARD', texto)
+
+    def test_saudacao_padrao_ainda_resolve_a_saudacao_do_horario(self):
+        from chatbot.handler import build_menu_text
+        texto = build_menu_text(self.config)
+        self.assertNotIn('{saudacao}', texto)
+        self.assertTrue(
+            any(p in texto for p in ('Bom dia', 'Boa tarde', 'Boa noite')),
+            texto,
+        )
+
+    def test_empresa_e_resolvida_em_texto_escrito_pelo_cliente(self):
+        """O ADM pode usar {empresa} em qualquer um dos textos da tela."""
+        from chatbot.handler import (build_menu_text, render_confirmation,
+                                     render_placeholders,
+                                     resolved_handoff_message)
+        from .models import Sector
+        self.config.greeting = 'Aqui e a {empresa}, {saudacao}!'
+        self.config.menu_intro = 'A {empresa} agradece o contato. Escolha:'
+        self.config.confirmation_message = 'A {empresa} vai te levar ao setor {setor}.'
+        self.config.handoff_message = 'Um atendente da {empresa} vai te chamar.'
+        self.config.save()
+        texto = build_menu_text(self.config)
+        self.assertIn('Aqui e a PPM Servicos', texto)
+        self.assertIn('A PPM Servicos agradece', texto)
+        setor = Sector.objects.create(company=self.company, name='Comercial')
+        confirmacao = render_confirmation(self.config, setor)
+        self.assertIn('PPM Servicos', confirmacao)
+        self.assertIn('Comercial', confirmacao)
+        handoff = render_placeholders(resolved_handoff_message(self.config), self.config)
+        self.assertIn('PPM Servicos', handoff)
+
+    def test_prompt_da_ia_diz_em_nome_de_quem_ela_atende(self):
+        from gpt.attendant import DEFAULT_INSTRUCTIONS, build_system_prompt
+        from .models import OpenAiConfiguration
+        self.assertNotIn('BEEZAP', DEFAULT_INSTRUCTIONS)
+        prompt = build_system_prompt(OpenAiConfiguration.get_solo(), self.company)
+        self.assertIn('PPM Servicos', prompt)
+        self.assertNotIn('BEEZAP', prompt)
+        self.assertNotIn('BEEonBOARD', prompt)
+
+    def test_prompt_da_ia_nao_quebra_sem_empresa(self):
+        """Retaguarda: sem empresa, o prompt sai sem a linha, nao com nome errado."""
+        from gpt.attendant import build_system_prompt
+        from .models import OpenAiConfiguration
+        prompt = build_system_prompt(OpenAiConfiguration.get_solo(), None)
+        self.assertNotIn('em nome da empresa', prompt)
+        self.assertIn('Responda SEMPRE em JSON', prompt)
+
+    def test_nenhum_texto_para_o_cliente_final_cita_o_sistema(self):
+        """Varredura dos padroes: nenhum deles pode trazer nome de produto."""
+        from chatbot import handler
+        from gpt import attendant
+        padroes = (
+            handler.DEFAULT_GREETING, handler.DEFAULT_MENU_INTRO,
+            handler.DEFAULT_INVALID_MESSAGE, handler.DEFAULT_CONFIRMATION_MESSAGE,
+            handler.DEFAULT_HANDOFF_MESSAGE,
+            attendant.DEFAULT_INSTRUCTIONS, attendant.HANDOFF_NOTICE,
+        )
+        for texto in padroes:
+            for nome in ('BEEZAP', 'BEEZap', 'Beezap', 'BEEonBOARD'):
+                with self.subTest(nome=nome, texto=texto[:40]):
+                    self.assertNotIn(nome, texto)

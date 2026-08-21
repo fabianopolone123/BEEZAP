@@ -123,7 +123,7 @@ class MenuBotConfigurationForm(forms.Form):
         required=False,
         widget=forms.Textarea(attrs={
             'rows': 2,
-            'placeholder': 'Ex.: Ola, {saudacao}! Seja bem-vindo(a) a BEEonBOARD.',
+            'placeholder': 'Ex.: Ola, {saudacao}! Seja bem-vindo(a) a {empresa}.',
             'autocomplete': 'off',
         }),
     )

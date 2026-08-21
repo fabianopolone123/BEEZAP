@@ -5,7 +5,7 @@
 {% block extra_head %}
 <link rel="stylesheet" href="{% static 'css/dashboard.css' %}">
 <link rel="stylesheet" href="{% static 'css/settings_tabs.css' %}?v=2">
-<link rel="stylesheet" href="{% static 'css/chatbot_settings.css' %}?v=2">
+<link rel="stylesheet" href="{% static 'css/chatbot_settings.css' %}?v=3">
 {% endblock %}
 
 {% block content %}
@@ -90,7 +90,8 @@
           <label for="{{ config_form.greeting.id_for_label }}">Saudacao</label>
           {{ config_form.greeting }}
           <small class="field-help">
-            Use <code>{saudacao}</code> para inserir automaticamente "Bom dia", "Boa tarde"
+            Use <code>{empresa}</code> para inserir o nome da sua empresa e
+            <code>{saudacao}</code> para inserir automaticamente "Bom dia", "Boa tarde"
             ou "Boa noite" conforme o horario. Deixe em branco para usar o texto padrao.
           </small>
         </div>

@@ -268,7 +268,16 @@ class WapiConfiguration(models.Model):
 
     @classmethod
     def for_company(cls, company):
-        """Configuracao da empresa informada (cria vazia na primeira vez)."""
+        """Configuracao da empresa informada (cria vazia na primeira vez).
+
+        Sem empresa devolve uma instancia VAZIA e NAO SALVA, em vez de estourar. O
+        campo `company` e obrigatorio, entao `get_or_create(company=None)` levantava
+        `IntegrityError` — um erro de banco cru, no meio de um fluxo que so queria
+        saber "tem credencial configurada?". Devolvendo config vazia, quem pergunta
+        recebe "nao" e a tela mostra o aviso normal de canal nao configurado.
+        """
+        if company is None:
+            return cls()
         config, _ = cls.objects.get_or_create(company=company)
         return config
 
@@ -615,7 +624,16 @@ class MenuBotConfiguration(models.Model):
 
     @classmethod
     def for_company(cls, company):
-        """Configuracao da empresa informada (cria vazia na primeira vez)."""
+        """Configuracao da empresa informada (cria vazia na primeira vez).
+
+        Sem empresa devolve instancia VAZIA e NAO SALVA (mesmo motivo de
+        `WapiConfiguration.for_company`): `company` e obrigatorio, entao
+        `get_or_create(company=None)` levantava `IntegrityError`. Config vazia
+        significa modo `off` — nenhum atendimento automatico — que e a resposta
+        segura quando nao se sabe de qual empresa se trata.
+        """
+        if company is None:
+            return cls()
         config, _ = cls.objects.get_or_create(company=company)
         return config
 
@@ -625,6 +643,9 @@ class MenuBotConfiguration(models.Model):
         return cls.for_company(Company.get_default())
 
     def ordered_options(self):
+        # Instancia nao salva (ver `for_company` sem empresa) nao tem opcoes.
+        if self.pk is None:
+            return []
         return list(self.options.select_related('sector').order_by('order', 'id'))
 
     def __str__(self):
