@@ -53,10 +53,28 @@ def add_admins_to_sector(sector):
         sector.attendants.add(*admins)
 
 
+# Campos cuja gravacao pode mudar a resposta de "esta pessoa e adm desta empresa?".
+# Qualquer save que toque num deles (ou um save completo, sem update_fields) precisa
+# reprovisionar o atendente.
+_CAMPOS_QUE_AFETAM_O_ATENDENTE = {'role', 'company', 'company_id', 'is_active'}
+
+
 @receiver(post_save, sender='accounts.User')
-def _ensure_admin_attendant_on_user_save(sender, instance, raw=False, **kwargs):
+def _ensure_admin_attendant_on_user_save(sender, instance, raw=False, update_fields=None,
+                                         **kwargs):
     if raw:
         return
+    # Sem `update_fields` o save foi completo (criacao, edicao pela tela) -> provisiona.
+    # Com `update_fields`, so provisiona se algum campo relevante entrou.
+    #
+    # Antes o sinal rodava em TODO save de usuario, inclusive nos que nao tem nada a
+    # ver com o perfil: `last_login` a cada login e `password` a cada troca de senha.
+    # Cada passada fazia um `get_or_create` do atendente mais um
+    # `sectors.add(*todos_os_setores)` — consultas gastas em toda entrada de admin no
+    # sistema, sem nunca mudar nada.
+    if update_fields is not None:
+        if not (_CAMPOS_QUE_AFETAM_O_ATENDENTE & set(update_fields)):
+            return
     ensure_admin_attendant(instance)
 
 

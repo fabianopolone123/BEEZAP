@@ -17,7 +17,8 @@ from django.contrib.auth import authenticate, login, logout, update_session_auth
 from django.contrib.auth.decorators import login_required
 from django.core import signing
 from django.db import IntegrityError, transaction
-from django.db.models import Count, Max, Q, Sum
+from django.db.models import Count, Max, OuterRef, Q, Subquery, Sum
+from django.db.models.functions import Coalesce
 from django.http import FileResponse, Http404, HttpResponseForbidden, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -624,7 +625,7 @@ def build_dashboard_context(company):
 
     MULTIEMPRESA: todos os numeros sao SOMENTE da empresa informada — nenhum
     indicador mistura clientes."""
-    from django.db.models import Count
+    from django.db.models import Count, Min
 
     today = timezone.localdate()
     start_7 = today - timedelta(days=6)
@@ -636,21 +637,40 @@ def build_dashboard_context(company):
 
     # Tempo médio de resposta: 1a resposta do atendente após a 1a mensagem do cliente
     # (considera atendimentos com atividade nos últimos 30 dias).
+    #
+    # Duas agregações no banco em vez de carregar as mensagens. Antes isto fazia
+    # `prefetch_related('messages')` sobre TODAS as conversas com atividade em 30
+    # dias e ordenava em memória — ou seja, trazia 30 dias de mensagens do cliente
+    # inteiro para calcular um único número.
+    janela = convs.filter(last_message_at__date__gte=today - timedelta(days=30))
+    primeiras = (
+        Message.objects
+        .filter(conversation__in=janela).exclude(message_type='system')
+        .values('conversation')
+        .annotate(
+            primeira_entrada=Min('created_at', filter=Q(direction='in')),
+        )
+        .filter(primeira_entrada__isnull=False)
+    )
+    entrada_por_conversa = {
+        linha['conversation']: linha['primeira_entrada'] for linha in primeiras
+    }
     deltas = []
-    recent = convs.filter(last_message_at__date__gte=today - timedelta(days=30)).prefetch_related('messages')
-    for conv in recent:
-        msgs = sorted(
-            [m for m in conv.messages.all() if m.message_type != 'system'],
-            key=lambda m: m.created_at,
+    if entrada_por_conversa:
+        respostas = (
+            Message.objects
+            .filter(conversation__in=entrada_por_conversa, direction='out')
+            .exclude(message_type='system')
+            .values('conversation')
+            .annotate(primeira_saida=Min('created_at'))
         )
-        first_in = next((m for m in msgs if m.direction == 'in'), None)
-        if not first_in:
-            continue
-        first_out = next(
-            (m for m in msgs if m.direction == 'out' and m.created_at >= first_in.created_at), None
-        )
-        if first_out:
-            deltas.append((first_out.created_at - first_in.created_at).total_seconds())
+        for linha in respostas:
+            entrada = entrada_por_conversa.get(linha['conversation'])
+            saida = linha['primeira_saida']
+            # A resposta tem que vir DEPOIS da 1a mensagem do cliente (uma conversa
+            # que começou com o atendente falando não conta como tempo de resposta).
+            if entrada and saida and saida >= entrada:
+                deltas.append((saida - entrada).total_seconds())
     tempo_medio = _format_hms(sum(deltas) / len(deltas)) if deltas else '--:--:--'
 
     stats = [
@@ -1246,8 +1266,10 @@ def permissions_view(request):
     groups_ctx = []
     for g in groups:
         access = getattr(g, 'access', None)
-        sec_ids = set(access.sectors.values_list('id', flat=True)) if access else set()
-        usr_ids = set(access.users.values_list('id', flat=True)) if access else set()
+        # `.all()` USA o cache do prefetch_related acima; `.values_list()` o IGNORA e
+        # emite consulta nova (duas por grupo), anulando o prefetch.
+        sec_ids = {s.id for s in access.sectors.all()} if access else set()
+        usr_ids = {u.id for u in access.users.all()} if access else set()
         groups_ctx.append({
             'id': g.id,
             'title': g.display_title,
@@ -1787,15 +1809,54 @@ def _filter_conversations_by_type(queryset, tipo):
     return queryset  # 'todas'
 
 
+# Cada contador da tela Conversas como um Q — a MESMA condicao usada para filtrar a
+# listagem, para contador e lista nunca divergirem.
+CONVERSATION_COUNT_Q = {
+    'todas': Q(),
+    'nao-lidas': Q(unread_count__gt=0),
+    'em-atendimento': Q(assigned_attendant__isnull=False) & ~Q(status='closed'),
+    # Fila de atendimento: so conversas DIRETAS (grupo nao entra em "aguardando").
+    'aguardando': (
+        Q(assigned_attendant__isnull=True) & Q(chat_type='private') & ~Q(status='closed')
+    ),
+    'finalizadas': Q(status='closed'),
+}
+CONVERSATION_TYPE_COUNT_Q = {
+    'todas': Q(),
+    'diretas': Q(chat_type='private'),
+    'grupos': Q(chat_type='group'),
+}
+
+
+def _count_by_q(base, mapa):
+    """Conta varios recortes do mesmo queryset em UMA consulta.
+
+    Antes cada contador era um `.count()` proprio: 5 por status + 3 por tipo = 8
+    consultas por carregamento da tela E por poll da lista (a cada 12 segundos, por
+    aba aberta). Pior: para nao-admin o queryset de visibilidade traz `.distinct()`
+    sobre joins com GroupAccess, entao cada uma dessas 8 refazia o join inteiro.
+
+    `Count('id', filter=Q(...), distinct=True)` resolve tudo num agregado. O
+    `distinct=True` e obrigatorio aqui: sem ele o join de visibilidade duplicaria
+    linhas e os numeros sairiam inflados.
+    """
+    agregados = {
+        f'c_{i}': Count('id', filter=condicao, distinct=True)
+        for i, condicao in enumerate(mapa.values())
+    }
+    linha = base.aggregate(**agregados)
+    return {slug: linha[f'c_{i}'] or 0 for i, slug in enumerate(mapa)}
+
+
 def _conversation_counts(base=None):
     # Totais reais por status; usa o mesmo filtro da listagem para nunca divergir.
     base = base if base is not None else Conversation.objects.all()
-    return {slug: _filter_conversations_by_status(base, slug).count() for slug, _ in CONVERSATION_FILTERS}
+    return _count_by_q(base, CONVERSATION_COUNT_Q)
 
 
 def _conversation_type_counts(base=None):
     base = base if base is not None else Conversation.objects.all()
-    return {slug: _filter_conversations_by_type(base, slug).count() for slug, _ in CONVERSATION_TYPE_FILTERS}
+    return _count_by_q(base, CONVERSATION_TYPE_COUNT_Q)
 
 
 @login_required
@@ -2049,10 +2110,10 @@ def build_company_metrics(company):
 
     last_in = incoming.order_by('-created_at').values_list('created_at', flat=True).first()
     last_out = outgoing.order_by('-created_at').values_list('created_at', flat=True).first()
-    last_event = (
-        WapiWebhookEvent.objects.filter(company=company)
-        .order_by('-received_at').values_list('received_at', flat=True).first()
+    eventos = WapiWebhookEvent.objects.filter(company=company).aggregate(
+        ultimo=Max('received_at'), total=Count('id'),
     )
+    last_event = eventos['ultimo']
 
     users = User.objects.filter(company=company)
     wapi_config = WapiConfiguration.for_company(company)
@@ -2067,33 +2128,47 @@ def build_company_metrics(company):
     )
     ia_acumulado = CompanyAiUsage.all_time_totals(company)
 
+    # UMA agregacao por assunto, em vez de um `.count()` por indicador. Antes esta
+    # funcao disparava cerca de 25 consultas — e cada uma sobre `Message`, que e a
+    # maior tabela do sistema. O jeito certo ja existia ao lado, em
+    # `build_platform_metrics`: `Count('id', filter=Q(...))`.
+    resumo_msgs = msgs.aggregate(
+        enviadas=Count('id', filter=Q(direction='out')),
+        recebidas=Count('id', filter=Q(direction='in')),
+        enviadas_7d=Count('id', filter=Q(direction='out', created_at__gte=last_7)),
+        recebidas_7d=Count('id', filter=Q(direction='in', created_at__gte=last_7)),
+        enviadas_30d=Count('id', filter=Q(direction='out', created_at__gte=last_30)),
+        recebidas_30d=Count('id', filter=Q(direction='in', created_at__gte=last_30)),
+        # Respostas do atendimento automatico (IA ou chatbot de menu).
+        automaticas=Count('id', filter=Q(direction='out', is_ai=True)),
+        com_arquivo=Count(
+            'id', filter=~Q(media_file='') & Q(media_file__isnull=False)
+        ),
+    )
+    resumo_convs = convs.aggregate(
+        total=Count('id'),
+        ativas=Count('id', filter=~Q(status='closed')),
+        aguardando=Count('id', filter=Q(status='pending')),
+        finalizadas=Count('id', filter=Q(status='closed')),
+        grupos=Count('id', filter=Q(chat_type='group')),
+        novas_7d=Count('id', filter=Q(created_at__gte=last_7)),
+    )
+    resumo_users = users.aggregate(
+        usuarios=Count('id'),
+        usuarios_ativos=Count('id', filter=Q(is_active=True)),
+        administradores=Count('id', filter=Q(role=User.Role.ADM, is_active=True)),
+    )
+
     return {
         'company': company,
         'mensagens': {
-            'enviadas': outgoing.count(),
-            'recebidas': incoming.count(),
-            'enviadas_7d': outgoing.filter(created_at__gte=last_7).count(),
-            'recebidas_7d': incoming.filter(created_at__gte=last_7).count(),
-            'enviadas_30d': outgoing.filter(created_at__gte=last_30).count(),
-            'recebidas_30d': incoming.filter(created_at__gte=last_30).count(),
-            # Respostas do atendimento automatico (IA ou chatbot de menu).
-            'automaticas': outgoing.filter(is_ai=True).count(),
-            'com_arquivo': msgs.exclude(media_file='').exclude(media_file__isnull=True).count(),
+            **resumo_msgs,
             'ultima_recebida': timezone.localtime(last_in) if last_in else None,
             'ultima_enviada': timezone.localtime(last_out) if last_out else None,
         },
-        'conversas': {
-            'total': convs.count(),
-            'ativas': convs.exclude(status='closed').count(),
-            'aguardando': convs.filter(status='pending').count(),
-            'finalizadas': convs.filter(status='closed').count(),
-            'grupos': convs.filter(chat_type='group').count(),
-            'novas_7d': convs.filter(created_at__gte=last_7).count(),
-        },
+        'conversas': resumo_convs,
         'equipe': {
-            'usuarios': users.count(),
-            'usuarios_ativos': users.filter(is_active=True).count(),
-            'administradores': users.filter(role=User.Role.ADM, is_active=True).count(),
+            **resumo_users,
             'atendentes': Attendant.objects.filter(company=company).count(),
             'setores': Sector.objects.filter(company=company).count(),
             'contatos': Contact.objects.filter(company=company).count(),
@@ -2104,7 +2179,7 @@ def build_company_metrics(company):
                 wapi_config.resolved_instance_id().strip() and wapi_config.resolved_token().strip()
             ),
             'ultimo_evento': timezone.localtime(last_event) if last_event else None,
-            'eventos': WapiWebhookEvent.objects.filter(company=company).count(),
+            'eventos': eventos['total'],
             'modo': menu_config.mode,
             'modo_label': menu_config.get_mode_display(),
         },
@@ -2507,9 +2582,21 @@ def clients_view(request):
         )
     # Contadores reais por empresa (o master ve o tamanho de cada cliente, sem
     # entrar no conteudo das conversas).
+    #
+    # SUBQUERY, nao dois Count no mesmo annotate: dois `Count` sobre relacoes
+    # DIFERENTES na mesma consulta fazem o banco multiplicar as linhas (usuarios x
+    # conversas por empresa). O `distinct=True` corrigia o numero, nao o custo — uma
+    # empresa com 20 usuarios e 10 mil conversas virava 200 mil linhas varridas.
+    def _contagem_por_empresa(model, campo='company'):
+        return Subquery(
+            model.objects.filter(**{campo: OuterRef('pk')})
+            .order_by().values(campo)
+            .annotate(n=Count('id')).values('n')[:1]
+        )
+
     companies = companies.annotate(
-        users_count=Count('users', distinct=True),
-        conversations_count=Count('conversations', distinct=True),
+        users_count=Coalesce(_contagem_por_empresa(User), 0),
+        conversations_count=Coalesce(_contagem_por_empresa(Conversation), 0),
     )
 
     # Quem ja tem ACESSO de administrador em cada empresa (para a tela mostrar se

@@ -403,6 +403,14 @@ sai por duas rotas do Django:
 - **Abas de tipo**: Todas / Diretas / Grupos (param `tipo` no endpoint da lista),
   com contagens. **Selo "Grupo"** na lista e no cabeçalho; em grupo, o **nome do
   participante** aparece acima de cada mensagem recebida.
+- **Contadores numa consulta só**: os 8 números dos chips (5 por status + 3 por tipo)
+  saem de **duas** agregações (`_count_by_q` com `Count('id', filter=Q(...),
+  distinct=True)`), não de 8 `.count()` — antes cada um refazia o join de
+  visibilidade, a cada poll de 12 s por aba aberta. **O `distinct=True` é
+  obrigatório**: um grupo liberado por setor **e** por usuário duplica linha no join e
+  o número sairia inflado (há teste exatamente para esse caso). As condições ficam em
+  `CONVERSATION_COUNT_Q` / `CONVERSATION_TYPE_COUNT_Q`, as **mesmas** usadas para
+  filtrar a listagem — contador e lista não podem divergir.
 - **Lista real** (server-rendered) + **filtros** (chips) com contagens reais: Todas,
   Não lidas (`unread_count>0`), **Conversando** (tem atendente e não fechada — status
   `open` assumido), Finalizadas (`closed`). **Busca** por nome/telefone/última mensagem,
@@ -581,7 +589,9 @@ sai por duas rotas do Django:
     tela da seção 5.0.1). Ordem: **empresa ativa primeiro**, depois **maior consumo
     de IA no mês** e maior movimento — quem está pesando na conta aparece em cima.
 - **Consultas agregadas por empresa** (`values('company').annotate(...)`, uma consulta
-  por assunto): a tela não fica mais lenta conforme a carteira cresce.
+  por assunto): a tela não fica mais lenta conforme a carteira cresce. **A tela de um
+  cliente (5.0.1) segue o mesmo padrão**: `build_company_metrics` faz 3 agregações
+  (`Count('id', filter=Q(...))`) em vez dos ~25 `.count()` que tinha.
 - **Saúde do canal aqui é só "credencial cadastrada" + "último evento"**: consultar a
   W-API de verdade é uma chamada externa **por empresa** e continua atrás do botão
   **Testar conexão** da tela de cada cliente (seção 5.0.1).
@@ -605,7 +615,10 @@ sai por duas rotas do Django:
 - **Dados 100% reais** do banco, calculados em `build_dashboard_context()` (views):
   - **Cards**: Conversas ativas (não fechadas), Novas conversas (criadas nos últimos
     7 dias), Atendimentos finalizados (fechadas), Tempo médio de resposta (1ª resposta
-    do atendente após a 1ª mensagem do cliente, média dos últimos 30 dias).
+    do atendente após a 1ª mensagem do cliente, média dos últimos 30 dias — calculado
+    com **duas agregações `Min(created_at)`**, não carregando as mensagens: antes um
+    `prefetch_related('messages')` trazia 30 dias de mensagens do cliente inteiro para
+    produzir um único número).
   - **Atendimentos por dia**: últimos 7 dias (pela data da última mensagem). É um
     **gráfico de linha em SVG SEM texto** (só linha/área/grade, coords em % com
     `preserveAspectRatio=none` + `vector-effect=non-scaling-stroke`); os **números,
@@ -1062,6 +1075,9 @@ esconder o botão também bloqueia a URL.
   editável, para nunca se trancar fora).
 - **Padrão** dos demais (`DEFAULT_ROLE_KEYS`): `usuario`/`leitor` = `conversations` +
   `contacts` (sem Dashboard). Ajustável na tela.
+- **Aba Grupos**: ao ler as liberações de um grupo, usar `access.sectors.all()` — e
+  **não** `.values_list()`, que ignora o `prefetch_related` e emite consulta nova
+  (duas por grupo), anulando o prefetch.
 - **Efetivo por usuário** (`allowed_keys_for`): adm → tudo; senão a personalização do
   usuário (`UserMenuPermission`, se houver) **sobrepõe** o padrão do perfil
   (`RoleMenuPermission` ou o padrão do código).
@@ -1285,6 +1301,9 @@ Em `views.py`, `request_company(request)` é o atalho usado em todo ponto de cri
 - **Lista em cartões** com logo (ou iniciais na cor de destaque), nome, razão social,
   selos **Ativa/Inativa** e **Padrão**, dados cadastrais e os contadores reais de
   **usuários** e **conversas** (o master vê o tamanho do cliente, não o conteúdo).
+  Os dois contadores vêm de **`Subquery`**, não de dois `Count` no mesmo `annotate`:
+  `Count` sobre relações diferentes na mesma consulta faz o banco cruzar usuários ×
+  conversas de cada empresa (o `distinct=True` corrige o número, não o custo).
 - **Ações**: Editar, Desativar/Reativar e Excluir. A **empresa padrão** não tem
   Desativar nem Excluir (bloqueado também no backend). A exclusão avisa que apaga
   todos os dados e sugere exportar antes (Parte 3).

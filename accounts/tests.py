@@ -5438,3 +5438,297 @@ class WebhookDoesNotWaitForMediaDownloadTests(TestCase):
             )
         self.assertTrue(sincrono.called)
         self.assertFalse(background.called)
+
+
+class ConversationCountsAggregateTests(TestCase):
+    """Os contadores da tela Conversas saem numa consulta so — com o MESMO numero.
+
+    Antes cada contador era um `.count()` proprio: 5 por status + 3 por tipo = 8
+    consultas por carregamento E por poll da lista (12s, por aba). Para nao-admin o
+    queryset de visibilidade traz `.distinct()` sobre joins com GroupAccess, entao
+    cada uma refazia o join inteiro.
+
+    O risco de trocar por `Count(filter=...)` e o numero mudar por causa da
+    duplicacao do join — por isso os testes comparam contra a contagem ingenua.
+    """
+
+    def setUp(self):
+        from .models import (Attendant as Att, Contact, Conversation, GroupAccess,
+                             Sector)
+        self.company = default_company()
+        self.adm = User.objects.create_user(
+            email='adm-contadores@x.com', password='SenhaForte123',
+            role=User.Role.ADM, company=self.company,
+        )
+        self.adm.attendant_profile.must_change_password = False
+        self.adm.attendant_profile.save(update_fields=['must_change_password'])
+        self.user = User.objects.create_user(
+            email='usuario-contadores@x.com', password='SenhaForte123',
+            role=User.Role.USUARIO, company=self.company,
+        )
+        self.attendant = Att.objects.create(
+            company=self.company, user=self.user, name='Bia',
+            must_change_password=False,
+        )
+        setor = Sector.objects.create(company=self.company, name='Suporte Contadores')
+        setor.attendants.add(self.attendant)
+        self.setor = setor
+
+        def _conversa(sufixo, **campos):
+            contato = Contact.objects.create(
+                company=self.company, name=f'C{sufixo}', phone=f'55199000{sufixo:04d}',
+            )
+            return Conversation.objects.create(
+                company=self.company, contact=contato,
+                external_id=f'55199000{sufixo:04d}', chat_type='private', **campos,
+            )
+
+        # Um de cada estado que os chips contam.
+        _conversa(1, sector=setor, status='pending', unread_count=3)
+        _conversa(2, sector=setor, status='open', assigned_attendant=self.attendant)
+        _conversa(3, sector=setor, status='closed', assigned_attendant=self.attendant)
+        _conversa(4, sector=setor, status='open')
+        # Um grupo liberado por DOIS caminhos ao mesmo tempo (setor E usuario): e
+        # exatamente o caso que duplica linha no join e inflaria o contador.
+        grupo = Conversation.objects.create(
+            company=self.company, external_id='1203630001@g.us',
+            chat_type='group', name='Grupo Contadores', status='open',
+        )
+        acesso = GroupAccess.objects.create(conversation=grupo)
+        acesso.sectors.add(setor)
+        acesso.users.add(self.user)
+
+    def _contagem_ingenua(self, base, mapa):
+        return {slug: base.filter(condicao).distinct().count()
+                for slug, condicao in mapa.items()}
+
+    def test_contadores_batem_com_a_contagem_ingenua_para_o_admin(self):
+        from .permissions import visible_conversations
+        from .views import (CONVERSATION_COUNT_Q, CONVERSATION_TYPE_COUNT_Q,
+                            _conversation_counts, _conversation_type_counts)
+        from .models import Conversation
+        base = visible_conversations(self.adm, Conversation.objects.all())
+        self.assertEqual(
+            _conversation_counts(base),
+            self._contagem_ingenua(base, CONVERSATION_COUNT_Q),
+        )
+        self.assertEqual(
+            _conversation_type_counts(base),
+            self._contagem_ingenua(base, CONVERSATION_TYPE_COUNT_Q),
+        )
+
+    def test_contadores_batem_com_join_duplicado_de_grupo(self):
+        """Grupo liberado por setor E por usuario: sem distinct, o numero inflaria."""
+        from .permissions import visible_conversations
+        from .views import (CONVERSATION_COUNT_Q, CONVERSATION_TYPE_COUNT_Q,
+                            _conversation_counts, _conversation_type_counts)
+        from .models import Conversation
+        base = visible_conversations(self.user, Conversation.objects.all())
+        contados = _conversation_counts(base)
+        self.assertEqual(contados, self._contagem_ingenua(base, CONVERSATION_COUNT_Q))
+        tipos = _conversation_type_counts(base)
+        self.assertEqual(tipos, self._contagem_ingenua(base, CONVERSATION_TYPE_COUNT_Q))
+        # O grupo aparece UMA vez, nao duas.
+        self.assertEqual(tipos['grupos'], 1)
+
+    def test_os_oito_contadores_custam_duas_consultas(self):
+        from .permissions import visible_conversations
+        from .views import _conversation_counts, _conversation_type_counts
+        from .models import Conversation
+        base = visible_conversations(self.adm, Conversation.objects.all())
+        with self.assertNumQueries(2):
+            _conversation_counts(base)
+            _conversation_type_counts(base)
+
+    def test_chips_da_tela_continuam_com_os_numeros_certos(self):
+        self.client.force_login(self.adm)
+        response = self.client.get(reverse('conversations'))
+        self.assertEqual(response.status_code, 200)
+        chips = {c['key']: c['count'] for c in response.context['filter_chips']}
+        self.assertEqual(chips['todas'], 5)
+        self.assertEqual(chips['nao-lidas'], 1)
+        self.assertEqual(chips['em-atendimento'], 1)
+        self.assertEqual(chips['finalizadas'], 1)
+        self.assertEqual(response.context['waiting_count'], 2)
+
+
+class ClientListCountsUseSubqueryTests(TestCase):
+    """A tela Clientes conta sem multiplicar linhas.
+
+    Dois `Count` sobre relacoes DIFERENTES no mesmo `annotate` fazem o banco cruzar
+    usuarios x conversas de cada empresa. O `distinct=True` corrigia o numero, nao o
+    custo. Trocado por `Subquery`, que tambem precisa continuar dando o numero certo.
+    """
+
+    def setUp(self):
+        from .models import Company, Contact, Conversation
+        self.company = Company.objects.create(name='Conta Certa', slug='conta-certa')
+        self.master = User.objects.create_user(
+            email='master-contagem@x.com', password='SenhaForte123',
+            role=User.Role.MASTER,
+        )
+        for i in range(3):
+            User.objects.create_user(
+                email=f'pessoa{i}@conta-certa.com', password='SenhaForte123',
+                role=User.Role.USUARIO, company=self.company,
+            )
+        for i in range(4):
+            contato = Contact.objects.create(
+                company=self.company, name=f'Cli {i}', phone=f'551955500{i:03d}',
+            )
+            Conversation.objects.create(
+                company=self.company, contact=contato,
+                external_id=f'551955500{i:03d}', chat_type='private',
+            )
+        self.client.force_login(self.master)
+
+    def test_contagens_por_empresa_estao_certas(self):
+        response = self.client.get(reverse('clients'))
+        self.assertEqual(response.status_code, 200)
+        empresa = next(
+            c for c in response.context['companies'] if c.pk == self.company.pk
+        )
+        self.assertEqual(empresa.users_count, 3)
+        self.assertEqual(empresa.conversations_count, 4)
+
+    def test_empresa_sem_movimento_conta_zero_e_nao_none(self):
+        from .models import Company
+        vazia = Company.objects.create(name='Sem Nada', slug='sem-nada')
+        response = self.client.get(reverse('clients'))
+        empresa = next(c for c in response.context['companies'] if c.pk == vazia.pk)
+        self.assertEqual(empresa.users_count, 0)
+        self.assertEqual(empresa.conversations_count, 0)
+
+
+class DashboardResponseTimeTests(TestCase):
+    """O tempo medio de resposta e calculado no banco, nao em memoria.
+
+    Antes: `prefetch_related('messages')` sobre todas as conversas com atividade em
+    30 dias, ordenando e filtrando em Python — trazia 30 dias de mensagens do cliente
+    inteiro para produzir um unico numero.
+    """
+
+    def setUp(self):
+        from datetime import timedelta as _td
+        from django.utils import timezone as _tz
+        from .models import Contact, Conversation, Message
+        self.company = default_company()
+        self.adm = User.objects.create_user(
+            email='adm-dashboard@x.com', password='SenhaForte123',
+            role=User.Role.ADM, company=self.company,
+        )
+        contato = Contact.objects.create(
+            company=self.company, name='Cliente Tempo', phone='5519666665555',
+        )
+        self.conv = Conversation.objects.create(
+            company=self.company, contact=contato, external_id='5519666665555',
+            chat_type='private', last_message_at=_tz.now(),
+        )
+        agora = _tz.now()
+        entrada = Message.objects.create(
+            conversation=self.conv, direction='in', message_type='text', text='oi',
+        )
+        Message.objects.filter(pk=entrada.pk).update(created_at=agora - _td(minutes=10))
+        saida = Message.objects.create(
+            conversation=self.conv, direction='out', message_type='text', text='ola',
+        )
+        Message.objects.filter(pk=saida.pk).update(created_at=agora - _td(minutes=8))
+
+    def test_tempo_medio_de_resposta(self):
+        from .views import build_dashboard_context
+        contexto = build_dashboard_context(self.company)
+        tempo = next(s['value'] for s in contexto['stats']
+                     if s['label'] == 'Tempo médio de resposta')
+        self.assertEqual(tempo, '00:02:00')
+
+    def test_conversa_iniciada_pelo_atendente_nao_conta(self):
+        """Resposta ANTES da 1a mensagem do cliente nao e tempo de resposta."""
+        from datetime import timedelta as _td
+        from django.utils import timezone as _tz
+        from .models import Contact, Conversation, Message
+        from .views import build_dashboard_context
+        contato = Contact.objects.create(
+            company=self.company, name='Prospect', phone='5519111110000',
+        )
+        conv = Conversation.objects.create(
+            company=self.company, contact=contato, external_id='5519111110000',
+            chat_type='private', last_message_at=_tz.now(),
+        )
+        agora = _tz.now()
+        saida = Message.objects.create(
+            conversation=conv, direction='out', message_type='text', text='oi, tudo bem?',
+        )
+        Message.objects.filter(pk=saida.pk).update(created_at=agora - _td(hours=5))
+        entrada = Message.objects.create(
+            conversation=conv, direction='in', message_type='text', text='tudo',
+        )
+        Message.objects.filter(pk=entrada.pk).update(created_at=agora - _td(hours=1))
+        contexto = build_dashboard_context(self.company)
+        tempo = next(s['value'] for s in contexto['stats']
+                     if s['label'] == 'Tempo médio de resposta')
+        # So a primeira conversa entra na media (2 minutos).
+        self.assertEqual(tempo, '00:02:00')
+
+    def test_sem_atendimento_mostra_placeholder(self):
+        from .models import Message
+        from .views import build_dashboard_context
+        Message.objects.all().delete()
+        contexto = build_dashboard_context(self.company)
+        tempo = next(s['value'] for s in contexto['stats']
+                     if s['label'] == 'Tempo médio de resposta')
+        self.assertEqual(tempo, '--:--:--')
+
+
+class AdminAttendantSignalIsQuietTests(TestCase):
+    """O sinal do atendente-admin so roda quando o perfil pode ter mudado.
+
+    Antes ele rodava em TODO save de usuario — inclusive `last_login` (a cada login)
+    e `password` (a cada troca de senha). Cada passada fazia `get_or_create` do
+    atendente mais `sectors.add(*todos_os_setores)`: consultas gastas em toda entrada
+    de admin no sistema, sem nunca mudar nada.
+    """
+
+    def setUp(self):
+        from .models import Sector
+        self.company = default_company()
+        Sector.objects.create(company=self.company, name='Setor Sinal A')
+        Sector.objects.create(company=self.company, name='Setor Sinal B')
+        self.adm = User.objects.create_user(
+            email='adm-sinal@x.com', password='SenhaForte123',
+            role=User.Role.ADM, company=self.company,
+        )
+
+    def test_login_nao_dispara_o_provisionamento(self):
+        from unittest.mock import patch as _patch
+        with _patch('accounts.signals.ensure_admin_attendant') as provisiona:
+            self.adm.save(update_fields=['last_login'])
+        self.assertFalse(provisiona.called)
+
+    def test_troca_de_senha_nao_dispara_o_provisionamento(self):
+        from unittest.mock import patch as _patch
+        with _patch('accounts.signals.ensure_admin_attendant') as provisiona:
+            self.adm.save(update_fields=['password'])
+        self.assertFalse(provisiona.called)
+
+    def test_mudanca_de_perfil_dispara_o_provisionamento(self):
+        """O que importa continua funcionando: virar adm provisiona o atendente."""
+        from .models import Attendant as Att, Sector
+        pessoa = User.objects.create_user(
+            email='virou-adm@x.com', password='SenhaForte123',
+            role=User.Role.USUARIO, company=self.company,
+        )
+        self.assertFalse(Att.objects.filter(user=pessoa).exists())
+        pessoa.role = User.Role.ADM
+        pessoa.save(update_fields=['role'])
+        atendente = Att.objects.get(user=pessoa)
+        # E entra em todos os setores da empresa (para poder Assumir qualquer fila).
+        self.assertEqual(
+            set(atendente.sectors.values_list('name', flat=True)),
+            set(Sector.objects.filter(company=self.company).values_list('name', flat=True)),
+        )
+
+    def test_save_completo_continua_provisionando(self):
+        from unittest.mock import patch as _patch
+        with _patch('accounts.signals.ensure_admin_attendant') as provisiona:
+            self.adm.save()
+        self.assertTrue(provisiona.called)
