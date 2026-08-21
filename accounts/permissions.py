@@ -199,6 +199,53 @@ def nav_items_for(user, active_label, in_company=False):
     return items
 
 
+def nav_groups_for(user, active_label, in_company=False, support_company_name=''):
+    """Itens do menu AGRUPADOS, para a barra lateral.
+
+    Existe por um problema de leitura, nao de permissao: quando o master entrava no
+    painel de um cliente, o menu simplesmente GANHAVA um item ("WhatsApp") no meio
+    dos itens da plataforma. Nada dizia que aquele item era daquele cliente e os
+    outros eram da plataforma — o menu "mudava de forma" e o master perdia a
+    referencia de onde estava.
+
+    Agora o menu tem grupos ROTULADOS:
+
+        PLATAFORMA          Clientes · Metricas · Inteligencia (IA) · Gestores
+        CLIENTE · <nome>    WhatsApp
+
+    Os itens da plataforma ficam SEMPRE no mesmo lugar, na mesma ordem. O que
+    acontece ao entrar num painel e um segundo grupo APARECER, com o nome do cliente
+    no rotulo. Para quem nao e master ha um grupo unico e sem rotulo — a barra fica
+    exatamente como sempre foi.
+
+    Devolve [{'label': str, 'items': [...]}]; `label` vazio = grupo sem titulo.
+    """
+    role = getattr(user, 'role', None)
+    if role != 'master':
+        return [{'label': '', 'items': nav_items_for(user, active_label)}]
+
+    def _item(entrada):
+        return {
+            'label': entrada['label'],
+            'url_name': entrada['url_name'],
+            'href': entrada['url_name'],
+            'active': entrada['label'] == active_label,
+        }
+
+    grupos = [{
+        'label': 'Plataforma',
+        'items': [_item(entrada) for entrada in MASTER_ONLY_ITEMS],
+    }]
+    if in_company:
+        grupos.append({
+            'label': 'Cliente · %s' % support_company_name if support_company_name
+                     else 'Cliente',
+            'items': [_item(WHATSAPP_ITEM)],
+            'is_client': True,
+        })
+    return grupos
+
+
 def first_landing_url_name(user):
     """Primeiro botao acessivel — para onde mandar o usuario apos o login quando
     ele nao tem acesso ao Dashboard."""

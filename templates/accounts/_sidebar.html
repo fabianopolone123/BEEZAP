@@ -1,14 +1,27 @@
 {% comment %}
-Barra lateral compartilhada por TODAS as telas do painel (antes o bloco estava
-copiado em cada template). A marca vem do contexto `brand`
-(accounts/context_processors.py): logo e nome DA EMPRESA CLIENTE de quem esta
-logado; sem logo cadastrado, aparecem as iniciais da empresa na cor de destaque
-dela. O gestor master ve a marca do BEEonBOARD com o rotulo "Gestão de clientes".
+Barra lateral compartilhada por TODAS as telas do painel.
 
-Espera no contexto: `nav_items` (montado por build_nav_items) e `brand`.
+A marca vem do contexto `brand` (accounts/context_processors.py):
+
+- usuario de uma empresa: logo e nome DA EMPRESA dele (sem logo, as iniciais na cor
+  de destaque). Nada aqui muda para ele — a barra e a mesma de sempre;
+- gestor master: SEMPRE a marca do BEEonBOARD, mesmo dentro do painel de um cliente.
+  Antes a barra "vestia" a marca do cliente (logo, nome e cor), e o efeito era o
+  contrario do pretendido: a tela dizia "voce e a PPM" em vez de "voce esta olhando a
+  PPM". O cliente agora aparece como CONTEXTO, no seletor abaixo da marca.
+
+SELETOR DE CONTEXTO (so master): `<details>`/`<summary>` nativo — sem JavaScript,
+sem dependencia e acessivel pelo teclado. Ele troca de cliente em UM clique; antes
+era preciso sair do painel, voltar para a tela Clientes e entrar no outro.
+
+MENU EM GRUPOS: `nav_items` traz grupos rotulados (ver permissions.nav_groups_for).
+Os itens da PLATAFORMA ficam sempre no mesmo lugar; ao entrar num painel um segundo
+grupo APARECE, com o nome do cliente no rotulo — o menu nao "muda de forma".
+
+Espera no contexto: `nav_items` (grupos, de build_nav_items) e `brand`.
 {% endcomment %}
 {% load static %}
-<aside class="sidebar">
+<aside class="sidebar {% if brand.support_company %}sidebar-in-support{% endif %}">
   <div class="sidebar-brand">
     {% if brand.logo_url %}
       <img src="{{ brand.logo_url }}" alt="{{ brand.name }}" class="sidebar-logo">
@@ -25,25 +38,69 @@ Espera no contexto: `nav_items` (montado por build_nav_items) e `brand`.
     </div>
   </div>
 
-  {% if brand.support_company %}
-    {# MODO SUPORTE: o gestor master entrou no painel deste cliente. O aviso deixa
-       claro de quem e o painel e da a saida em um clique. #}
-    <form method="post" action="{% url 'clients' %}" class="sidebar-support">
-      {% csrf_token %}
-      <input type="hidden" name="action" value="leave">
-      <strong>Modo suporte</strong>
-      <span>Você está no painel de {{ brand.support_company.display_name }}. As conversas dele continuam privadas.</span>
-      <button type="submit">Sair do painel</button>
-    </form>
+  {% if brand.is_master %}
+    {# ---------------- Seletor de contexto (qual cliente estou vendo) ---------------- #}
+    <details class="ctx-switch {% if brand.support_company %}ctx-switch-active{% endif %}">
+      <summary>
+        {% if brand.support_company %}
+          <span class="ctx-eyebrow">Vendo o painel de</span>
+          <span class="ctx-name">{{ brand.support_company.display_name }}</span>
+        {% else %}
+          <span class="ctx-eyebrow">Painel de cliente</span>
+          <span class="ctx-name ctx-name-empty">Nenhum aberto</span>
+        {% endif %}
+        <span class="ctx-caret" aria-hidden="true"></span>
+      </summary>
+
+      <div class="ctx-menu">
+        {% if brand.support_company %}
+          <form method="post" action="{% url 'clients' %}">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="leave">
+            <button type="submit" class="ctx-leave">← Voltar para a plataforma</button>
+          </form>
+          <p class="ctx-hint">Ou abra o painel de outro cliente:</p>
+        {% else %}
+          <p class="ctx-hint">Abra o painel de um cliente para configurar o WhatsApp dele:</p>
+        {% endif %}
+
+        <ul class="ctx-list">
+          {% for empresa in brand.switch_companies %}
+            <li>
+              <form method="post" action="{% url 'clients' %}">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="enter">
+                <input type="hidden" name="company_id" value="{{ empresa.id }}">
+                <button type="submit" class="ctx-item {% if empresa.ativa %}ctx-item-active{% endif %}"
+                        {% if empresa.ativa %}aria-current="true"{% endif %}>
+                  <span>{{ empresa.nome }}</span>
+                  {% if empresa.is_default %}<em class="ctx-tag">padrão</em>{% endif %}
+                  {% if empresa.ativa %}<span class="ctx-check" aria-hidden="true">✓</span>{% endif %}
+                </button>
+              </form>
+            </li>
+          {% empty %}
+            <li class="ctx-empty">Nenhum cliente ativo cadastrado.</li>
+          {% endfor %}
+        </ul>
+      </div>
+    </details>
   {% endif %}
 
   <nav class="sidebar-nav">
-    {% for item in nav_items %}
-      <a href="{% if item.href %}{% url item.href %}{% else %}#{% endif %}"
-         class="nav-item {% if item.active %}active{% endif %}">
-        <span class="nav-dot"></span>
-        <span>{{ item.label }}</span>
-      </a>
+    {% for grupo in nav_items %}
+      <div class="nav-group {% if grupo.is_client %}nav-group-client{% endif %}">
+        {% if grupo.label %}
+          <span class="nav-group-label">{{ grupo.label }}</span>
+        {% endif %}
+        {% for item in grupo.items %}
+          <a href="{% if item.href %}{% url item.href %}{% else %}#{% endif %}"
+             class="nav-item {% if item.active %}active{% endif %}">
+            <span class="nav-dot"></span>
+            <span>{{ item.label }}</span>
+          </a>
+        {% endfor %}
+      </div>
     {% endfor %}
   </nav>
 </aside>

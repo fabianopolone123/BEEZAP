@@ -57,7 +57,7 @@ from ..permissions import (
     first_landing_url_name,
     history_full_for,
     is_read_only,
-    nav_items_for,
+    nav_groups_for,
     role_allowed_keys,
     user_can_access,
     visible_conversations,
@@ -274,9 +274,22 @@ def master_in_company(request):
 
 
 def build_nav_items(user, active_label, request=None):
-    """Itens do menu conforme as PERMISSOES do usuario (ver accounts/permissions.py)."""
+    """Itens do menu AGRUPADOS, conforme as permissoes (accounts/permissions.py).
+
+    Devolve grupos, nao uma lista simples: a barra lateral separa o que e da
+    PLATAFORMA do que e do CLIENTE em que o master entrou, com rotulo em cada grupo
+    (ver `nav_groups_for`). Para quem nao e master vem um grupo unico e sem rotulo,
+    entao a barra continua identica.
+    """
     in_company = master_in_company(request) if request is not None else False
-    return nav_items_for(user, active_label, in_company=in_company)
+    nome_do_cliente = ''
+    if in_company:
+        empresa = current_company(request)
+        nome_do_cliente = empresa.display_name if empresa is not None else ''
+    return nav_groups_for(
+        user, active_label, in_company=in_company,
+        support_company_name=nome_do_cliente,
+    )
 
 
 def require_master(request):

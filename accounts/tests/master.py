@@ -243,12 +243,20 @@ class ClientsScreenTests(TestCase):
         self.assertFalse(Company.objects.filter(pk=company.pk).exists())
 
     def test_search_filters_by_name(self):
+        """A busca filtra a LISTA de cartoes.
+
+        Confere o queryset, nao o HTML inteiro: o seletor de contexto da barra
+        lateral lista todos os clientes ativos de proposito (e navegacao global, nao
+        resultado de busca), entao o nome de um cliente filtrado continua aparecendo
+        na pagina — no seletor, nao na lista.
+        """
         from accounts.models import Company
         Company.objects.create(name='Padaria Central', slug='padaria-central')
         Company.objects.create(name='Oficina Rapida', slug='oficina-rapida')
         r = self.client.get(reverse('clients'), {'q': 'Padaria'})
-        self.assertContains(r, 'Padaria Central')
-        self.assertNotContains(r, 'Oficina Rapida')
+        listados = [c.display_name for c in r.context['companies']]
+        self.assertIn('Padaria Central', listados)
+        self.assertNotIn('Oficina Rapida', listados)
 class CompanyBrandingTests(TestCase):
     """A barra lateral mostra a marca DA EMPRESA de quem esta logado."""
 
@@ -776,15 +784,54 @@ class MasterSupportModeTests(TestCase):
         self.assertEqual(self.client.get(reverse('atendimento')).status_code, 403)
 
     def test_support_banner_names_the_client(self):
+        """A faixa de modo suporte nomeia o cliente e da a saida."""
         self._enter()
         r = self.client.get(reverse('clients'))
-        self.assertContains(r, 'Você está no painel de Acme')
         self.assertContains(r, 'Modo suporte')
+        self.assertContains(r, 'você está no painel de')
+        self.assertContains(r, 'Acme')
+        self.assertContains(r, 'Sair do painel')
 
-    def test_master_menu_in_support_mode_is_only_platform_plus_whatsapp(self):
-        from accounts.permissions import nav_items_for
-        labels = [i['label'] for i in nav_items_for(self.master, '', in_company=True)]
-        self.assertEqual(labels, ['Clientes', 'Métricas', 'Inteligência (IA)', 'Gestores', 'WhatsApp'])
+    def test_support_banner_appears_on_every_screen(self):
+        """O aviso vive no `base.html`, entao vale para TODA tela.
+
+        Antes ele existia so na tela Clientes (numa faixa) e dentro da barra lateral
+        (num cartao, com texto quase igual). Quem entrasse no painel e fosse direto
+        para a tela do WhatsApp via o cartao da barra, mas nada no corpo da pagina.
+        """
+        self._enter()
+        for rota in ('clients', 'wapi-settings', 'platform-metrics', 'masters'):
+            with self.subTest(rota=rota):
+                r = self.client.get(reverse(rota))
+                self.assertContains(r, 'support-bar')
+                self.assertContains(r, 'is-support-mode')
+
+    def test_no_support_banner_outside_a_client_panel(self):
+        r = self.client.get(reverse('clients'))
+        self.assertNotContains(r, 'support-bar')
+        self.assertNotContains(r, 'is-support-mode')
+
+    def test_sidebar_never_wears_the_client_brand(self):
+        """A barra lateral do master continua sendo a DELE, dentro do painel.
+
+        Antes ela trocava logo, nome e cor de destaque pelos do cliente — e a tela
+        passava a dizer "voce e a Acme" em vez de "voce esta olhando a Acme", o que
+        e justamente o oposto do que um modo suporte deve comunicar.
+        """
+        self.acme.accent_color = '#ff00ff'
+        self.acme.save(update_fields=['accent_color'])
+        self._enter()
+        r = self.client.get(reverse('clients'))
+        marca = r.context['brand']
+        self.assertEqual(marca['name'], 'BEEonBOARD')
+        self.assertEqual(marca['logo_url'], '')
+        self.assertEqual(marca['accent'], '')
+        self.assertEqual(marca['initials'], '')
+        # (a cor `#ff00ff` ainda aparece nesta tela, mas no CARTAO da Acme — dado da
+        # empresa listada, nao identidade da barra lateral.)
+        # E o cliente aparece como CONTEXTO, nao como marca.
+        self.assertEqual(marca['support_company'].pk, self.acme.pk)
+
 
     def test_master_still_sees_no_conversation_in_support_mode(self):
         from accounts.models import Contact, Conversation
@@ -795,6 +842,171 @@ class MasterSupportModeTests(TestCase):
         self.assertFalse(
             visible_conversations(self.master, Conversation.objects.all()).exists()
         )
+class MasterContextSwitcherTests(TestCase):
+    """Seletor de contexto: em que cliente estou, e trocar em um clique.
+
+    Antes, para ir de um cliente a outro o master tinha que sair do painel, voltar
+    para a tela Clientes e entrar no proximo — tres passos para algo que ele faz o
+    tempo todo.
+    """
+
+    def setUp(self):
+        from accounts.models import Company
+        self.master = User.objects.create_user(
+            email='master-ctx@x.com', password='SenhaForte123', role=User.Role.MASTER,
+        )
+        self.acme = Company.objects.create(name='Acme Ltda', slug='acme-ctx')
+        self.beta = Company.objects.create(name='Beta Comercio', slug='beta-ctx')
+        self.parada = Company.objects.create(
+            name='Parada SA', slug='parada-ctx', is_active=False,
+        )
+        self.client.force_login(self.master)
+
+    def _entrar(self, empresa):
+        return self.client.post(
+            reverse('clients'), {'action': 'enter', 'company_id': empresa.pk}
+        )
+
+    def test_seletor_lista_os_clientes_ativos(self):
+        r = self.client.get(reverse('clients'))
+        nomes = [e['nome'] for e in r.context['brand']['switch_companies']]
+        self.assertIn('Acme Ltda', nomes)
+        self.assertIn('Beta Comercio', nomes)
+
+    def test_seletor_nao_lista_empresa_desativada(self):
+        """Entrar no painel de empresa desativada nao faz sentido: o webhook dela
+        nem recebe mais."""
+        r = self.client.get(reverse('clients'))
+        nomes = [e['nome'] for e in r.context['brand']['switch_companies']]
+        self.assertNotIn('Parada SA', nomes)
+
+    def test_seletor_marca_o_cliente_aberto(self):
+        self._entrar(self.acme)
+        r = self.client.get(reverse('clients'))
+        ativos = [e['nome'] for e in r.context['brand']['switch_companies'] if e['ativa']]
+        self.assertEqual(ativos, ['Acme Ltda'])
+
+    def test_sem_painel_aberto_nenhum_fica_marcado(self):
+        r = self.client.get(reverse('clients'))
+        self.assertEqual(
+            [e for e in r.context['brand']['switch_companies'] if e['ativa']], []
+        )
+
+    def test_troca_direta_de_um_cliente_para_outro(self):
+        """Um POST leva de um painel para o outro, sem passar por 'sair'."""
+        self._entrar(self.acme)
+        self.assertEqual(
+            self.client.session['active_company_id'], self.acme.pk
+        )
+        self._entrar(self.beta)
+        self.assertEqual(
+            self.client.session['active_company_id'], self.beta.pk
+        )
+        r = self.client.get(reverse('clients'))
+        self.assertEqual(r.context['brand']['support_company'].pk, self.beta.pk)
+
+    def test_entrar_abre_as_configuracoes_do_cliente(self):
+        r = self._entrar(self.acme)
+        self.assertRedirects(r, reverse('wapi-settings'))
+
+    def test_cliente_comum_nao_recebe_seletor(self):
+        """O seletor e do master; para o cliente a barra lateral nao muda em nada."""
+        adm = User.objects.create_user(
+            email='adm-ctx@x.com', password='SenhaForte123',
+            role=User.Role.ADM, company=self.acme,
+        )
+        adm.attendant_profile.must_change_password = False
+        adm.attendant_profile.save(update_fields=['must_change_password'])
+        self.client.force_login(adm)
+        r = self.client.get(reverse('atendimento'))
+        marca = r.context['brand']
+        self.assertFalse(marca['is_master'])
+        self.assertEqual(marca['switch_companies'], [])
+        self.assertIsNone(marca['support_company'])
+        self.assertNotContains(r, 'ctx-switch')
+        # E a marca dele continua sendo a da propria empresa.
+        self.assertEqual(marca['name'], 'Acme Ltda')
+
+
+class MasterMenuGroupsTests(TestCase):
+    """O menu do master vem em GRUPOS rotulados, e nao muda de forma.
+
+    Antes, ao entrar no painel de um cliente, o menu simplesmente ganhava um item
+    ('WhatsApp') no meio dos itens da plataforma — nada dizia que aquele item era
+    daquele cliente.
+    """
+
+    def setUp(self):
+        from accounts.models import Company
+        self.master = User.objects.create_user(
+            email='master-menu@x.com', password='SenhaForte123', role=User.Role.MASTER,
+        )
+        self.acme = Company.objects.create(name='Acme Ltda', slug='acme-menu')
+        self.client.force_login(self.master)
+
+    def test_fora_do_painel_so_o_grupo_da_plataforma(self):
+        from accounts.permissions import nav_groups_for
+        grupos = nav_groups_for(self.master, '', in_company=False)
+        self.assertEqual([g['label'] for g in grupos], ['Plataforma'])
+        self.assertEqual(
+            [i['label'] for i in grupos[0]['items']],
+            ['Clientes', 'Métricas', 'Inteligência (IA)', 'Gestores'],
+        )
+
+    def test_no_painel_aparece_um_segundo_grupo_com_o_nome_do_cliente(self):
+        from accounts.permissions import nav_groups_for
+        grupos = nav_groups_for(
+            self.master, '', in_company=True, support_company_name='Acme Ltda',
+        )
+        self.assertEqual(
+            [g['label'] for g in grupos], ['Plataforma', 'Cliente · Acme Ltda']
+        )
+        # Os itens da plataforma NAO se mexeram.
+        self.assertEqual(
+            [i['label'] for i in grupos[0]['items']],
+            ['Clientes', 'Métricas', 'Inteligência (IA)', 'Gestores'],
+        )
+        self.assertEqual([i['label'] for i in grupos[1]['items']], ['WhatsApp'])
+
+    def test_o_grupo_do_cliente_e_marcado_para_o_css(self):
+        from accounts.permissions import nav_groups_for
+        grupos = nav_groups_for(
+            self.master, '', in_company=True, support_company_name='Acme Ltda',
+        )
+        self.assertTrue(grupos[1].get('is_client'))
+        self.assertFalse(grupos[0].get('is_client'))
+
+    def test_quem_nao_e_master_tem_um_grupo_unico_sem_rotulo(self):
+        """Para o cliente, a barra lateral fica exatamente como sempre foi."""
+        from accounts.permissions import nav_groups_for
+        adm = User.objects.create_user(
+            email='adm-menu@x.com', password='SenhaForte123',
+            role=User.Role.ADM, company=self.acme,
+        )
+        grupos = nav_groups_for(adm, 'Conversas')
+        self.assertEqual(len(grupos), 1)
+        self.assertEqual(grupos[0]['label'], '')
+        self.assertIn('Conversas', [i['label'] for i in grupos[0]['items']])
+
+    def test_a_tela_renderiza_os_grupos(self):
+        self.client.post(
+            reverse('clients'), {'action': 'enter', 'company_id': self.acme.pk}
+        )
+        r = self.client.get(reverse('wapi-settings'))
+        self.assertContains(r, 'nav-group-label')
+        self.assertContains(r, 'Plataforma')
+        self.assertContains(r, 'Cliente · Acme Ltda')
+        self.assertContains(r, 'nav-group-client')
+
+
+    def test_master_menu_in_support_mode_is_only_platform_plus_whatsapp(self):
+        """O ALCANCE do menu nao mudou com os grupos: e o mesmo conjunto de telas."""
+        from accounts.permissions import nav_groups_for
+        grupos = nav_groups_for(self.master, '', in_company=True,
+                                support_company_name='Acme')
+        labels = [i['label'] for g in grupos for i in g['items']]
+        self.assertEqual(labels, ['Clientes', 'Métricas', 'Inteligência (IA)', 'Gestores', 'WhatsApp'])
+
 class TechnicalSettingsAreMasterOnlyTests(TestCase):
     """O que e TECNICO nao fica com o cliente.
 

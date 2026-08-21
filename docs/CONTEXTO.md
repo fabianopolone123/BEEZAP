@@ -1475,10 +1475,16 @@ Em `views.py`, `request_company(request)` é o atalho usado em todo ponto de cri
 
 ### Marca do cliente na barra lateral
 
-- `accounts/context_processors.py` (**novo**, registrado em `settings.TEMPLATES`)
-  fornece `brand` em **todas** as telas: logo e nome **da empresa** de quem está
-  logado; sem logo, as **iniciais** da empresa na **cor de destaque** dela. O master
-  vê a marca do BEEonBOARD com o rótulo "Gestão de clientes".
+- `accounts/context_processors.py` (registrado em `settings.TEMPLATES`) fornece
+  `brand` em **todas** as telas: logo e nome **da empresa** de quem está logado; sem
+  logo, as **iniciais** da empresa na **cor de destaque** dela.
+- **O master NUNCA veste a marca do cliente.** Para ele `brand` é sempre o
+  BEEonBOARD, com o rótulo "Gestão de clientes" — **inclusive dentro do painel de um
+  cliente**. Antes a barra lateral trocava logo, nome e cor pelos do cliente no modo
+  suporte, e o efeito era o oposto do pretendido: batendo o olho, a tela dizia *"você
+  é a PPM"* em vez de *"você, master, está olhando a PPM"* — e ele podia se confundir
+  sobre de quem era a conta em que estava mexendo. O cliente aparece como
+  **contexto** (`brand.support_company`), não como identidade.
 - A barra lateral estava **copiada em 8 templates**; virou o include
   **`templates/accounts/_sidebar.html`** (única fonte). `.sidebar-initials` em
   `dashboard.css?v=6`.
@@ -1719,13 +1725,36 @@ clientes finais da empresa, e a regra do projeto é que o master administra sem 
 atendimento de ninguém. `visible_conversations` continua devolvendo **vazio** para o
 master, inclusive no modo suporte.
 
-A barra lateral e a tela Clientes mostram um **aviso âmbar** ("Modo suporte — você está
-no painel de X") com o botão **Sair do painel** (`action=leave`), para o master nunca
-confundir de quem é o painel que está vendo. `nav_items_for(user, label, in_company=)`
-recebe esse estado (é ele que acrescenta o botão WhatsApp), e
-`build_nav_items(user, label, request)` o calcula por `master_in_company(request)`.
-`user_can_access(user, key)` **não** recebe mais `in_company`: o estado deixou de mudar
-o que o master pode.
+**Como o modo suporte aparece na tela** — três peças, cada uma com um papel:
+
+1. **Seletor de contexto** no topo da barra lateral (`.ctx-switch`, só master): diz em
+   que cliente você está e **troca para outro em um clique**. É um `<details>`/
+   `<summary>` nativo — sem JavaScript e acessível pelo teclado. Antes, para ir de um
+   cliente a outro era preciso sair do painel, voltar para a tela Clientes e entrar no
+   próximo: três passos para algo que o master faz o tempo todo. Lista só empresas
+   **ativas** (entrar no painel de uma desativada não faz sentido — o webhook dela nem
+   recebe mais) e marca a aberta com ✓.
+2. **Faixa âmbar no topo de TODA tela** (`.support-bar` no `base.html`) + a página
+   inteira marcada (`body.is-support-mode`, contorno âmbar). Antes o aviso vivia
+   **dentro** da barra lateral **e** repetido numa faixa só da tela Clientes, com
+   textos quase iguais — e nas outras telas não aparecia. O âmbar é deliberado: não é
+   a cor de destaque de nenhum cliente (essa o master escolhe livremente), então nunca
+   se confunde com a identidade de uma empresa.
+3. **Menu em grupos rotulados** (`permissions.nav_groups_for`): `PLATAFORMA`
+   (Clientes · Métricas · Inteligência (IA) · Gestores) e, quando há painel aberto,
+   `CLIENTE · <nome>` (WhatsApp). Os itens da plataforma ficam **sempre no mesmo
+   lugar**; o que acontece ao entrar num painel é um segundo grupo **aparecer**. Antes
+   o menu simplesmente ganhava um item no meio dos outros, sem nada dizer que aquele
+   era do cliente.
+
+Na tela Clientes, o cartão do cliente aberto mostra o selo **"● Painel aberto"** e
+oferece **Sair do painel** em vez de "Entrar" (que não faria nada).
+
+`build_nav_items(user, label, request)` calcula o estado por `master_in_company(request)`
+e devolve **grupos** (`nav_groups_for`); para quem não é master vem um grupo único e sem
+rótulo, então a barra lateral do cliente **não muda em nada**.
+`user_can_access(user, key)` **não** recebe `in_company`: o estado nunca mudou o que o
+master pode — só o que a tela mostra.
 
 #### O que o master NÃO alcança (privacidade) — e o que ele vê no lugar
 

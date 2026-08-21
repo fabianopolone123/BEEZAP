@@ -85,30 +85,6 @@
   gap: 14px;
 }
 
-/* Faixa de MODO SUPORTE (o master está com o painel de um cliente aberto). */
-.clients-support-bar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 14px 16px;
-  border-radius: 16px;
-  background: rgba(247, 181, 0, 0.14);
-  border: 1px solid rgba(247, 181, 0, 0.42);
-}
-
-.clients-support-bar strong {
-  display: block;
-  color: var(--text);
-}
-
-.clients-support-bar span {
-  display: block;
-  font-size: 0.82rem;
-  color: var(--muted);
-}
-
 .client-card {
   display: grid;
   grid-template-columns: minmax(200px, 1.1fr) minmax(0, 1.6fr) minmax(0, 1.2fr) auto;
@@ -552,9 +528,7 @@
     gap: 14px;
   }
 
-  .clients-support-bar {
-    align-items: flex-start;
-  }
+
 
   .client-actions {
     justify-content: flex-start;
@@ -596,4 +570,21 @@
   .client-inline-form .secondary-button {
     width: 100%;
   }
+}
+
+/* Selo do cliente cujo painel esta aberto (modo suporte). Substitui a barra de
+   aviso que existia no topo desta tela — o aviso agora e a faixa global do
+   base.html, e aqui basta dizer QUAL cartao e o do painel aberto. */
+.clients-page .client-open-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: rgba(247, 181, 0, 0.16);
+  border: 1px solid rgba(247, 181, 0, 0.5);
+  color: #8a6110;
+  font-size: 0.8rem;
+  font-weight: 700;
+  white-space: nowrap;
 }

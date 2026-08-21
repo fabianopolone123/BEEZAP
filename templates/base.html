@@ -11,7 +11,31 @@
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     {% block extra_head %}{% endblock %}
   </head>
-  <body>
+  <body class="{% if brand.support_company %}is-support-mode{% endif %}">
+    {% if brand.support_company %}
+      {% comment %}
+      FAIXA DE MODO SUPORTE — em TODA tela, nao so na de Clientes.
+      O gestor master esta operando dentro do painel de um cliente. A faixa fica
+      no topo da janela de proposito: e a unica coisa da tela que ele nao consegue
+      nao ver, e o `body.is-support-mode` marca a pagina inteira (contorno ambar),
+      para nao existir duvida de em que contexto ele esta mexendo.
+      Antes esse aviso vivia dentro da barra lateral E repetido numa faixa da tela
+      Clientes, com textos quase iguais — e nas outras telas nao aparecia.
+      {% endcomment %}
+      <div class="support-bar" role="status">
+        <span class="support-bar-dot" aria-hidden="true"></span>
+        <span class="support-bar-text">
+          Modo suporte — você está no painel de
+          <strong>{{ brand.support_company.display_name }}</strong>.
+          As conversas dele continuam privadas.
+        </span>
+        <form method="post" action="{% url 'clients' %}" class="support-bar-form">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="leave">
+          <button type="submit">Sair do painel</button>
+        </form>
+      </div>
+    {% endif %}
     {% if messages %}
       <div class="toast-container" aria-live="polite" aria-atomic="true">
         {% for message in messages %}

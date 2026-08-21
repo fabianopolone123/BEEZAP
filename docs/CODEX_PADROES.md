@@ -39,6 +39,12 @@ Este arquivo define os padrões de trabalho para o projeto BEEonBOARD.
 14. O layout deve ser responsivo e não deve criar rolagem horizontal.
 15. Cada tela deve evitar poluição visual e excesso de botões.
 16. Elementos não editáveis não devem receber foco de texto nem exibir barra piscando de digitação; o caret deve aparecer somente em campos editáveis reais, como `input`, `textarea` ou `contenteditable` necessário.
+17. **Comentário de template com mais de uma linha usa `{% comment %}`, nunca `{# #}`.**
+   O Django só reconhece `{# ... #}` quando abre e fecha na MESMA linha; multilinha
+   vira **texto literal na tela** e o usuário final lê o comentário. Já aconteceu em
+   três telas — na de Clientes, o cartão de cada empresa exibia uma frase interna
+   sobre exclusão de conversas. Há teste que reprova
+   (`TemplateCommentsDoNotLeakTests`).
 
 ## Padrão de notificações
 

@@ -113,45 +113,47 @@ a {
 
 /* Aviso de MODO SUPORTE: o gestor master está operando o painel de um cliente
    (ver templates/accounts/_sidebar.html). Fica em âmbar para não passar batido. */
-.sidebar-support {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 12px 14px;
-  border-radius: 14px;
-  background: rgba(247, 181, 0, 0.14);
-  border: 1px solid rgba(247, 181, 0, 0.4);
-}
-
-.sidebar-support strong {
-  font-size: 0.78rem;
-  text-transform: uppercase;
-  letter-spacing: 0.6px;
-  color: #f7b500;
-}
-
-.sidebar-support span {
-  font-size: 0.78rem;
-  line-height: 1.35;
-  color: rgba(248, 251, 255, 0.82);
-}
-
-.sidebar-support button {
-  margin-top: 2px;
-  padding: 8px 10px;
-  border: 0;
-  border-radius: 10px;
-  background: rgba(248, 251, 255, 0.92);
-  color: #15213d;
-  font: inherit;
-  font-size: 0.8rem;
-  font-weight: 700;
-  cursor: pointer;
-}
-
 .sidebar-nav {
   display: grid;
   gap: 8px;
+}
+
+/* ---------------------------------------------------------------------------
+   MENU EM GRUPOS (ver permissions.nav_groups_for e _sidebar.html).
+
+   Para quem nao e master ha um grupo unico e sem rotulo — a barra fica igual ao
+   que sempre foi. Para o master, os itens da PLATAFORMA ficam sempre no mesmo
+   lugar e um segundo grupo aparece com o nome do cliente no rotulo, para o menu
+   nao "mudar de forma" ao entrar num painel.
+   --------------------------------------------------------------------------- */
+.nav-group {
+  display: grid;
+  gap: 8px;
+}
+
+.nav-group + .nav-group {
+  margin-top: 14px;
+}
+
+.nav-group-label {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: rgba(248, 251, 255, 0.42);
+  padding: 0 4px 2px;
+}
+
+/* O grupo do cliente ganha um sulco a esquerda: mostra que aqueles itens estao
+   DENTRO de outro contexto, sem precisar de moldura pesada. */
+.nav-group-client {
+  border-left: 2px solid rgba(247, 181, 0, 0.55);
+  padding-left: 10px;
+  margin-left: 2px;
+}
+
+.nav-group-client .nav-group-label {
+  color: #f7c94b;
 }
 
 .nav-item {
@@ -734,4 +736,261 @@ button.logout-link {
   color: inherit;
   cursor: pointer;
   line-height: normal;
+}
+
+
+/* ===========================================================================
+   MODO SUPORTE DO GESTOR MASTER
+   ---------------------------------------------------------------------------
+   Duas pecas, com papeis diferentes:
+
+   1. `.ctx-switch` — o SELETOR na barra lateral: diz em que cliente estou e
+      troca para outro em um clique. E um <details>/<summary> nativo, sem JS.
+   2. `.support-bar` — a FAIXA no topo de toda tela: o aviso que nao da para
+      nao ver, com a saida em um clique.
+
+   Antes existia um cartao amarelo dentro da barra lateral E uma faixa repetida
+   so na tela Clientes, com textos quase iguais — e a barra lateral inteira
+   assumia a marca do cliente, o que fazia a tela dizer "voce e a PPM" em vez de
+   "voce esta olhando a PPM".
+
+   A cor de suporte e AMBAR de proposito: nao e a cor de destaque de nenhum
+   cliente (essa e escolhida livremente pelo master), entao nunca se confunde
+   com a identidade de uma empresa.
+   =========================================================================== */
+
+.ctx-switch {
+  border-radius: 14px;
+  background: rgba(248, 251, 255, 0.06);
+  border: 1px solid rgba(248, 251, 255, 0.12);
+}
+
+.ctx-switch-active {
+  background: rgba(247, 181, 0, 0.12);
+  border-color: rgba(247, 181, 0, 0.45);
+}
+
+.ctx-switch > summary {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-areas: "eyebrow caret" "name caret";
+  align-items: center;
+  gap: 0 8px;
+  padding: 10px 12px;
+  cursor: pointer;
+  list-style: none;
+  border-radius: 13px;
+}
+
+/* Esconde o triangulo nativo do <details> nos dois motores. */
+.ctx-switch > summary::-webkit-details-marker { display: none; }
+.ctx-switch > summary::marker { content: ""; }
+
+.ctx-switch > summary:hover {
+  background: rgba(248, 251, 255, 0.05);
+}
+
+.ctx-switch > summary:focus-visible {
+  outline: 2px solid #f7b500;
+  outline-offset: 2px;
+}
+
+.ctx-eyebrow {
+  grid-area: eyebrow;
+  font-size: 0.64rem;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  color: rgba(248, 251, 255, 0.5);
+}
+
+.ctx-switch-active .ctx-eyebrow { color: #f7c94b; }
+
+.ctx-name {
+  grid-area: name;
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: #f8fbff;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.ctx-name-empty {
+  font-weight: 600;
+  color: rgba(248, 251, 255, 0.55);
+}
+
+.ctx-caret {
+  grid-area: caret;
+  width: 8px;
+  height: 8px;
+  border-right: 2px solid rgba(248, 251, 255, 0.6);
+  border-bottom: 2px solid rgba(248, 251, 255, 0.6);
+  transform: rotate(45deg) translateY(-2px);
+  transition: transform 0.18s ease;
+}
+
+.ctx-switch[open] .ctx-caret {
+  transform: rotate(225deg) translateY(-2px);
+}
+
+.ctx-menu {
+  padding: 4px 8px 10px;
+  border-top: 1px solid rgba(248, 251, 255, 0.1);
+  margin-top: 2px;
+}
+
+.ctx-leave {
+  width: 100%;
+  margin: 8px 0 4px;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: 10px;
+  background: rgba(248, 251, 255, 0.92);
+  color: #15213d;
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.ctx-leave:hover { background: #ffffff; }
+
+.ctx-hint {
+  margin: 8px 2px 6px;
+  font-size: 0.72rem;
+  line-height: 1.4;
+  color: rgba(248, 251, 255, 0.6);
+}
+
+.ctx-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 2px;
+  /* Carteira grande nao pode empurrar o menu para fora da tela. */
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.ctx-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: rgba(248, 251, 255, 0.86);
+  font: inherit;
+  font-size: 0.82rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ctx-item:hover { background: rgba(248, 251, 255, 0.09); }
+
+.ctx-item:focus-visible {
+  outline: 2px solid #f7b500;
+  outline-offset: -2px;
+}
+
+.ctx-item-active {
+  background: rgba(247, 181, 0, 0.16);
+  color: #ffffff;
+  font-weight: 700;
+}
+
+.ctx-item > span:first-child { flex: 1; overflow-wrap: anywhere; }
+
+.ctx-tag {
+  font-size: 0.64rem;
+  font-style: normal;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: rgba(248, 251, 255, 0.14);
+  color: rgba(248, 251, 255, 0.72);
+}
+
+.ctx-check { color: #f7c94b; font-weight: 700; }
+
+.ctx-empty {
+  padding: 8px 10px;
+  font-size: 0.78rem;
+  color: rgba(248, 251, 255, 0.55);
+}
+
+/* --------------------------------- faixa no topo de TODA tela --------------- */
+
+.support-bar {
+  position: sticky;
+  top: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 18px;
+  background: #f7b500;
+  color: #2a1d00;
+  font-size: 0.84rem;
+  line-height: 1.35;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.18);
+}
+
+.support-bar-dot {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #2a1d00;
+  animation: support-pulse 1.9s ease-in-out infinite;
+}
+
+@keyframes support-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%      { opacity: 0.35; transform: scale(0.75); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .support-bar-dot { animation: none; }
+}
+
+.support-bar-text { flex: 1; }
+.support-bar-text strong { font-weight: 800; }
+
+.support-bar-form { flex: none; margin: 0; }
+
+.support-bar-form button {
+  padding: 7px 14px;
+  border: 1px solid rgba(42, 29, 0, 0.35);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.9);
+  color: #2a1d00;
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.support-bar-form button:hover { background: #ffffff; }
+
+/* A pagina INTEIRA fica marcada: contorno ambar nas bordas, para nao existir
+   duvida sobre em que contexto o master esta mexendo. */
+body.is-support-mode {
+  box-shadow: inset 0 0 0 3px #f7b500;
+}
+
+@media (max-width: 720px) {
+  .support-bar {
+    flex-wrap: wrap;
+    padding: 8px 14px;
+  }
+  .support-bar-text { flex: 1 1 100%; order: 2; }
+  .support-bar-form { order: 1; margin-left: auto; }
 }

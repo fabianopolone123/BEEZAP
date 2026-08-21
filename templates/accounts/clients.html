@@ -59,20 +59,12 @@ com ?editar=<id>, o que mantem o modal preenchido mesmo com erro de validacao.
         </article>
       </section>
 
-      {% if active_company %}
-        {# O master está com um painel de cliente aberto (modo suporte). #}
-        <section class="clients-support-bar">
-          <div>
-            <strong>Você está no painel de {{ active_company.display_name }}</strong>
-            <span>Aqui você ajusta o WhatsApp (instância e token) desse cliente. Setores, atendentes, permissões e o atendimento são do Administrador dele; as conversas continuam privadas.</span>
-          </div>
-          <form method="post" class="client-inline-form">
-            {% csrf_token %}
-            <input type="hidden" name="action" value="leave">
-            <button type="submit" class="secondary-button">Sair do painel</button>
-          </form>
-        </section>
-      {% endif %}
+      {% comment %}
+      O aviso de modo suporte saiu daqui: virou a FAIXA do topo de toda tela
+      (templates/base.html) mais o seletor da barra lateral. Antes o mesmo texto
+      aparecia em dois lugares e nao aparecia nas outras telas. O que ficou nesta
+      tela e o selo "Painel aberto" no cartao do cliente em questao, logo abaixo.
+      {% endcomment %}
 
       <section class="clients-toolbar">
         <form method="get" class="clients-search" role="search">
@@ -151,12 +143,25 @@ com ?editar=<id>, o que mantem o modal preenchido mesmo com erro de validacao.
                 <a href="{% url 'client-metrics' c.id %}" class="secondary-button">Métricas</a>
                 <a href="?editar={{ c.id }}{% if search_term %}&amp;q={{ search_term }}{% endif %}" class="secondary-button">Editar</a>
                 {% if c.is_active %}
-                  <form method="post" class="client-inline-form">
-                    {% csrf_token %}
-                    <input type="hidden" name="action" value="enter">
-                    <input type="hidden" name="company_id" value="{{ c.id }}">
-                    <button type="submit" class="secondary-button">Entrar no painel</button>
-                  </form>
+                  {% if active_company and active_company.pk == c.pk %}
+                    {% comment %}
+                    Este e o painel aberto: em vez de "Entrar" (que nao faria nada),
+                    o cartao mostra o estado e oferece a saida.
+                    {% endcomment %}
+                    <span class="client-open-badge">● Painel aberto</span>
+                    <form method="post" class="client-inline-form">
+                      {% csrf_token %}
+                      <input type="hidden" name="action" value="leave">
+                      <button type="submit" class="secondary-button">Sair do painel</button>
+                    </form>
+                  {% else %}
+                    <form method="post" class="client-inline-form">
+                      {% csrf_token %}
+                      <input type="hidden" name="action" value="enter">
+                      <input type="hidden" name="company_id" value="{{ c.id }}">
+                      <button type="submit" class="secondary-button">Entrar no painel</button>
+                    </form>
+                  {% endif %}
                 {% endif %}
                 {% if not c.is_default %}
                   <form method="post" class="client-inline-form">
@@ -165,9 +170,11 @@ com ?editar=<id>, o que mantem o modal preenchido mesmo com erro de validacao.
                     <input type="hidden" name="company_id" value="{{ c.id }}">
                     <button type="submit" class="secondary-button">{% if c.is_active %}Desativar{% else %}Reativar{% endif %}</button>
                   </form>
-                  {# Excluir apaga conversas e midias e NAO tem volta. Por isso a
-                     ordem obrigatoria: cliente exporta -> desativar -> excluir, e
-                     ainda e preciso digitar o nome da empresa (checado no backend). #}
+                  {% comment %}
+                  Excluir apaga conversas e midias e NAO tem volta. Por isso a
+                  ordem obrigatoria: cliente exporta -> desativar -> excluir, e
+                  ainda e preciso digitar o nome da empresa (checado no backend).
+                  {% endcomment %}
                   <form method="post" class="client-inline-form"
                         onsubmit="return confirmarExclusao(this, '{{ c.display_name|escapejs }}');">
                     {% csrf_token %}
