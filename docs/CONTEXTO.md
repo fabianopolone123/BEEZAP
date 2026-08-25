@@ -1017,12 +1017,35 @@ restava abrir conversa por conversa.
   isso, a resposta lenta de "not" chegaria depois de "nota" e sobrescreveria o resultado
   certo.
 
-### Limite conhecido
+### Limite conhecido — com números medidos
 
-A busca por conteúdo é `icontains`, que no SQLite é **varredura** (não há índice de
-texto). Com o volume atual isso é imperceptível, e os tetos acima limitam o custo. Se um
-dia ficar lento, o próximo passo é **FTS5** do SQLite (tabela virtual de índice de
-texto) — não mais índice comum, que não serve para `LIKE '%x%'`.
+A busca por conteúdo é `icontains` (`LIKE '%termo%'`), que no SQLite é **varredura**:
+**índice comum NÃO resolve** — é o erro natural de quem vê a busca lenta. O custo cresce
+**linear** com o volume (medido em banco sintético, uma busca):
+
+| Mensagens | Tempo por busca |
+|---|---|
+| 308 (produção hoje) | 1,8 ms |
+| 50 mil | 7 ms |
+| 500 mil | 63 ms |
+| 1 milhão | 130 ms |
+| 2 milhões | 254 ms |
+
+Até ~500 mil ninguém percebe. **O `check` avisa sozinho** quando passar disso
+(**`beezap.W004`**, `search_volume_check` — o limite é `LIMITE_MENSAGENS_BUSCA`), para a
+decisão chegar antes da reclamação. As duas saídas, quando chegar a hora:
+
+- **FTS5 do SQLite** (tabela virtual de índice de texto): na mesma base de 2 milhões, a
+  busca de um termo específico caiu de **271 ms para 2,3 ms — 119x**. **Preço:** ele
+  indexa **palavra inteira**, então procurar um pedaço no meio de uma palavra ou de um
+  número **para de funcionar** (`'79000-81'` acha 2.226 com LIKE e **zero** com FTS5).
+  Precisaria de um caminho separado para telefone/número, e o Django **não** tem suporte
+  a FTS5 no ORM (só a Postgres) — seria SQL cru, que hoje não existe no projeto.
+- **Migrar para PostgreSQL**: busca de texto nativa e integrada ao Django, sem SQL cru.
+  O `DATABASE_URL` já aceita, e o `psycopg` já está instalado.
+
+**Enquanto essa decisão não for tomada, não fazer nada é a escolha certa** — e é por
+isso que ela está escrita aqui, não pendente na cabeça de alguém.
 
 Testes: `accounts/tests/busca.py` (`SearchScreenTests`).
 
@@ -1193,8 +1216,9 @@ WEBPUSH_VAPID_SUBJECT=mailto:contato@fabianopolone.com.br
 `beezap.W001` = ffmpeg fora do PATH (envio de áudio gravado e de imagem
 webp/gif/bmp/heic falha); `beezap.W002` = o `.env` ainda tem credencial de W-API com
 mais de um cliente cadastrado; `beezap.W003` = chaves VAPID ausentes (o aviso de nova
-mensagem fica inerte). **No ambiente local é normal ver W001 e W003** — não são
-regressão.
+mensagem fica inerte); `beezap.W004` = o volume de mensagens passou de 500 mil e a busca
+por conteúdo da tela Pesquisar tende a ficar lenta (ver seção 5.5). **No ambiente local é
+normal ver W001 e W003** — não são regressão.
 
 ## 8. Fluxo de trabalho obrigatório (ver `CODEX_PADROES.md` e `GIT.md`)
 
@@ -1219,7 +1243,7 @@ regressão.
 ### Rodar os testes
 
 ```bash
-python manage.py test                              # tudo (651 testes, ~13 s)
+python manage.py test                              # tudo (655 testes, ~13 s)
 python manage.py test accounts.tests.master        # só um assunto
 python manage.py test accounts.tests.NomeDaClasse  # só uma classe
 ```

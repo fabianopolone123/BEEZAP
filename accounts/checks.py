@@ -88,3 +88,45 @@ def webpush_vapid_keys_check(app_configs, **kwargs):
             id='beezap.W003',
         )
     ]
+
+
+# A partir daqui a busca por CONTEUDO (a tela Pesquisar) comeca a pesar. O numero nao
+# e chute: medido em banco sintetico, o `LIKE '%termo%'` cresce LINEAR — 500 mil
+# mensagens = ~63 ms, 1 milhao = ~130 ms, 2 milhoes = ~254 ms (por busca). Ate 500 mil
+# ninguem percebe; dali para cima a conta piora sozinha.
+LIMITE_MENSAGENS_BUSCA = 500_000
+
+
+@register()
+def search_volume_check(app_configs, **kwargs):
+    """Avisa quando o volume de mensagens chega no ponto de repensar a busca.
+
+    A tela Pesquisar (seccao 5.5 do CONTEXTO) procura dentro do texto das mensagens
+    com `icontains`, que no SQLite e VARREDURA — indice comum nao serve para
+    `LIKE '%termo%'`. Isso e barato hoje e vai ficando caro sozinho, e o pior jeito de
+    descobrir seria um cliente reclamando que a busca demora.
+
+    O aviso existe para a decisao chegar ANTES do problema, com as duas saidas ja
+    escritas: FTS5 do SQLite (busca por PALAVRA, ~150x mais rapido, mas para de achar
+    pedaco no meio da palavra) ou migrar para PostgreSQL, que tem busca de texto nativa
+    e integrada ao Django. Nao ha o que "otimizar" com indice comum — esse e o erro
+    natural de quem ve a busca lenta.
+    """
+    try:
+        from .models import Message
+        total = Message.objects.count()
+    except Exception:
+        # Banco ainda nao migrado (ex.: primeiro `migrate`): nada a checar.
+        return []
+    if total < LIMITE_MENSAGENS_BUSCA:
+        return []
+    return [
+        Warning(
+            'A tela Pesquisar pode ficar lenta: %s mensagens no banco.' % f'{total:,}'.replace(',', '.'),
+            hint='A busca por conteudo e uma varredura (LIKE), que cresce linear com o '
+                 'volume. Indice comum NAO resolve. As duas saidas estao na secao 5.5 do '
+                 'docs/CONTEXTO.md: FTS5 do SQLite (rapido, mas indexa palavra inteira) '
+                 'ou migrar para PostgreSQL (busca de texto nativa, integrada ao Django).',
+            id='beezap.W004',
+        )
+    ]

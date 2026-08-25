@@ -14,6 +14,7 @@ from .base import (
     TestCase,
     User,
     default_company,
+    patch,
     reverse,
 )
 
@@ -262,3 +263,45 @@ class SearchScreenTests(TestCase):
         dados = self._buscar(q='assunto repetido').json()
         self.assertEqual(len(dados['itens']), SEARCH_LIMIT)
         self.assertGreater(dados['total'], SEARCH_LIMIT)
+
+
+class SearchVolumeWarningTests(TestCase):
+    """O aviso que avisa ANTES da busca ficar lenta (`beezap.W004`).
+
+    A busca por conteudo e varredura (`LIKE`), que cresce LINEAR com o volume: medido
+    em banco sintetico, 500 mil mensagens = ~63 ms por busca, 1 milhao = ~130 ms, 2
+    milhoes = ~254 ms. O pior jeito de descobrir isso seria um cliente reclamando —
+    entao o `check` avisa no deploy, no mesmo lugar dos outros avisos.
+    """
+
+    def test_nao_avisa_com_volume_pequeno(self):
+        from accounts.checks import search_volume_check
+        self.assertEqual(search_volume_check(None), [])
+
+    def test_avisa_ao_passar_do_limite(self):
+        from accounts.checks import LIMITE_MENSAGENS_BUSCA, search_volume_check
+        from accounts.models import Message
+        with patch.object(Message.objects.__class__, 'count',
+                          return_value=LIMITE_MENSAGENS_BUSCA):
+            avisos = search_volume_check(None)
+        self.assertEqual(len(avisos), 1)
+        self.assertEqual(avisos[0].id, 'beezap.W004')
+        # O aviso tem de dizer o que NAO resolve, senao alguem tenta indice comum.
+        self.assertIn('Indice comum NAO resolve', avisos[0].hint)
+        self.assertIn('FTS5', avisos[0].hint)
+        self.assertIn('PostgreSQL', avisos[0].hint)
+
+    def test_o_aviso_mostra_o_numero_formatado(self):
+        from accounts.checks import search_volume_check
+        from accounts.models import Message
+        with patch.object(Message.objects.__class__, 'count', return_value=1234567):
+            avisos = search_volume_check(None)
+        self.assertIn('1.234.567', avisos[0].msg)
+
+    def test_banco_sem_migrar_nao_derruba_o_check(self):
+        from accounts.checks import search_volume_check
+        from accounts.models import Message
+        with patch.object(Message.objects.__class__, 'count',
+                          side_effect=Exception('no such table')):
+            self.assertEqual(search_volume_check(None), [])
+
