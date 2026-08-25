@@ -696,6 +696,44 @@ sai por duas rotas do Django:
   removidos — a pedido; o painel é só indicadores).
 - Popular dados de demonstração: comando **`seed_demo_data`** (ver seção 9).
 
+## 5.3. Tela Atendentes (`templates/accounts/attendants.html` + `attendants.css`)
+
+- Rota `atendentes/` (`attendants_view`, nome de rota `attendants`), gateada pelo botão
+  **Atendentes** (`require_feature`). O gestor master leva **403** aqui como em toda
+  feature da empresa (ver seção 16).
+- Lista os `Attendant` da empresa (nome + selo **Administrador**, e-mail, telefone,
+  **Status** Ativo/Inativo) e **cadastra/edita** por modal. O atendente novo nasce com
+  senha `1234` e `must_change_password=True`. A edição **não mexe no `role`** — papel é
+  só na aba Perfis, em Permissões (ver seção 15).
+- **Inativar / Reativar e Excluir** (`action=toggle-active` / `action=delete` no POST da
+  própria tela, com modal de confirmação que explica o efeito antes de agir):
+  - **Inativar** = `user.is_active = False`. A pessoa **deixa de entrar no sistema**, sai
+    da lista de atendentes dos setores (a tela Setores só lista `user__is_active=True`) e
+    o **cadastro fica guardado** — dá para reativar depois, com a mesma senha.
+  - **Excluir** apaga o **usuário**, não só o atendente: `Attendant.user` é `OneToOne`
+    com `CASCADE`, então a conta cai junto. Apagar apenas o `Attendant` deixaria alguém
+    **capaz de entrar no sistema** — e, se fosse `adm`, o sinal de provisionamento
+    recriaria o atendente no save seguinte (ver seção 3). O **histórico de mensagens não
+    se perde**: quem escreveu está gravado em texto (`Message.sender_name`), sem chave
+    estrangeira para o atendente.
+  - **As conversas voltam para a FILA** nos dois casos
+    (`_liberar_conversas_do_atendente`, as não encerradas). A tela Conversas separa
+    "Conversando" de "Aguardando" pelo **vínculo** (`assigned_attendant`), não pelo
+    status: um vínculo com alguém que não entra mais no sistema **esconde a conversa de
+    todas as filas** e ninguém a assume. Na exclusão o `on_delete=SET_NULL` já faria
+    isso; na inativação nada faria. Conversa **encerrada continua mostrando quem
+    atendeu**. A mensagem de sucesso informa quantas conversas voltaram.
+  - **Guardas (todas no servidor — esconder o botão não impede POST forjado):** escopo
+    de empresa (id de outro cliente simplesmente não existe aqui), **só o ADM** (quem
+    tem o botão Atendentes segue cadastrando e editando, mas tirar acesso é de quem
+    administra os perfis), **nunca em si mesmo** (ninguém se tranca fora) e **nunca no
+    último administrador ativo** (sem isso ninguém mais alcança Permissões, Setores e
+    esta tela) — a mesma rede de segurança da aba Perfis. O perfil `leitor` para em
+    `block_readonly` (403).
+  - Os botões e o modal **nem são renderizados** para quem não é ADM (`can_manage_access`
+    no contexto). Testes: `AttendantAccessActionsTests`.
+- Reaproveita `dashboard.css` + `attendants.css`.
+
 ## 6. Deploy no VPS (LEIA — tem armadilhas específicas)
 
 - App em `/var/www/beezap/`, serviço systemd **`beezap`**, gunicorn em
@@ -875,7 +913,7 @@ OPENAI_TIMEOUT=30
 ### Rodar os testes
 
 ```bash
-python manage.py test                              # tudo (498 testes, ~13 s)
+python manage.py test                              # tudo (512 testes, ~13 s)
 python manage.py test accounts.tests.master        # só um assunto
 python manage.py test accounts.tests.NomeDaClasse  # só uma classe
 ```
@@ -1728,7 +1766,7 @@ Todas as consultas passam pela empresa de quem está logado (`request_company(re
 |---|---|
 | Contatos | lista, busca, contagem, edição e exclusão |
 | Setores | lista, edição, exclusão e o arrastar-e-soltar (com a re-inclusão dos admins) |
-| Atendentes | lista e edição (id de outro cliente dá 404) |
+| Atendentes | lista, edição (id de outro cliente dá 404) e inativar/excluir (atendente de outro cliente não existe no filtro) |
 | Permissões | pessoas, padrões por perfil, personalização por usuário, setores da aba Visualização e grupos |
 | Dashboard | todos os indicadores |
 | Conversas | já vinha de `visible_conversations`, que agora filtra por empresa antes do Alcance |

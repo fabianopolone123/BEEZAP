@@ -932,3 +932,194 @@ class MenuOptionsSaveIsAtomicTests(TestCase):
         opcao = MenuOption.objects.get(config=self.config)
         self.assertEqual(opcao.label, 'Sem setor')
         self.assertIsNone(opcao.sector)
+
+
+class AttendantAccessActionsTests(TestCase):
+    """Tela Atendentes: o ADM pode INATIVAR/REATIVAR e EXCLUIR uma pessoa.
+
+    Antes a tela so cadastrava e editava: quem saia da empresa continuava com
+    login valido e sem nenhuma forma de tirar o acesso pela interface. Inativar
+    guarda o cadastro (da para voltar); excluir apaga o acesso junto, porque
+    `Attendant.user` e OneToOne com CASCADE e apagar so o atendente deixaria a
+    conta de pe (e, no caso do adm, o sinal recriaria o atendente).
+
+    As conversas que estavam com a pessoa voltam para a FILA nos dois casos: a tela
+    Conversas separa "Conversando" de "Aguardando" pelo VINCULO, entao um vinculo
+    com alguem que nao entra mais no sistema esconde a conversa de todas as filas.
+    """
+
+    def setUp(self):
+        from accounts.models import Contact, Conversation, Message, Sector
+        self.Conversation = Conversation
+        self.Message = Message
+        self.empresa = default_company()
+        self.adm = User.objects.create_user(
+            company=self.empresa, email='adm@x.com', password='x', role=User.Role.ADM)
+        self.pessoa_user = User.objects.create_user(
+            company=self.empresa, email='joao@x.com', password='x', role=User.Role.USUARIO)
+        self.pessoa = Attendant.objects.create(
+            company=self.empresa, user=self.pessoa_user, name='Joao', must_change_password=False)
+        self.vendas = Sector.objects.create(company=self.empresa, name='Vendas')
+        self.pessoa.sectors.add(self.vendas)
+        contato = Contact.objects.create(
+            company=self.empresa, name='Cliente', phone='5516988887777')
+        self.conversa = Conversation.objects.create(
+            company=self.empresa, contact=contato, external_id='5516988887777',
+            chat_type='private', status='open', sector=self.vendas,
+            assigned_attendant=self.pessoa,
+        )
+        Message.objects.create(
+            conversation=self.conversa, direction='outbound', message_type='text',
+            text='Bom dia', sender_name='Joao', from_me=True,
+        )
+        self.client.force_login(self.adm)
+
+    def _post(self, action, attendant_id):
+        return self.client.post(
+            reverse('attendants'),
+            {'action': action, 'attendant_id': str(attendant_id)},
+            follow=True,
+        )
+
+    def _avisos(self, resposta):
+        return ' '.join(str(m) for m in get_messages(resposta.wsgi_request))
+
+    # ----- inativar / reativar -----
+
+    def test_adm_inativa_e_a_conversa_volta_para_a_fila(self):
+        resposta = self._post('toggle-active', self.pessoa.id)
+        self.pessoa_user.refresh_from_db()
+        self.conversa.refresh_from_db()
+        self.assertFalse(self.pessoa_user.is_active)
+        self.assertIsNone(self.conversa.assigned_attendant_id)
+        # O cadastro fica guardado: quem inativa pode voltar atras.
+        self.assertTrue(Attendant.objects.filter(pk=self.pessoa.pk).exists())
+        self.assertIn('para a fila', self._avisos(resposta).lower())
+
+    def test_inativo_nao_entra_mais_no_sistema(self):
+        self._post('toggle-active', self.pessoa.id)
+        self.client.logout()
+        self.assertFalse(self.client.login(email='joao@x.com', password='x'))
+
+    def test_adm_reativa_a_mesma_pessoa(self):
+        self._post('toggle-active', self.pessoa.id)
+        self._post('toggle-active', self.pessoa.id)
+        self.pessoa_user.refresh_from_db()
+        self.assertTrue(self.pessoa_user.is_active)
+
+    def test_conversa_encerrada_nao_e_devolvida_para_a_fila(self):
+        self.conversa.status = 'closed'
+        self.conversa.save(update_fields=['status'])
+        self._post('toggle-active', self.pessoa.id)
+        self.conversa.refresh_from_db()
+        # Historico encerrado continua mostrando quem atendeu.
+        self.assertEqual(self.conversa.assigned_attendant_id, self.pessoa.pk)
+
+    # ----- excluir -----
+
+    def test_adm_exclui_e_o_acesso_cai_junto(self):
+        self._post('delete', self.pessoa.id)
+        self.assertFalse(Attendant.objects.filter(pk=self.pessoa.pk).exists())
+        self.assertFalse(User.objects.filter(pk=self.pessoa_user.pk).exists())
+        self.conversa.refresh_from_db()
+        self.assertIsNone(self.conversa.assigned_attendant_id)
+
+    def test_excluir_preserva_o_historico_das_mensagens(self):
+        self._post('delete', self.pessoa.id)
+        mensagem = self.Message.objects.get(conversation=self.conversa)
+        self.assertEqual(mensagem.text, 'Bom dia')
+        self.assertEqual(mensagem.sender_name, 'Joao')
+
+    # ----- guardas -----
+
+    def test_nao_mexe_no_proprio_acesso(self):
+        eu = Attendant.objects.get(user=self.adm)  # o sinal provisiona o adm
+        for action in ('toggle-active', 'delete'):
+            with self.subTest(action=action):
+                resposta = self._post(action, eu.id)
+                self.adm.refresh_from_db()
+                self.assertTrue(self.adm.is_active)
+                self.assertTrue(User.objects.filter(pk=self.adm.pk).exists())
+                self.assertIn('proprio acesso', self._avisos(resposta))
+
+    def test_nao_deixa_a_empresa_sem_administrador_ativo(self):
+        outro_adm = User.objects.create_user(
+            company=self.empresa, email='adm2@x.com', password='x', role=User.Role.ADM)
+        atendente_adm = Attendant.objects.get(user=outro_adm)
+        # Este passa a ser o unico adm ativo: o proprio logado deixa de ser adm.
+        User.objects.filter(pk=self.adm.pk).update(role=User.Role.USUARIO)
+        for action in ('toggle-active', 'delete'):
+            with self.subTest(action=action):
+                self._post(action, atendente_adm.id)
+                self.assertTrue(User.objects.filter(pk=outro_adm.pk, is_active=True).exists())
+
+    def test_exclui_outro_adm_quando_ainda_sobra_um_ativo(self):
+        outro_adm = User.objects.create_user(
+            company=self.empresa, email='adm2@x.com', password='x', role=User.Role.ADM)
+        atendente_adm = Attendant.objects.get(user=outro_adm)
+        self._post('delete', atendente_adm.id)
+        self.assertFalse(User.objects.filter(pk=outro_adm.pk).exists())
+
+    def test_atendente_de_outra_empresa_nao_e_alcancado(self):
+        from accounts.models import Company
+        outra = Company.objects.create(name='Outra', slug='outra')
+        vizinho_user = User.objects.create_user(
+            company=outra, email='vizinho@y.com', password='x', role=User.Role.USUARIO)
+        vizinho = Attendant.objects.create(
+            company=outra, user=vizinho_user, name='Vizinho', must_change_password=False)
+        self._post('delete', vizinho.id)
+        self.assertTrue(Attendant.objects.filter(pk=vizinho.pk).exists())
+        self.assertTrue(User.objects.filter(pk=vizinho_user.pk).exists())
+
+    def test_usuario_com_o_botao_atendentes_nao_inativa_nem_exclui(self):
+        """Cadastrar/editar segue liberado pelo botao; tirar acesso e do ADM."""
+        from accounts.models import UserMenuPermission
+        UserMenuPermission.objects.update_or_create(
+            user=self.pessoa_user, defaults={'allowed_keys': ['attendants']})
+        colega_user = User.objects.create_user(
+            company=self.empresa, email='ana@x.com', password='x', role=User.Role.USUARIO)
+        colega = Attendant.objects.create(
+            company=self.empresa, user=colega_user, name='Ana', must_change_password=False)
+        self.client.force_login(self.pessoa_user)
+        resposta = self._post('delete', colega.id)
+        self.assertTrue(Attendant.objects.filter(pk=colega.pk).exists())
+        self.assertIn('administrador', self._avisos(resposta).lower())
+
+    def test_leitor_nem_chega_no_post(self):
+        from accounts.models import UserMenuPermission
+        leitor = User.objects.create_user(
+            company=self.empresa, email='leo@x.com', password='x', role=User.Role.LEITOR)
+        UserMenuPermission.objects.update_or_create(
+            user=leitor, defaults={'allowed_keys': ['attendants']})
+        self.client.force_login(leitor)
+        resposta = self.client.post(
+            reverse('attendants'),
+            {'action': 'delete', 'attendant_id': str(self.pessoa.id)},
+        )
+        self.assertEqual(resposta.status_code, 403)
+        self.assertTrue(Attendant.objects.filter(pk=self.pessoa.pk).exists())
+
+    def test_botoes_aparecem_so_para_o_adm(self):
+        from accounts.models import UserMenuPermission
+        # Confere so marcas que existem no HTML dos botoes/modal — o seletor do JS
+        # cita os mesmos nomes e daria falso positivo.
+        botao_inativar = 'data-access-action="toggle-active"'
+        botao_excluir = 'data-access-action="delete"'
+        modal = 'class="attendants-confirm-text"'
+        corpo = self.client.get(reverse('attendants')).content.decode()
+        self.assertIn(botao_inativar, corpo)
+        self.assertIn(botao_excluir, corpo)
+        self.assertIn(modal, corpo)
+        UserMenuPermission.objects.update_or_create(
+            user=self.pessoa_user, defaults={'allowed_keys': ['attendants']})
+        self.client.force_login(self.pessoa_user)
+        corpo = self.client.get(reverse('attendants')).content.decode()
+        # Nem os botoes da linha nem o modal de confirmacao chegam a existir.
+        self.assertNotIn(botao_inativar, corpo)
+        self.assertNotIn(botao_excluir, corpo)
+        self.assertNotIn(modal, corpo)
+
+    def test_id_invalido_nao_derruba_a_tela(self):
+        resposta = self._post('delete', 'nao-e-numero')
+        self.assertEqual(resposta.status_code, 200)
+        self.assertTrue(Attendant.objects.filter(pk=self.pessoa.pk).exists())

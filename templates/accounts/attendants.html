@@ -78,6 +78,35 @@
                 >
                   Editar
                 </button>
+                {% comment %}
+                Inativar/excluir sao do ADM e nunca aparecem na propria linha de quem
+                esta logado (ninguem se tranca fora do sistema por aqui). O servidor
+                repete as duas checagens: esconder o botao nao impede um POST forjado.
+                {% endcomment %}
+                {% if can_manage_access and attendant.user_id != request.user.id %}
+                  <button
+                    type="button"
+                    class="ghost-button"
+                    data-access-trigger
+                    data-access-action="toggle-active"
+                    data-attendant-id="{{ attendant.id }}"
+                    data-attendant-name="{{ attendant.name }}"
+                    data-attendant-active="{% if attendant.user.is_active %}1{% else %}0{% endif %}"
+                  >
+                    {% if attendant.user.is_active %}Inativar{% else %}Reativar{% endif %}
+                  </button>
+                  <button
+                    type="button"
+                    class="danger-button"
+                    data-access-trigger
+                    data-access-action="delete"
+                    data-attendant-id="{{ attendant.id }}"
+                    data-attendant-name="{{ attendant.name }}"
+                    data-attendant-active="{% if attendant.user.is_active %}1{% else %}0{% endif %}"
+                  >
+                    Excluir
+                  </button>
+                {% endif %}
               </div>
             </article>
           {% endfor %}
@@ -136,6 +165,30 @@
   </div>
 </div>
 
+{% if can_manage_access %}
+<div class="attendants-modal" data-confirm-root>
+  <div class="attendants-modal-backdrop" data-confirm-close></div>
+  <div class="attendants-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="attendant-confirm-title">
+    <div class="attendants-modal-head">
+      <h2 id="attendant-confirm-title">Confirmar</h2>
+      <button type="button" class="modal-close" aria-label="Fechar" data-confirm-close>&times;</button>
+    </div>
+
+    <p class="attendants-confirm-text" data-confirm-text></p>
+
+    <form method="post" class="attendants-confirm-form">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="" data-confirm-action>
+      <input type="hidden" name="attendant_id" value="" data-confirm-id>
+      <div class="attendants-form-actions">
+        <button type="button" class="secondary-button" data-confirm-close>Cancelar</button>
+        <button type="submit" class="danger-button" data-confirm-submit>Confirmar</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endif %}
+
 <script>
   (function () {
     const page = document.querySelector('.attendants-page');
@@ -188,6 +241,73 @@
     if (page.dataset.modalOpen === 'true') {
       modal.classList.add('is-open');
     }
+
+    /* Confirmacao de inativar / reativar / excluir. Um modal so, com o texto
+       montado a partir do botao clicado. */
+    const confirmRoot = document.querySelector('[data-confirm-root]');
+    if (!confirmRoot) return;
+
+    const confirmTitle = confirmRoot.querySelector('#attendant-confirm-title');
+    const confirmText = confirmRoot.querySelector('[data-confirm-text]');
+    const confirmAction = confirmRoot.querySelector('[data-confirm-action]');
+    const confirmId = confirmRoot.querySelector('[data-confirm-id]');
+    const confirmSubmit = confirmRoot.querySelector('[data-confirm-submit]');
+
+    function textoDaAcao(acao, nome, ativo) {
+      if (acao === 'delete') {
+        return {
+          titulo: 'Excluir atendente',
+          texto: 'Excluir ' + nome + ' do sistema? O acesso e o cadastro somem para '
+            + 'sempre. As mensagens ja trocadas continuam no historico das conversas, '
+            + 'e as conversas que estavam com essa pessoa voltam para a fila.',
+          botao: 'Excluir',
+          perigo: true,
+        };
+      }
+      if (ativo) {
+        return {
+          titulo: 'Inativar atendente',
+          texto: 'Inativar ' + nome + '? A pessoa deixa de entrar no sistema e sai da '
+            + 'lista de setores, mas o cadastro fica guardado — voce pode reativar '
+            + 'depois. As conversas que estavam com ela voltam para a fila.',
+          botao: 'Inativar',
+          perigo: false,
+        };
+      }
+      return {
+        titulo: 'Reativar atendente',
+        texto: 'Reativar ' + nome + '? A pessoa volta a entrar no sistema com o mesmo '
+          + 'cadastro e a mesma senha.',
+        botao: 'Reativar',
+        perigo: false,
+      };
+    }
+
+    function fecharConfirm() {
+      confirmRoot.classList.remove('is-open');
+    }
+
+    document.querySelectorAll('[data-access-trigger]').forEach((button) => {
+      button.addEventListener('click', () => {
+        const acao = button.dataset.accessAction;
+        const info = textoDaAcao(
+          acao,
+          button.dataset.attendantName || 'este atendente',
+          button.dataset.attendantActive === '1'
+        );
+        confirmTitle.textContent = info.titulo;
+        confirmText.textContent = info.texto;
+        confirmSubmit.textContent = info.botao;
+        confirmSubmit.className = info.perigo ? 'danger-button' : 'primary-button';
+        confirmAction.value = acao;
+        confirmId.value = button.dataset.attendantId || '';
+        confirmRoot.classList.add('is-open');
+      });
+    });
+
+    confirmRoot.querySelectorAll('[data-confirm-close]').forEach((button) => {
+      button.addEventListener('click', fecharConfirm);
+    });
   }());
 </script>
 {% endblock %}

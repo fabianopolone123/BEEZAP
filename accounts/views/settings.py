@@ -784,6 +784,105 @@ def wapi_webhook_events_view(request):
     })
 
 
+def _liberar_conversas_do_atendente(attendant):
+    """Devolve para a FILA as conversas que estavam com essa pessoa.
+
+    A tela Conversas monta as filas pelo VINCULO, nao pelo status: sem atendente e
+    nao encerrada = "Aguardando"; com atendente = "Conversando". Se o vinculo ficar
+    de pe, a conversa de quem saiu continua "Conversando" com alguem que nao entra
+    mais no sistema — nao aparece em fila nenhuma e ninguem a assume.
+
+    Na exclusao o `on_delete=SET_NULL` do campo ja faria isso; na inativacao nada
+    faria. Aqui os dois caminhos passam pela mesma regra. As MENSAGENS nao se perdem:
+    quem escreveu fica gravado em texto (`sender_name`), sem chave estrangeira.
+    """
+    return (
+        Conversation.objects
+        .filter(assigned_attendant=attendant)
+        .exclude(status='closed')
+        .update(assigned_attendant=None)
+    )
+
+
+def _texto_com_conversas(frase, liberadas):
+    """Acrescenta o efeito colateral a mensagem, so quando houve algum."""
+    if not liberadas:
+        return frase
+    if liberadas == 1:
+        return f'{frase} 1 conversa voltou para a fila.'
+    return f'{frase} {liberadas} conversas voltaram para a fila.'
+
+
+def _acao_de_acesso_do_atendente(request, company, action):
+    """Inativar/reativar e EXCLUIR atendente — acoes do ADM da empresa.
+
+    Ficam fora do formulario da tela porque nao editam cadastro: mexem no ACESSO da
+    pessoa. Cadastrar e editar seguem valendo para quem tem o botao Atendentes; tirar
+    alguem do sistema e de quem administra os perfis — a mesma divisao da aba Perfis,
+    em Permissoes.
+
+    Guardas, todas no servidor (esconder o botao nao basta, o POST pode ser forjado):
+    escopo de empresa, so ADM, nunca em si mesmo e nunca no ultimo administrador
+    ativo.
+    """
+    if request.user.role != User.Role.ADM:
+        messages.error(request, 'Somente o administrador inativa ou exclui um atendente.')
+        return redirect('attendants')
+
+    attendant = Attendant.objects.select_related('user').filter(
+        company=company, pk=id_valido(request.POST.get('attendant_id'))
+    ).first()
+    if attendant is None:
+        # Vale tambem para id de atendente de OUTRO cliente: aqui ele nao existe.
+        messages.error(request, 'Atendente nao encontrado.')
+        return redirect('attendants')
+
+    pessoa = attendant.user
+    nome = attendant.name or pessoa.email
+    # Ninguem se tranca fora do sistema pela propria tela (mesma regra da aba Perfis).
+    if pessoa.id == request.user.id:
+        messages.error(request, 'Voce nao pode inativar nem excluir o seu proprio acesso.')
+        return redirect('attendants')
+    # A empresa nunca pode ficar sem administrador ativo — sem isso ninguem mais
+    # alcanca Permissoes, Setores e esta tela.
+    if pessoa.role == User.Role.ADM and pessoa.is_active:
+        outros_adms = (
+            User.objects
+            .filter(company=company, role=User.Role.ADM, is_active=True)
+            .exclude(pk=pessoa.pk)
+            .exists()
+        )
+        if not outros_adms:
+            messages.error(request, 'Deve existir pelo menos um administrador ativo.')
+            return redirect('attendants')
+
+    if action == 'delete':
+        with transaction.atomic():
+            liberadas = _liberar_conversas_do_atendente(attendant)
+            # Apaga o USUARIO, nao so o atendente: `Attendant.user` e OneToOne com
+            # CASCADE, entao a conta cai junto. Apagar apenas o atendente deixaria
+            # alguem capaz de entrar no sistema — e, se fosse adm, o sinal de
+            # provisionamento recriaria o atendente no proximo save.
+            pessoa.delete()
+        messages.success(request, _texto_com_conversas(f'{nome} foi excluido.', liberadas))
+        return redirect('attendants')
+
+    if pessoa.is_active:
+        with transaction.atomic():
+            liberadas = _liberar_conversas_do_atendente(attendant)
+            pessoa.is_active = False
+            pessoa.save(update_fields=['is_active'])
+        messages.success(
+            request,
+            _texto_com_conversas(f'{nome} ficou inativo e nao entra mais no sistema.', liberadas),
+        )
+    else:
+        pessoa.is_active = True
+        pessoa.save(update_fields=['is_active'])
+        messages.success(request, f'{nome} voltou a ter acesso.')
+    return redirect('attendants')
+
+
 @login_required
 def attendants_view(request):
     forbidden = require_feature(request, 'attendants')
@@ -801,6 +900,10 @@ def attendants_view(request):
         blocked = block_readonly(request)
         if blocked:
             return blocked
+        # Inativar/reativar e excluir nao passam pelo formulario de cadastro.
+        action = (request.POST.get('action') or '').strip()
+        if action in ('toggle-active', 'delete'):
+            return _acao_de_acesso_do_atendente(request, company, action)
         attendant_id = id_valido(request.POST.get('attendant_id'))
         if attendant_id:
             # Escopo da empresa: id de atendente de outro cliente da 404.
@@ -866,6 +969,8 @@ def attendants_view(request):
         'accounts/attendants.html',
         {
             'attendants': attendants,
+            # Quem inativa/exclui e o ADM; para os outros o botao nem aparece.
+            'can_manage_access': request.user.role == User.Role.ADM,
             'form': form,
             'show_modal': show_modal,
             'modal_mode': modal_mode,
