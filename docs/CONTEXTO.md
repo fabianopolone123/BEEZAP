@@ -78,7 +78,7 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
 > `wapi/` é um módulo Python comum (importa `accounts.models`); **não** está em
 > `INSTALLED_APPS`, por isso os models ficam em `accounts/models.py`.
 
-## 3. Modelos (`accounts/models.py`) — migração atual: `0040`
+## 3. Modelos (`accounts/models.py`) — migração atual: `0041`
 
 > **Índices (migração `0036`)**: até ela, o único `db_index` do projeto era
 > `Conversation.external_id`. As FKs ganham índice sozinhas, mas as consultas reais
@@ -688,7 +688,38 @@ sai por duas rotas do Django:
   (GET `q`), contador e CRUD: adicionar/editar por **modal** e excluir (com confirmação).
 - Telefone é **normalizado para dígitos** ao salvar (mesma chave da resolução de nomes),
   então o que se cadastra aqui aparece no lugar do número nas conversas de grupo.
-- Disponível para qualquer usuário logado. Reaproveita `dashboard.css`/`attendants.css`.
+- **Classificação por setor (a "carteira")** — migração **`0041`**. `Contact.sectors` é
+  **M2M**, não um setor único: um cliente que compra **e** abre suporte pertence a
+  Vendas *e* a Suporte de verdade; com um campo único, classificar como Vendas
+  esconderia o contato do Suporte, que atende essa mesma pessoa, e obrigaria a cadastrar
+  uma "liberação" que só existiria por limitação do campo.
+  - **Quem vê o quê** (`accounts/permissions.py:visible_contacts`): contato **sem setor
+    aparece para todos** (é o estado de todo contato antigo, então classificar é
+    opcional e nada quebrou no dia em que isto entrou); contato classificado aparece
+    para **quem atua naquele setor** — quem é de Compras **e** Comercial vê as duas
+    carteiras — mais o extra liberado em Permissões → Contatos. O ADM vê tudo; o gestor
+    master, nada.
+  - **Classificar é ato do ADM** (`_pode_classificar`). Não é editar cadastro: é mexer em
+    **quem vê** aquele contato. Se um atendente pudesse trocar o setor, tiraria um
+    cliente da carteira dos colegas (ou puxaria para a dele) sem passar por Permissões.
+    Nome e telefone seguem editáveis por quem tem o botão Contatos, e para os outros
+    perfis o campo de setores **nem é renderizado**.
+  - **O POST também respeita o alcance**: editar/excluir usa `visible_contacts`, então
+    contato fora da carteira "não é encontrado" nem por id forjado.
+  - **Filtro** por setor e por **"Sem setor"** ao lado da busca — é o modo prático de
+    organizar a carteira sem varrer a lista inteira. Os setores do contato aparecem como
+    selos **na própria linha**, porque é a classificação que explica por que um colega
+    não está vendo a mesma lista.
+- **LIMITE DO ESCOPO — leia antes de mexer:** a restrição vale **só nesta tela**.
+  Conversa, transferência e o **nome que aparece no lugar do número** NÃO passam por
+  `visible_contacts` e continuam com as regras próprias. Um contato de Vendas que
+  escreve para o Comercial **é atendido normalmente ali**; ele só não entra na *agenda*
+  de quem não alcança aquela carteira. O que é sensível é a **lista de clientes**, não o
+  atendimento pontual — foi decisão explícita do dono do produto. Há teste que reprova
+  se alguém ligar `visible_contacts` na visibilidade de conversa
+  (`ContactSectorVisibilityTests.test_a_conversa_nao_e_afetada_pela_carteira`).
+- Disponível para qualquer usuário logado com o botão Contatos. Reaproveita
+  `dashboard.css`/`attendants.css`/`contacts.css`.
 
 ## 5.2. Tela Dashboard (`templates/accounts/dashboard.html` + `dashboard.css`)
 
@@ -1077,7 +1108,7 @@ OPENAI_TIMEOUT=30
 ### Rodar os testes
 
 ```bash
-python manage.py test                              # tudo (579 testes, ~13 s)
+python manage.py test                              # tudo (610 testes, ~13 s)
 python manage.py test accounts.tests.master        # só um assunto
 python manage.py test accounts.tests.NomeDaClasse  # só uma classe
 ```
@@ -1589,6 +1620,21 @@ esconder o botão também bloqueia a URL.
     só casa se a W-API devolver esse mesmo id — se ela já usar o id novo do grupo, a
     saída acusa a causa 3 mesmo sendo grupo de verdade (o mapa completo é impresso
     junto, dá para conferir a olho).
+  - **Contatos** (aba nova): **quem vê cada carteira de contatos**. Uma linha por
+    **SETOR**, não por contato — a aba Grupos libera grupo por grupo porque são poucos;
+    contato vai para milhares e liberar um por um não escala. A pergunta respondida aqui
+    é *"quem mais vê a carteira de Compras?"*, com chips de **outros setores** e de
+    **pessoas específicas** (grava em `ContactSectorAccess`, `form_type=contact-access`).
+    - **O próprio setor não aparece nas opções** — quem atua nele já vê a carteira dele
+      por padrão; oferecer a opção sugeriria que sem marcar ninguém veria. O servidor
+      **ignora** o próprio setor mesmo se vier num POST forjado.
+    - Sem linha cadastrada, vale só o padrão (o próprio setor). Esta tabela guarda
+      apenas o **extra**.
+    - A aba mostra quantos contatos há em cada carteira e quantos estão **sem setor**
+      (visíveis para todos), para o ADM saber o tamanho do trabalho de classificação.
+    - A classificação de cada contato é feita na tela **Contatos** (seção 5.1), que é
+      também onde está o **limite do escopo**: isto vale para a agenda, não para a
+      conversa.
   **Sem botão "Salvar"**: as alterações (perfis, botões, visualização e grupos) são
   **salvas automaticamente** ao clicar/alterar (fetch AJAX → `permissions_view`
   responde JSON quando `X-Requested-With`; toast de confirmação).
@@ -1984,7 +2030,7 @@ Todas as consultas passam pela empresa de quem está logado (`request_company(re
 
 | Tela | O que é escopado |
 |---|---|
-| Contatos | lista, busca, contagem, edição e exclusão |
+| Contatos | lista, busca, contagem, edição e exclusão — **e a carteira**: a listagem passa por `visible_contacts` e o POST não alcança contato fora dela |
 | Setores | lista, edição, exclusão e o arrastar-e-soltar (com a re-inclusão dos admins) |
 | Atendentes | lista, edição (id de outro cliente dá 404) e inativar/excluir (atendente de outro cliente não existe no filtro) |
 | Permissões | pessoas, padrões por perfil, personalização por usuário, setores da aba Visualização e grupos |

@@ -67,6 +67,7 @@ from ..permissions import (
     nav_groups_for,
     role_allowed_keys,
     user_can_access,
+    visible_contacts,
     visible_conversations,
 )
 from ..tenancy import (
@@ -100,6 +101,7 @@ from ..models import (
     Company,
     CompanyAiUsage,
     Contact,
+    ContactSectorAccess,
     Conversation,
     ConversationViewScope,
     GroupAccess,

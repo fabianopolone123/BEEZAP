@@ -38,6 +38,7 @@
         <button type="button" class="perm-tab {% if active_tab == 'people' %}is-active{% endif %}" data-tab="people">Perfis</button>
         <button type="button" class="perm-tab {% if active_tab == 'botoes' %}is-active{% endif %}" data-tab="botoes">Botões do perfil</button>
         <button type="button" class="perm-tab {% if active_tab == 'visualizacao' %}is-active{% endif %}" data-tab="visualizacao">Visualização de conversas</button>
+        <button type="button" class="perm-tab {% if active_tab == 'contatos' %}is-active{% endif %}" data-tab="contatos">Contatos</button>
         {% comment %}
         A aba Grupos mostra os nomes dos grupos de WhatsApp do cliente (conteudo do
         atendimento), entao nao aparece para o gestor master.
@@ -283,6 +284,83 @@
           {% endif %}
           {% endif %}
         </article>
+      </section>
+
+      <!-- ============ ABA: CONTATOS (carteira por setor) ============ -->
+      <section class="perm-panel {% if active_tab == 'contatos' %}is-active{% endif %}" data-panel="contatos">
+        <form method="post" class="perm-card" data-autosave="Acessos aos contatos salvos.">
+          {% csrf_token %}
+          <input type="hidden" name="form_type" value="contact-access">
+
+          <div class="perm-head">
+            <h2>Quem vê cada carteira de contatos</h2>
+            <span class="perm-autosave-hint">Salva automaticamente ao clicar.</span>
+          </div>
+
+          {% comment %}
+          A regra em uma frase, porque é ela que evita a dúvida "por que meu colega não
+          vê o mesmo contato que eu?". O próprio setor NÃO aparece nas opções: quem
+          atua nele já vê a carteira dele por padrão.
+          {% endcomment %}
+          <p class="perm-note">
+            Contato <strong>sem setor aparece para todos</strong>. Contato classificado
+            aparece para <strong>quem atua naquele setor</strong> — quem é de Compras e
+            Comercial vê as duas carteiras — e para quem você liberar aqui.
+            A classificação de cada contato é feita na tela <strong>Contatos</strong>.
+          </p>
+          <p class="perm-note">
+            Isto vale só para a <strong>agenda</strong>. A conversa não muda: um contato
+            de Vendas que escreve para o Comercial é atendido normalmente ali.
+            {% if contatos_sem_setor %}
+              Hoje há <strong>{{ contatos_sem_setor }}</strong> contato(s) sem setor
+              (visíveis para todos).
+            {% endif %}
+          </p>
+
+          {% if not carteiras %}
+            <p class="perm-note">Cadastre setores primeiro (menu Setores) para classificar contatos.</p>
+          {% endif %}
+
+          {% for c in carteiras %}
+          <div class="perm-group">
+            <div class="perm-group-head">
+              <span class="perm-ico">📇</span>
+              <div class="perm-group-name-wrap">
+                <strong class="perm-carteira-nome">{{ c.name }}</strong>
+                <span class="perm-group-jid">{{ c.total }} contato(s) nesta carteira</span>
+              </div>
+            </div>
+
+            <div class="perm-group-block">
+              <span class="perm-block-label">Liberar para outros setores</span>
+              <div class="perm-chips">
+                {% for s in c.sectors %}
+                  <label class="perm-chip {% if s.checked %}is-on{% endif %}">
+                    <input type="checkbox" name="carteira__{{ c.id }}__sector" value="{{ s.id }}" {% if s.checked %}checked{% endif %}>
+                    <span>{{ s.name }}</span>
+                  </label>
+                {% empty %}
+                  <span class="perm-empty">Nenhum outro setor cadastrado.</span>
+                {% endfor %}
+              </div>
+            </div>
+
+            <div class="perm-group-block">
+              <span class="perm-block-label">Liberar para pessoas específicas</span>
+              <div class="perm-chips">
+                {% for u in c.users %}
+                  <label class="perm-chip {% if u.checked %}is-on{% endif %}">
+                    <input type="checkbox" name="carteira__{{ c.id }}__user" value="{{ u.id }}" {% if u.checked %}checked{% endif %}>
+                    <span>{{ u.name }}</span>
+                  </label>
+                {% empty %}
+                  <span class="perm-empty">Nenhum atendente.</span>
+                {% endfor %}
+              </div>
+            </div>
+          </div>
+          {% endfor %}
+        </form>
       </section>
 
       <!-- ============ ABA: GRUPOS ============ -->

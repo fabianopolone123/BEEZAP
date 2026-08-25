@@ -39,6 +39,19 @@
       <section class="contacts-toolbar">
         <form method="get" class="contacts-search" role="search">
           <input type="search" name="q" value="{{ search_term }}" placeholder="Buscar por nome ou telefone...">
+          {% if setores %}
+          {% comment %}
+          O filtro "Sem setor" e o modo pratico de organizar a carteira: mostra so o
+          que ainda nao foi classificado, sem varrer a lista inteira.
+          {% endcomment %}
+          <select name="setor" class="contacts-filter" aria-label="Filtrar por setor">
+            <option value="">Todos os setores</option>
+            <option value="sem" {% if filtro_setor == 'sem' %}selected{% endif %}>Sem setor</option>
+            {% for s in setores %}
+              <option value="{{ s.id }}" {% if filtro_setor == s.id|stringformat:"s" %}selected{% endif %}>{{ s.name }}</option>
+            {% endfor %}
+          </select>
+          {% endif %}
           <button type="submit" class="secondary-button">Buscar</button>
         </form>
         {% if not read_only %}
@@ -56,6 +69,13 @@
               <div class="contact-main">
                 <strong class="contact-name">{{ c.name|default:"(sem nome)" }}</strong>
                 <span class="contact-phone">{{ c.phone }}</span>
+                <span class="contact-sectors">
+                  {% for s in c.sectors.all %}
+                    <span class="contact-sector-tag">{{ s.name }}</span>
+                  {% empty %}
+                    <span class="contact-sector-tag is-empty">sem setor</span>
+                  {% endfor %}
+                </span>
               </div>
               {% if not read_only %}
               <div class="contact-actions">
@@ -63,7 +83,8 @@
                         data-contact-edit
                         data-id="{{ c.id }}"
                         data-name="{{ c.name }}"
-                        data-phone="{{ c.phone }}">Editar</button>
+                        data-phone="{{ c.phone }}"
+                        data-sectors="{% for s in c.sectors.all %}{{ s.id }}{% if not forloop.last %},{% endif %}{% endfor %}">Editar</button>
                 <form method="post" class="contact-delete" onsubmit="return confirm('Remover o contato {{ c.name|escapejs }}?');">
                   {% csrf_token %}
                   <input type="hidden" name="action" value="delete">
@@ -112,6 +133,29 @@
         <input type="text" id="contact-phone" name="phone" data-field-phone maxlength="30" required>
       </div>
 
+      {% if pode_classificar and setores %}
+      {% comment %}
+      Classificar mexe em QUEM VE o contato, entao e ato do ADM (ver
+      views/contacts.py:_pode_classificar). Para os outros perfis o campo nem existe,
+      e o servidor ignora o que vier no POST.
+      {% endcomment %}
+      <div class="contacts-field">
+        <label>Setores (carteira)</label>
+        <p class="contacts-hint">
+          Sem setor, o contato aparece para todos. Com setor, aparece para quem atua
+          nele — e para quem você liberar em Permissões → Contatos.
+        </p>
+        <div class="contacts-sector-picker" data-field-sectors>
+          {% for s in setores %}
+            <label class="contacts-sector-option">
+              <input type="checkbox" name="sectors" value="{{ s.id }}">
+              <span>{{ s.name }}</span>
+            </label>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+
       <div class="contacts-form-actions">
         <button type="submit" class="primary-button">Salvar</button>
         <button type="button" class="secondary-button" data-modal-close>Cancelar</button>
@@ -129,11 +173,20 @@
     var fieldName = modal.querySelector('[data-field-name]');
     var fieldPhone = modal.querySelector('[data-field-phone]');
 
+    function marcarSetores(lista) {
+      var escolhidos = (lista || '').split(',').filter(Boolean);
+      modal.querySelectorAll('[data-field-sectors] input[name="sectors"]')
+        .forEach(function (caixa) {
+          caixa.checked = escolhidos.indexOf(caixa.value) !== -1;
+        });
+    }
+
     function open(mode, data) {
       title.textContent = mode === 'edit' ? 'Editar contato' : 'Novo contato';
       fieldId.value = (data && data.id) || '';
       fieldName.value = (data && data.name) || '';
       fieldPhone.value = (data && data.phone) || '';
+      marcarSetores(data && data.sectors);
       modal.classList.add('is-open');
       window.setTimeout(function () { fieldName.focus(); }, 30);
     }
@@ -144,7 +197,8 @@
 
     document.querySelectorAll('[data-contact-edit]').forEach(function (btn) {
       btn.addEventListener('click', function () {
-        open('edit', {id: btn.dataset.id, name: btn.dataset.name, phone: btn.dataset.phone});
+        open('edit', {id: btn.dataset.id, name: btn.dataset.name,
+                      phone: btn.dataset.phone, sectors: btn.dataset.sectors});
       });
     });
 

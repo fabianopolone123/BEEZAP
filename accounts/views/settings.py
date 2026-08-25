@@ -11,7 +11,10 @@ from .common import (
     ALL_FEATURE_KEYS,
     Attendant,
     AttendantForm,
+    Contact,
+    ContactSectorAccess,
     Conversation,
+    Count,
     ConversationViewScope,
     DEFAULT_CONFIRMATION_MESSAGE,
     DEFAULT_GREETING,
@@ -491,6 +494,30 @@ def permissions_view(request):
             messages.success(request, 'Grupo removido da lista.')
             return redirect(f'{reverse("permissions")}?tab=grupos')
 
+        if form_type == 'contact-access':
+            # Quem MAIS ve a carteira de cada setor. O proprio setor NAO entra aqui:
+            # quem atua nele ja ve os contatos dele por padrao (ver
+            # accounts/permissions.py:visible_contacts). Esta tela guarda so o EXTRA.
+            setor_ids = list(
+                Sector.objects.filter(company=company).values_list('id', flat=True)
+            )
+            validos = set(setor_ids)
+            usuarios_validos = set(
+                company_users.filter(attendant_profile__isnull=False).values_list('id', flat=True)
+            )
+            for sid in setor_ids:
+                sec_ids = [int(v) for v in request.POST.getlist(f'carteira__{sid}__sector')
+                           if v.isdigit() and int(v) in validos and int(v) != sid]
+                usr_ids = [int(v) for v in request.POST.getlist(f'carteira__{sid}__user')
+                           if v.isdigit() and int(v) in usuarios_validos]
+                acesso, _ = ContactSectorAccess.objects.get_or_create(sector_id=sid)
+                acesso.sectors.set(sec_ids)
+                acesso.users.set(usr_ids)
+            if is_ajax:
+                return JsonResponse({'ok': True})
+            messages.success(request, 'Acessos aos contatos salvos.')
+            return redirect(f'{reverse("permissions")}?tab=contatos')
+
         if form_type == 'groups':
             group_ids = (
                 Conversation.objects
@@ -661,8 +688,44 @@ def permissions_view(request):
             'full_history_value': fh_value,
         }
 
+    # ----- Aba "Contatos" (quem ve a carteira de cada setor) -----
+    # Uma linha por SETOR, nao por contato: contato vai para milhares e liberar um por
+    # um nao escala. A pergunta e "quem mais ve a carteira de Vendas?".
+    acessos = {
+        a.sector_id: a
+        for a in ContactSectorAccess.objects
+        .filter(sector__company=company)
+        .prefetch_related('sectors', 'users')
+    }
+    contatos_por_setor = dict(
+        Contact.objects.filter(company=company, sectors__isnull=False)
+        .values_list('sectors__id')
+        .annotate(n=Count('id'))
+    )
+    sem_setor = Contact.objects.filter(company=company, sectors__isnull=True).count()
+    carteiras_ctx = []
+    for s_ in sectors:
+        acesso = acessos.get(s_.id)
+        liberados_setores = {x.id for x in acesso.sectors.all()} if acesso else set()
+        liberados_users = {x.id for x in acesso.users.all()} if acesso else set()
+        carteiras_ctx.append({
+            'id': s_.id,
+            'name': s_.name,
+            'total': contatos_por_setor.get(s_.id, 0),
+            # O proprio setor sai da lista de opcoes: ele ja ve por padrao.
+            'sectors': [
+                {'id': o.id, 'name': o.name, 'checked': o.id in liberados_setores}
+                for o in sectors if o.id != s_.id
+            ],
+            'users': [
+                {'id': u.id, 'name': (u.attendant_profile.name or u.email),
+                 'checked': u.id in liberados_users}
+                for u in attendant_users
+            ],
+        })
+
     tab = request.GET.get('tab')
-    active_tab = tab if tab in ('people', 'botoes', 'grupos', 'visualizacao') else 'people'
+    active_tab = tab if tab in ('people', 'botoes', 'grupos', 'visualizacao', 'contatos') else 'people'
     if active_tab == 'grupos' and not show_groups_tab:
         active_tab = 'people'
 
@@ -682,6 +745,8 @@ def permissions_view(request):
             'has_sectors': bool(sectors),
             'people': people_ctx,
             'role_options': role_options,
+            'carteiras': carteiras_ctx,
+            'contatos_sem_setor': sem_setor,
             'view_sectors': view_sectors_ctx,
             'view_selected': view_selected_ctx,
             'scope_levels': scope_levels,

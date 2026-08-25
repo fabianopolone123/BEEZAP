@@ -581,3 +581,16 @@
   background: #f1f5f9;
   border-color: var(--card-border);
 }
+
+/* ---------- Aba Contatos: carteira por setor ---------- */
+/* Reaproveita .perm-group / .perm-chips da aba Grupos: e a mesma pergunta ("quem ve
+   isto?"), entao a interface e a mesma e ninguem precisa aprender duas. */
+.perm-carteira-nome {
+  display: block;
+  font-size: 1rem;
+  line-height: 1.3;
+}
+
+.perm-panel[data-panel="contatos"] .perm-note strong {
+  color: var(--text);
+}

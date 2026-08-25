@@ -371,3 +371,68 @@ def history_full_for(user):
     if override is not None and override.view_full_history is not None:
         return bool(override.view_full_history)
     return Sector.objects.filter(attendants__user=user, view_full_history=True).exists()
+
+
+def sector_ids_for(user):
+    """IDs dos setores em que a pessoa atua (pelo perfil de atendente dela)."""
+    from .models import Sector
+    return list(
+        Sector.objects.filter(attendants__user=user).values_list('id', flat=True).distinct()
+    )
+
+
+def visible_contacts(user, queryset):
+    """Filtra a AGENDA (tela Contatos) pelo que a pessoa pode ver.
+
+    ESCOPO IMPORTANTE — esta funcao vale SO para a tela Contatos. Conversa,
+    transferencia e a resolucao do nome que aparece no lugar do numero NAO passam por
+    aqui e continuam com as regras proprias: um contato classificado em Vendas que
+    escreve para o Comercial e atendido normalmente ali, ele so nao entra na AGENDA de
+    quem nao tem acesso aquela carteira. O que e sensivel e a lista de clientes, nao o
+    atendimento pontual — foi a decisao explicita do dono do produto.
+
+    As regras, em ordem:
+      - gestor master: nenhum contato (ele nao opera atendimento);
+      - administrador: todos os contatos DA EMPRESA dele;
+      - contato SEM setor: visivel para todos (e o estado de todo contato antigo, e
+        por isso classificar e opcional — nada quebra no dia em que isto entra);
+      - contato COM setor: visivel para quem atua num daqueles setores, mais o EXTRA
+        liberado em Permissoes -> aba Contatos (`ContactSectorAccess`), por setor
+        inteiro ou por pessoa.
+    """
+    from django.db.models import Q
+
+    from .models import ContactSectorAccess
+
+    if not getattr(user, 'is_authenticated', False):
+        return queryset.none()
+    if user.role == 'master':
+        return queryset.none()
+    company = getattr(user, 'company', None)
+    if company is None:
+        return queryset.none()
+    queryset = queryset.filter(company=company)
+    if user.role == 'adm':
+        return queryset
+
+    meus_setores = sector_ids_for(user)
+    # Carteiras liberadas para mim: pelo meu setor OU pelo meu nome.
+    liberadas = set(
+        ContactSectorAccess.objects
+        .filter(sector__company=company)
+        .filter(Q(sectors__id__in=meus_setores) | Q(users=user))
+        .values_list('sector_id', flat=True)
+    )
+    alcance = set(meus_setores) | liberadas
+    # `distinct` porque o contato pode estar em dois setores que eu alcanço.
+    return queryset.filter(
+        Q(sectors__isnull=True) | Q(sectors__id__in=alcance)
+    ).distinct()
+
+
+def can_see_contact(user, contact):
+    """O usuario alcanca ESTE contato na agenda? (mesma regra de visible_contacts)"""
+    from .models import Contact
+    if not getattr(user, 'is_authenticated', False):
+        return False
+    return visible_contacts(user, Contact.objects.filter(pk=contact.pk)).exists()

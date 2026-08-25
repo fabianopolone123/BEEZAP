@@ -234,3 +234,84 @@
     gap: 4px;
   }
 }
+
+/* ---------- Carteira: setores do contato ---------- */
+/* A classificacao aparece na propria linha porque e ela que decide quem ve o
+   contato — deixar isso escondido no modal esconderia a razao de um colega nao
+   estar vendo a mesma lista. */
+.contact-sectors {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 6px;
+}
+
+.contact-sector-tag {
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: rgba(45, 108, 223, 0.12);
+  color: #1e4fa8;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.contact-sector-tag.is-empty {
+  background: rgba(100, 116, 139, 0.12);
+  color: #64748b;
+  font-weight: 600;
+}
+
+.contacts-filter {
+  padding: 12px 14px;
+  border: 1px solid rgba(100, 116, 139, 0.2);
+  border-radius: 14px;
+  background: #fff;
+  color: var(--text);
+  font: inherit;
+  max-width: 210px;
+}
+
+.contacts-hint {
+  margin: 0 0 8px;
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.contacts-sector-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.contacts-sector-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 13px;
+  border: 1px solid rgba(100, 116, 139, 0.22);
+  border-radius: 14px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  transition: background 0.14s ease, border-color 0.14s ease;
+}
+
+.contacts-sector-option:hover {
+  border-color: rgba(45, 108, 223, 0.5);
+}
+
+.contacts-sector-option:has(input:checked) {
+  background: rgba(45, 108, 223, 0.1);
+  border-color: rgba(45, 108, 223, 0.55);
+  font-weight: 600;
+}
+
+.contacts-sector-option input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--blue);
+}
+
+@media (max-width: 760px) {
+  .contacts-filter { max-width: none; width: 100%; }
+}

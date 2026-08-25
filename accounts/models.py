@@ -764,6 +764,42 @@ class GroupAccess(models.Model):
         return f'Acesso ao grupo {self.conversation_id}'
 
 
+class ContactSectorAccess(models.Model):
+    """Quem, ALEM do proprio setor, ve os contatos classificados nele.
+
+    Uma linha por SETOR — nao por contato. A aba Grupos libera grupo por grupo porque
+    sao poucos; contato vai para milhares, e liberar um por um nao escala. Aqui a
+    pergunta e "quem mais ve a carteira de Vendas?", respondida uma vez.
+
+    Sem linha cadastrada, os contatos de um setor sao vistos pelos atendentes DAQUELE
+    setor (e pelo administrador, que ve tudo). Esta tabela guarda apenas o EXTRA.
+
+    Escopo: vale SO para a tela Contatos. Conversa, transferencia e o nome que aparece
+    no lugar do numero seguem as regras proprias — um contato de Vendas que escreve
+    para o Comercial e atendido normalmente ali, so nao entra na agenda de quem
+    nao tem acesso a carteira.
+    """
+    sector = models.OneToOneField(
+        'Sector', on_delete=models.CASCADE, related_name='contact_access',
+        verbose_name='Setor dos contatos',
+    )
+    sectors = models.ManyToManyField(
+        'Sector', blank=True, related_name='contact_accesses_granted',
+        verbose_name='Setores liberados',
+    )
+    users = models.ManyToManyField(
+        User, blank=True, related_name='contact_accesses', verbose_name='Pessoas liberadas',
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'Acesso à carteira de contatos'
+        verbose_name_plural = 'Acessos às carteiras de contatos'
+
+    def __str__(self):
+        return f'Acesso aos contatos de {self.sector_id}'
+
+
 class WapiWebhookEvent(models.Model):
     # Empresa dona do evento (resolvida pela URL/instancia do webhook).
     company = models.ForeignKey(
@@ -970,6 +1006,18 @@ class Contact(models.Model):
     # O telefone e unico POR EMPRESA (antes era unico global): o mesmo cliente final
     # pode falar com duas empresas diferentes, e cada uma tem o seu proprio cadastro.
     phone = models.CharField(max_length=30)
+    # CLASSIFICACAO do contato (a "carteira" a que ele pertence). Vale SO para quem
+    # ve o contato na tela Contatos — ver `accounts/permissions.py:visible_contacts`.
+    #
+    # E varios setores, nao um: um cliente que compra E abre suporte pertence a
+    # Vendas e a Suporte de verdade. Com um setor unico, classificar como Vendas
+    # esconderia o contato do Suporte, que atende essa mesma pessoa, e obrigaria a
+    # cadastrar uma "liberacao" que so existiria por limitacao do campo.
+    #
+    # Sem setor = visivel para todos (e o estado de todo contato antigo).
+    sectors = models.ManyToManyField(
+        'Sector', blank=True, related_name='contacts', verbose_name='Setores',
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

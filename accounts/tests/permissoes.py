@@ -637,3 +637,372 @@ class PermissionsCsrfTests(TestCase):
         self.client.get(reverse('permissions'))
         self.assertNotIn('csrftoken', self.client.cookies)
         self.assertIn(settings.CSRF_COOKIE_NAME, self.client.cookies)
+
+
+class ContactSectorVisibilityTests(TestCase):
+    """Carteira de contatos por setor: quem ve quais contatos na tela Contatos.
+
+    Regras (decididas com o dono do produto):
+      - contato SEM setor aparece para todos (e o estado de todo contato antigo);
+      - contato classificado aparece para quem ATUA naquele setor — quem e de Compras
+        e Comercial ve as duas carteiras — mais o extra liberado em Permissoes;
+      - administrador ve tudo; gestor master nao ve nada.
+
+    E a regra que NAO vale: isto e so a AGENDA. A conversa nao muda.
+    """
+
+    def setUp(self):
+        from accounts.models import Company, Contact, Sector
+        self.Contact = Contact
+        self.empresa = default_company()
+        self.vizinha = Company.objects.create(name='Vizinha', slug='vizinha')
+        self.compras = Sector.objects.create(company=self.empresa, name='Compras')
+        self.comercial = Sector.objects.create(company=self.empresa, name='Comercial')
+        self.suporte = Sector.objects.create(company=self.empresa, name='Suporte')
+
+        self.sem_setor = Contact.objects.create(
+            company=self.empresa, name='Sem Setor', phone='5516900000000')
+        self.de_compras = Contact.objects.create(
+            company=self.empresa, name='Fornecedor', phone='5516900000001')
+        self.de_compras.sectors.add(self.compras)
+        self.de_comercial = Contact.objects.create(
+            company=self.empresa, name='Cliente Novo', phone='5516900000002')
+        self.de_comercial.sectors.add(self.comercial)
+        self.dos_dois = Contact.objects.create(
+            company=self.empresa, name='Compra e Vende', phone='5516900000003')
+        self.dos_dois.sectors.add(self.compras, self.comercial)
+        self.da_vizinha = Contact.objects.create(
+            company=self.vizinha, name='Alheio', phone='5516900000009')
+
+        self.adm = User.objects.create_user(
+            company=self.empresa, email='adm@x.com', password='x', role=User.Role.ADM)
+
+    def _atendente(self, email, *setores):
+        user = User.objects.create_user(
+            company=self.empresa, email=email, password='x', role=User.Role.USUARIO)
+        att = Attendant.objects.create(
+            company=self.empresa, user=user, name=email.split('@')[0],
+            must_change_password=False)
+        if setores:
+            att.sectors.add(*setores)
+        return user
+
+    def _visiveis(self, user):
+        from accounts.permissions import visible_contacts
+        return sorted(
+            c.name for c in visible_contacts(user, self.Contact.objects.all())
+        )
+
+    # ----- o basico -----
+
+    def test_adm_ve_todos_da_empresa(self):
+        self.assertEqual(
+            self._visiveis(self.adm),
+            ['Cliente Novo', 'Compra e Vende', 'Fornecedor', 'Sem Setor'])
+
+    def test_contato_sem_setor_aparece_para_todos(self):
+        de_fora = self._atendente('fora@x.com', self.suporte)
+        self.assertIn('Sem Setor', self._visiveis(de_fora))
+
+    def test_atendente_ve_a_carteira_do_proprio_setor(self):
+        comprador = self._atendente('compras@x.com', self.compras)
+        visiveis = self._visiveis(comprador)
+        self.assertIn('Fornecedor', visiveis)
+        self.assertNotIn('Cliente Novo', visiveis)
+
+    def test_atendente_de_dois_setores_ve_as_duas_carteiras(self):
+        """O caso pedido: quem e de Compras E Comercial ve as duas."""
+        os_dois = self._atendente('ambos@x.com', self.compras, self.comercial)
+        visiveis = self._visiveis(os_dois)
+        self.assertIn('Fornecedor', visiveis)      # Compras
+        self.assertIn('Cliente Novo', visiveis)    # Comercial
+        self.assertIn('Compra e Vende', visiveis)  # nos dois
+
+    def test_contato_em_dois_setores_nao_duplica_na_lista(self):
+        os_dois = self._atendente('ambos@x.com', self.compras, self.comercial)
+        nomes = self._visiveis(os_dois)
+        self.assertEqual(nomes.count('Compra e Vende'), 1)
+
+    def test_sem_setor_nenhum_ve_apenas_os_nao_classificados(self):
+        solto = self._atendente('solto@x.com')
+        self.assertEqual(self._visiveis(solto), ['Sem Setor'])
+
+    def test_contato_de_outra_empresa_nunca_aparece(self):
+        for quem in (self.adm, self._atendente('a@x.com', self.compras)):
+            with self.subTest(quem=quem.email):
+                self.assertNotIn('Alheio', self._visiveis(quem))
+
+    def test_gestor_master_nao_ve_contato_nenhum(self):
+        master = User.objects.create_user(
+            email='master@x.com', password='x', role=User.Role.MASTER)
+        self.assertEqual(self._visiveis(master), [])
+
+    # ----- liberacoes de Permissoes -----
+
+    def test_liberacao_por_setor(self):
+        from accounts.models import ContactSectorAccess
+        acesso = ContactSectorAccess.objects.create(sector=self.compras)
+        acesso.sectors.add(self.suporte)
+        do_suporte = self._atendente('sup@x.com', self.suporte)
+        self.assertIn('Fornecedor', self._visiveis(do_suporte))
+        # E nao ganha a carteira do Comercial de brinde.
+        self.assertNotIn('Cliente Novo', self._visiveis(do_suporte))
+
+    def test_liberacao_por_pessoa(self):
+        from accounts.models import ContactSectorAccess
+        pessoa = self._atendente('pessoa@x.com', self.suporte)
+        acesso = ContactSectorAccess.objects.create(sector=self.comercial)
+        acesso.users.add(pessoa)
+        self.assertIn('Cliente Novo', self._visiveis(pessoa))
+
+    def test_liberacao_nao_vaza_para_quem_nao_foi_liberado(self):
+        from accounts.models import ContactSectorAccess
+        pessoa = self._atendente('pessoa@x.com', self.suporte)
+        outra = self._atendente('outra@x.com', self.suporte)
+        acesso = ContactSectorAccess.objects.create(sector=self.comercial)
+        acesso.users.add(pessoa)
+        self.assertNotIn('Cliente Novo', self._visiveis(outra))
+
+    # ----- o limite do escopo: a CONVERSA nao muda -----
+
+    def test_a_conversa_nao_e_afetada_pela_carteira(self):
+        """Contato de Vendas que escreve para o Comercial e atendido normalmente.
+
+        A restricao e da AGENDA. Se algum dia alguem ligar `visible_contacts` na
+        visibilidade de conversa, este teste reprova.
+        """
+        from accounts.models import Conversation
+        from accounts.permissions import can_see_conversation, visible_contacts
+        conversa = Conversation.objects.create(
+            company=self.empresa, contact=self.de_compras,
+            external_id=self.de_compras.phone, chat_type='private',
+            status='pending', sector=self.comercial)
+        do_comercial = self._atendente('com@x.com', self.comercial)
+
+        # A conversa e do setor dele: ele atende.
+        self.assertTrue(can_see_conversation(do_comercial, conversa))
+        # Mas o contato e da carteira de Compras: nao entra na agenda dele.
+        self.assertNotIn(
+            'Fornecedor',
+            [c.name for c in visible_contacts(do_comercial, self.Contact.objects.all())])
+
+    def test_o_nome_do_contato_continua_resolvendo_nas_conversas(self):
+        """A agenda restrita nao pode fazer a conversa voltar a mostrar numero."""
+        from accounts.models import Conversation
+        conversa = Conversation.objects.create(
+            company=self.empresa, contact=self.de_compras,
+            external_id=self.de_compras.phone, chat_type='private', status='pending')
+        self.assertEqual(conversa.display_title, 'Fornecedor')
+
+
+class ContactsScreenSectorTests(TestCase):
+    """Tela Contatos: classificar (so o ADM), filtrar e o alcance no POST."""
+
+    def setUp(self):
+        from accounts.models import Contact, Sector, UserMenuPermission
+        self.Contact = Contact
+        self.empresa = default_company()
+        self.compras = Sector.objects.create(company=self.empresa, name='Compras')
+        self.comercial = Sector.objects.create(company=self.empresa, name='Comercial')
+        self.adm = User.objects.create_user(
+            company=self.empresa, email='adm@x.com', password='x', role=User.Role.ADM)
+        self.atendente = User.objects.create_user(
+            company=self.empresa, email='at@x.com', password='x', role=User.Role.USUARIO)
+        att = Attendant.objects.create(
+            company=self.empresa, user=self.atendente, name='At',
+            must_change_password=False)
+        att.sectors.add(self.compras)
+        UserMenuPermission.objects.update_or_create(
+            user=self.atendente, defaults={'allowed_keys': ['contacts']})
+
+    def test_adm_classifica_ao_cadastrar(self):
+        self.client.force_login(self.adm)
+        self.client.post(reverse('contacts'), {
+            'name': 'Novo Fornecedor', 'phone': '(11) 98888-7777',
+            'sectors': [str(self.compras.pk)],
+        })
+        contato = self.Contact.objects.get(name='Novo Fornecedor')
+        self.assertEqual([s.name for s in contato.sectors.all()], ['Compras'])
+
+    def test_adm_classifica_em_dois_setores(self):
+        self.client.force_login(self.adm)
+        self.client.post(reverse('contacts'), {
+            'name': 'Compra e Vende', 'phone': '11988887777',
+            'sectors': [str(self.compras.pk), str(self.comercial.pk)],
+        })
+        contato = self.Contact.objects.get(name='Compra e Vende')
+        self.assertEqual(
+            sorted(s.name for s in contato.sectors.all()), ['Comercial', 'Compras'])
+
+    def test_atendente_nao_classifica_nem_forjando_o_post(self):
+        """Classificar mexe em QUEM VE: se o atendente pudesse, esconderia contato
+        dos colegas sem passar por Permissoes."""
+        contato = self.Contact.objects.create(
+            company=self.empresa, name='Alvo', phone='5516900000001')
+        self.client.force_login(self.atendente)
+        self.client.post(reverse('contacts'), {
+            'contact_id': str(contato.pk), 'name': 'Alvo', 'phone': '5516900000001',
+            'sectors': [str(self.comercial.pk)],
+        })
+        contato.refresh_from_db()
+        self.assertEqual(list(contato.sectors.all()), [])
+
+    def test_atendente_ainda_edita_nome_e_telefone(self):
+        contato = self.Contact.objects.create(
+            company=self.empresa, name='Antigo', phone='5516900000001')
+        self.client.force_login(self.atendente)
+        self.client.post(reverse('contacts'), {
+            'contact_id': str(contato.pk), 'name': 'Nome Novo', 'phone': '5516900000001',
+        })
+        contato.refresh_from_db()
+        self.assertEqual(contato.name, 'Nome Novo')
+
+    def test_setor_de_outra_empresa_e_ignorado(self):
+        from accounts.models import Company, Sector
+        outra = Company.objects.create(name='Outra', slug='outra')
+        alheio = Sector.objects.create(company=outra, name='Alheio')
+        self.client.force_login(self.adm)
+        self.client.post(reverse('contacts'), {
+            'name': 'Teste', 'phone': '11977776666', 'sectors': [str(alheio.pk)],
+        })
+        self.assertEqual(list(self.Contact.objects.get(name='Teste').sectors.all()), [])
+
+    def test_atendente_nao_edita_contato_fora_da_carteira(self):
+        de_outro = self.Contact.objects.create(
+            company=self.empresa, name='Do Comercial', phone='5516900000002')
+        de_outro.sectors.add(self.comercial)
+        self.client.force_login(self.atendente)
+        self.client.post(reverse('contacts'), {
+            'contact_id': str(de_outro.pk), 'name': 'Invadido', 'phone': '5516900000002',
+        })
+        de_outro.refresh_from_db()
+        self.assertEqual(de_outro.name, 'Do Comercial')
+
+    def test_atendente_nao_exclui_contato_fora_da_carteira(self):
+        de_outro = self.Contact.objects.create(
+            company=self.empresa, name='Do Comercial', phone='5516900000002')
+        de_outro.sectors.add(self.comercial)
+        self.client.force_login(self.atendente)
+        self.client.post(reverse('contacts'), {
+            'action': 'delete', 'contact_id': str(de_outro.pk)})
+        self.assertTrue(self.Contact.objects.filter(pk=de_outro.pk).exists())
+
+    def test_filtro_sem_setor(self):
+        classificado = self.Contact.objects.create(
+            company=self.empresa, name='Classificado', phone='5516900000003')
+        classificado.sectors.add(self.compras)
+        self.Contact.objects.create(
+            company=self.empresa, name='Solto', phone='5516900000004')
+        self.client.force_login(self.adm)
+        corpo = self.client.get(reverse('contacts'), {'setor': 'sem'}).content.decode()
+        self.assertIn('Solto', corpo)
+        self.assertNotIn('Classificado', corpo)
+
+    def test_filtro_por_setor(self):
+        classificado = self.Contact.objects.create(
+            company=self.empresa, name='Classificado', phone='5516900000003')
+        classificado.sectors.add(self.compras)
+        self.Contact.objects.create(
+            company=self.empresa, name='Solto', phone='5516900000004')
+        self.client.force_login(self.adm)
+        corpo = self.client.get(
+            reverse('contacts'), {'setor': str(self.compras.pk)}).content.decode()
+        self.assertIn('Classificado', corpo)
+        self.assertNotIn('Solto', corpo)
+
+    def test_campo_de_setores_so_aparece_para_o_adm(self):
+        # Confere a MARCA do bloco HTML, nao `data-field-sectors`: esse nome tambem
+        # aparece no seletor do JS e daria falso positivo.
+        marca = 'class="contacts-sector-picker"'
+        self.client.force_login(self.adm)
+        self.assertIn(marca, self.client.get(reverse('contacts')).content.decode())
+        self.client.force_login(self.atendente)
+        self.assertNotIn(marca, self.client.get(reverse('contacts')).content.decode())
+
+    def test_a_lista_mostra_so_a_carteira_de_quem_esta_logado(self):
+        do_comercial = self.Contact.objects.create(
+            company=self.empresa, name='Do Comercial', phone='5516900000002')
+        do_comercial.sectors.add(self.comercial)
+        de_compras = self.Contact.objects.create(
+            company=self.empresa, name='De Compras', phone='5516900000005')
+        de_compras.sectors.add(self.compras)
+        self.client.force_login(self.atendente)
+        corpo = self.client.get(reverse('contacts')).content.decode()
+        self.assertIn('De Compras', corpo)
+        self.assertNotIn('Do Comercial', corpo)
+
+
+class ContactAccessTabTests(TestCase):
+    """Aba Contatos em Permissoes: salvar as liberacoes da carteira."""
+
+    def setUp(self):
+        from accounts.models import Sector
+        self.empresa = default_company()
+        self.compras = Sector.objects.create(company=self.empresa, name='Compras')
+        self.comercial = Sector.objects.create(company=self.empresa, name='Comercial')
+        self.adm = User.objects.create_user(
+            company=self.empresa, email='adm@x.com', password='x', role=User.Role.ADM)
+        self.atendente = User.objects.create_user(
+            company=self.empresa, email='at@x.com', password='x', role=User.Role.USUARIO)
+        Attendant.objects.create(
+            company=self.empresa, user=self.atendente, name='At',
+            must_change_password=False)
+        self.client.force_login(self.adm)
+
+    def test_a_aba_aparece(self):
+        corpo = self.client.get(reverse('permissions')).content.decode()
+        self.assertIn('data-tab="contatos"', corpo)
+        self.assertIn('carteira__%s__sector' % self.compras.pk, corpo)
+        self.assertIn('carteira__%s__user' % self.compras.pk, corpo)
+
+    def test_o_proprio_setor_nao_aparece_como_opcao(self):
+        """Quem atua no setor ja ve a carteira dele: oferecer a opcao confundiria."""
+        corpo = self.client.get(reverse('permissions')).content.decode()
+        bloco = corpo.split('carteira__%s__sector' % self.compras.pk)[1].split('perm-group-block')[0]
+        self.assertNotIn('value="%s"' % self.compras.pk, bloco)
+
+    def test_salva_liberacao_por_setor_e_por_pessoa(self):
+        from accounts.models import ContactSectorAccess
+        resposta = self.client.post(reverse('permissions'), {
+            'form_type': 'contact-access',
+            'carteira__%s__sector' % self.compras.pk: [str(self.comercial.pk)],
+            'carteira__%s__user' % self.compras.pk: [str(self.atendente.pk)],
+        }, HTTP_X_REQUESTED_WITH='XMLHttpRequest')
+        self.assertEqual(resposta.status_code, 200)
+        acesso = ContactSectorAccess.objects.get(sector=self.compras)
+        self.assertEqual([s.name for s in acesso.sectors.all()], ['Comercial'])
+        self.assertEqual([u.email for u in acesso.users.all()], ['at@x.com'])
+
+    def test_o_proprio_setor_e_ignorado_se_vier_no_post(self):
+        from accounts.models import ContactSectorAccess
+        self.client.post(reverse('permissions'), {
+            'form_type': 'contact-access',
+            'carteira__%s__sector' % self.compras.pk: [str(self.compras.pk)],
+        }, HTTP_X_REQUESTED_WITH='XMLHttpRequest')
+        acesso = ContactSectorAccess.objects.get(sector=self.compras)
+        self.assertEqual(list(acesso.sectors.all()), [])
+
+    def test_setor_de_outra_empresa_e_ignorado(self):
+        from accounts.models import Company, ContactSectorAccess, Sector
+        outra = Company.objects.create(name='Outra', slug='outra')
+        alheio = Sector.objects.create(company=outra, name='Alheio')
+        self.client.post(reverse('permissions'), {
+            'form_type': 'contact-access',
+            'carteira__%s__sector' % self.compras.pk: [str(alheio.pk)],
+        }, HTTP_X_REQUESTED_WITH='XMLHttpRequest')
+        acesso = ContactSectorAccess.objects.get(sector=self.compras)
+        self.assertEqual(list(acesso.sectors.all()), [])
+
+    def test_desmarcar_remove_a_liberacao(self):
+        from accounts.models import ContactSectorAccess
+        acesso = ContactSectorAccess.objects.create(sector=self.compras)
+        acesso.sectors.add(self.comercial)
+        self.client.post(reverse('permissions'), {
+            'form_type': 'contact-access',
+        }, HTTP_X_REQUESTED_WITH='XMLHttpRequest')
+        acesso.refresh_from_db()
+        self.assertEqual(list(acesso.sectors.all()), [])
+
+    def test_atendente_nao_alcanca_a_tela(self):
+        self.client.force_login(self.atendente)
+        self.assertEqual(self.client.get(reverse('permissions')).status_code, 403)
