@@ -268,6 +268,23 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
   (canal), `@broadcast` (transmissão) ou número "pelado" longo demais para telefone.
 - `is_ignorable_jid(value)` → conversas que **não são atendimento** e são ignoradas:
   o id literal `status`, `@newsletter` e `@broadcast`.
+- `group_flag_from_payload(payload)` → a flag **`isGroup`** que a W-API manda
+  (`True`/`False`, ou `None` quando não vem nenhuma).
+- `is_bare_internal_id(value)` → id interno **sem sufixo** de JID (ex.: `120363…` sem
+  `@g.us`).
+- `is_channel_chat(payload, chat_id)` → **CANAL disfarçado de grupo**. Canal e grupo
+  usam o **mesmo prefixo** `120363…`; com o sufixo o `is_ignorable_jid` resolve, mas a
+  W-API Lite manda o `chat.id` **pelado** e aí o formato não distingue os dois. O
+  canal entrava como grupo e ficava **para sempre** com o nome `Grupo <id>`, porque o
+  `get-all-groups` (com razão) não lista canal — e ninguém descobria o motivo.
+  Aconteceu em produção com `120363172556943876` e `120363183095447474`. Quem
+  distingue é a **própria W-API**: em canal ela manda `isGroup: false` e **remetente
+  vazio** (post de canal não tem participante que fala); os 7 grupos reais da mesma
+  instância vinham com `isGroup: true` e o telefone de quem escreveu. A regra exige a
+  flag **explícita** em `false` — payload sem a flag mantém a classificação pelo
+  formato, para não passar a descartar grupo por payload incompleto. O `ctx` ganhou
+  **`is_channel`**, e `ingest_wapi_payload` descarta antes de criar qualquer coisa.
+  Testes: `ChannelWithBareIdIsNotGroupTests`.
 - `is_status_or_broadcast(payload)` → detecta **Status/stories** do WhatsApp mesmo
   quando o W-API Lite manda `chat.id == "status"` (sem `@broadcast`), ou pelo
   marcador `posterStatusID` (id do post de status), ou `status@broadcast` em
@@ -913,7 +930,7 @@ OPENAI_TIMEOUT=30
 ### Rodar os testes
 
 ```bash
-python manage.py test                              # tudo (522 testes, ~13 s)
+python manage.py test                              # tudo (532 testes, ~13 s)
 python manage.py test accounts.tests.master        # só um assunto
 python manage.py test accounts.tests.NomeDaClasse  # só uma classe
 ```
@@ -959,7 +976,7 @@ inspect_wapi_events --hours 6 --full    # DIAGNÓSTICO: eventos BRUTOS do webhoo
 inspect_wapi_groups [--full]            # DIAGNÓSTICO: get-all-groups + nome extraído + POR QUE cada conversa de grupo está sem nome (3 causas)
 cleanup_status_messages [--delete]      # remove mensagens de Status que viraram conversa
 cleanup_unknown_messages [--delete]     # remove mensagens de tipo 'unknown' (sistema)
-cleanup_nonpersonal_conversations [--delete]  # remove conversas de canal/transmissão/"status"
+cleanup_nonpersonal_conversations [--delete]  # remove conversas de canal/transmissão/"status", inclusive canal que virou grupo
 cleanup_pushname_contacts [--apply]     # limpa nome herdado do pushName (contato volta a aparecer pelo NÚMERO)
 link_lid_contacts [--apply]             # conversas diretas @lid antigas: acha o telefone real no histórico e anexa o Contato
 merge_contact_conversations [--apply]   # unifica conversas picotadas E duplicatas de grupo (1 chat por pessoa/grupo POR EMPRESA; dry-run)
@@ -1399,9 +1416,12 @@ esconder o botão também bloqueia a URL.
     resolve; (2) a W-API devolve o grupo **sem nome** em nenhum campo conhecido
     (`name`/`subject`/`title`/`groupName`/`pushName`) → falta ensinar o campo novo a
     `_group_item_name`; (3) a W-API **não lista o chat** → provavelmente **não é
-    grupo** (canal `@newsletter` ou comunidade que chegou com o id "pelado", sem
-    sufixo, e `is_group_jid` classificou como grupo pelo tamanho do número), ou a
-    conta saiu do grupo. A comparação é **por dígitos** (`_group_key`), então
+    grupo** — era o caso de `120363172556943876` e `120363183095447474`: **canal**
+    cujo id chegou "pelado" e que o `is_group_jid` classificou como grupo pelo tamanho
+    do número. **Isso não entra mais**: a ingestão passou a respeitar o `isGroup` do
+    payload (`is_channel_chat`, seção 4), e o `cleanup_nonpersonal_conversations`
+    remove os que entraram antes. A outra possibilidade é a conta ter **saído do
+    grupo**. A comparação é **por dígitos** (`_group_key`), então
     `120363…` e `120363…@g.us` casam; um **JID antigo** (`<telefone>-<timestamp>@g.us`)
     só casa se a W-API devolver esse mesmo id — se ela já usar o id novo do grupo, a
     saída acusa a causa 3 mesmo sendo grupo de verdade (o mapa completo é impresso

@@ -881,7 +881,10 @@ def ingest_wapi_payload(payload, trigger_ai=True, company=None, slug='',
     # Status do WhatsApp ('stories', JID status@broadcast) nao sao conversa: o
     # W-API pode mandar o autor como remetente e o status@broadcast em outro
     # campo, entao checamos o payload inteiro, alem do proprio chat_id.
-    if is_ignorable_jid(ctx['chat_id']) or is_status_or_broadcast(payload):
+    # `is_channel` cobre o canal que chega com o id PELADO (sem @newsletter), que o
+    # is_ignorable_jid nao tem como reconhecer pelo texto do id.
+    if (is_ignorable_jid(ctx['chat_id']) or ctx.get('is_channel')
+            or is_status_or_broadcast(payload)):
         ingest_logger.info('[WAPI WEBHOOK] ignorado (status/canal/transmissao): %s', ctx['chat_id'])
         return None
 

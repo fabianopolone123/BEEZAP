@@ -649,3 +649,150 @@ class GroupConversationIsUniquePerCompanyTests(TestCase):
         self.assertEqual(
             self.Conversation.objects.filter(
                 company=self.empresa, external_id='').count(), 2)
+
+
+class ChannelWithBareIdIsNotGroupTests(TestCase):
+    """Canal (newsletter) com id "pelado" nao pode virar conversa de grupo.
+
+    Achado em producao: `120363172556943876` e `120363183095447474` apareciam na tela
+    como "Grupo 1203..." e nunca pegavam nome, porque `get-all-groups` (com razao) nao
+    lista canal. Os dois payloads diziam `isGroup: false` e vinham com o remetente
+    VAZIO — canal nao tem participante que fala — enquanto os 7 grupos de verdade da
+    mesma instancia vinham com `isGroup: true` e o telefone de quem escreveu.
+
+    A classificacao olhava so o FORMATO do id (numero pelado com mais de 15 digitos =
+    grupo) e ignorava a flag que a propria W-API manda. Canal e grupo usam o mesmo
+    prefixo `120363...`, entao sem o sufixo (`@g.us` / `@newsletter`) o formato nao
+    distingue os dois: quem distingue e a flag.
+    """
+
+    CANAL = '120363172556943876'
+    GRUPO = '120363257947973768@g.us'
+
+    def _payload_canal(self, chat_id=None):
+        """Formato real do webhook LITE de canal (campos irrelevantes omitidos)."""
+        return {
+            'event': 'webhookReceived',
+            'instanceId': 'LITE-31EP08-VTTLJ6',
+            'connectedPhone': '556792393858',
+            'isGroup': False,
+            'messageId': '3EB07C95B394275A0E6124',
+            'fromMe': False,
+            'chat': {'id': chat_id or self.CANAL},
+            'sender': {'id': '', 'senderLid': None, 'pushName': ''},
+            'msgContent': {'extendedTextMessage': {
+                'text': 'Beta publico 5 chega ao iPhone',
+                'description': 'Apple avanca na reta final de testes',
+            }},
+        }
+
+    def _payload_grupo(self):
+        return {
+            'event': 'webhookReceived',
+            'instanceId': 'LITE-31EP08-VTTLJ6',
+            'connectedPhone': '556792393858',
+            'isGroup': True,
+            'messageId': '3EB05309AE92279EE67933',
+            'fromMe': False,
+            'chat': {'id': self.GRUPO},
+            'sender': {'id': '5517982072222', 'pushName': 'Ivan Bezerra'},
+            'msgContent': {'conversation': 'bom dia'},
+        }
+
+    # ----- classificacao -----
+
+    def test_canal_pelado_e_reconhecido(self):
+        from wapi.parser import is_channel_chat
+        self.assertTrue(is_channel_chat(self._payload_canal(), self.CANAL))
+
+    def test_grupo_de_verdade_nao_e_confundido(self):
+        from wapi.parser import is_channel_chat
+        self.assertFalse(is_channel_chat(self._payload_grupo(), self.GRUPO))
+
+    def test_grupo_com_id_pelado_e_flag_true_continua_grupo(self):
+        """Se a W-API disser que E grupo, a flag manda — mesmo sem sufixo."""
+        from wapi.parser import is_channel_chat
+        payload = self._payload_canal()
+        payload['isGroup'] = True
+        self.assertFalse(is_channel_chat(payload, self.CANAL))
+
+    def test_payload_sem_a_flag_mantem_o_comportamento_antigo(self):
+        """Sem flag nao ha o que afirmar: nao se descarta por payload incompleto."""
+        from wapi.parser import is_channel_chat
+        payload = self._payload_canal()
+        del payload['isGroup']
+        self.assertFalse(is_channel_chat(payload, self.CANAL))
+
+    def test_telefone_comum_nunca_e_canal(self):
+        from wapi.parser import is_channel_chat
+        self.assertFalse(is_channel_chat({'isGroup': False}, '5516999999999'))
+
+    def test_contexto_marca_is_channel(self):
+        from wapi.parser import normalize_wapi_message_context
+        ctx = normalize_wapi_message_context(self._payload_canal())
+        self.assertTrue(ctx['is_channel'])
+        ctx = normalize_wapi_message_context(self._payload_grupo())
+        self.assertFalse(ctx['is_channel'])
+
+    # ----- ingestao -----
+
+    def test_post_de_canal_nao_cria_conversa(self):
+        from accounts.models import Conversation
+        from wapi.services import ingest_wapi_payload
+        self.assertIsNone(
+            ingest_wapi_payload(self._payload_canal(), trigger_ai=False,
+                                company=default_company()))
+        self.assertFalse(Conversation.objects.filter(external_id=self.CANAL).exists())
+
+    def test_mensagem_de_grupo_continua_entrando(self):
+        from accounts.models import Conversation
+        from wapi.services import ingest_wapi_payload
+        with patch('wapi.services.resolve_group_name', return_value='Compra e vendas'):
+            msg = ingest_wapi_payload(self._payload_grupo(), trigger_ai=False,
+                                      company=default_company())
+        self.assertIsNotNone(msg)
+        conv = Conversation.objects.get(external_id=self.GRUPO)
+        self.assertEqual(conv.chat_type, 'group')
+        self.assertEqual(conv.name, 'Compra e vendas')
+
+    # ----- limpeza do que entrou antes da correcao -----
+
+    def test_cleanup_remove_o_canal_que_virou_grupo(self):
+        from io import StringIO
+        from django.core.management import call_command
+        from accounts.models import Conversation, Message
+        canal = Conversation.objects.create(
+            company=default_company(), external_id=self.CANAL, chat_type='group')
+        Message.objects.create(
+            conversation=canal, direction='in', message_type='text', text='noticia',
+            raw_payload=self._payload_canal())
+        grupo = Conversation.objects.create(
+            company=default_company(), external_id=self.GRUPO, chat_type='group',
+            name='Compra e vendas')
+        Message.objects.create(
+            conversation=grupo, direction='in', message_type='text', text='bom dia',
+            raw_payload=self._payload_grupo())
+
+        out = StringIO()
+        call_command('cleanup_nonpersonal_conversations', stdout=out)
+        self.assertIn(self.CANAL, out.getvalue())
+        self.assertTrue(Conversation.objects.filter(pk=canal.pk).exists())  # dry-run
+
+        call_command('cleanup_nonpersonal_conversations', '--delete', stdout=StringIO())
+        self.assertFalse(Conversation.objects.filter(pk=canal.pk).exists())
+        self.assertTrue(Conversation.objects.filter(pk=grupo.pk).exists())
+
+    def test_cleanup_nao_leva_grupo_com_id_pelado(self):
+        """Grupo pelado cujas mensagens dizem isGroup: true fica."""
+        from io import StringIO
+        from django.core.management import call_command
+        from accounts.models import Conversation, Message
+        payload = self._payload_canal()
+        payload['isGroup'] = True
+        grupo = Conversation.objects.create(
+            company=default_company(), external_id=self.CANAL, chat_type='group')
+        Message.objects.create(
+            conversation=grupo, direction='in', message_type='text', text='oi',
+            raw_payload=payload)
+        call_command('cleanup_nonpersonal_conversations', '--delete', stdout=StringIO())
+        self.assertTrue(Conversation.objects.filter(pk=grupo.pk).exists())

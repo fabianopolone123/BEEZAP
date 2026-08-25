@@ -122,6 +122,56 @@ def is_ignorable_jid(value):
     )
 
 
+# Flag EXPLICITA de grupo que a W-API manda no payload. Ela vale MAIS que o formato
+# do id: canal (newsletter) e grupo usam o mesmo prefixo "120363...", e quando o id
+# chega "pelado" (sem @g.us / @newsletter) o formato nao distingue um do outro.
+_IS_GROUP_FLAG_PATHS = (
+    ('isGroup',),
+    ('is_group',),
+    ('data', 'isGroup'),
+    ('data', 'is_group'),
+    ('message', 'isGroup'),
+    ('data', 'message', 'isGroup'),
+)
+
+
+def group_flag_from_payload(payload):
+    """A flag `isGroup` do payload, ou None quando a W-API nao mandou nenhuma."""
+    if not isinstance(payload, dict):
+        return None
+    for path in _IS_GROUP_FLAG_PATHS:
+        value = _safe_get(payload, path)
+        if value is not None:
+            return _as_bool(value)
+    return None
+
+
+def is_bare_internal_id(value):
+    """Id interno do WhatsApp SEM sufixo de JID (ex.: "120363..." sem @g.us)."""
+    text = _as_text(value)
+    return bool(text) and '@' not in text and len(_only_digits(text)) > _MAX_PHONE_DIGITS
+
+
+def is_channel_chat(payload, chat_id):
+    """True quando o chat e CANAL (newsletter), nao grupo — logo, nao e atendimento.
+
+    Canal e grupo compartilham o prefixo `120363...`. COM o sufixo, `is_ignorable_jid`
+    resolve (`@newsletter`). SEM ele — e a W-API Lite manda o `chat.id` pelado — o
+    formato nao diz nada, e o canal entrava como GRUPO: ficava para sempre mostrando
+    "Grupo <id>" na tela, porque `get-all-groups` (naturalmente) nao lista canal, e
+    ninguem conseguia descobrir por que aquele "grupo" nao tinha nome.
+
+    O sinal confiavel e a propria W-API: em canal ela manda `isGroup: false` e um
+    remetente VAZIO (post de canal nao tem participante que fala), enquanto todo grupo
+    de verdade vem com `isGroup: true` e o telefone de quem escreveu. Exigimos a flag
+    EXPLICITA em `false`: payload sem a flag mantem o comportamento antigo (classificar
+    pelo formato), para nao passar a descartar grupo por causa de payload incompleto.
+    """
+    if not is_bare_internal_id(chat_id):
+        return False
+    return group_flag_from_payload(payload) is False
+
+
 # Flags que a W-API/Baileys pode usar para marcar Status/transmissao.
 _BROADCAST_FLAG_PATHS = (
     ('broadcast',), ('isStatus',), ('is_status',), ('status',),
@@ -792,6 +842,9 @@ def normalize_wapi_message_context(payload):
         'chat_id': chat_id,
         'chat_type': chat_type,
         'is_group': is_group,
+        # Canal (newsletter) que chegou com o id "pelado": nao e atendimento e e
+        # descartado na ingestao, como o @newsletter com sufixo (ver is_channel_chat).
+        'is_channel': is_channel_chat(payload, chat_id),
         'sender_id': participant_id,
         'participant_id': participant_id,
         'sender_phone': sender_phone,
