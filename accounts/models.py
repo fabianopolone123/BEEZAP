@@ -93,6 +93,16 @@ class Company(models.Model):
     logo = models.FileField('Logo', upload_to='empresas/logos/', blank=True, null=True)
     accent_color = models.CharField('Cor de destaque', max_length=7, blank=True, default='')
     notes = models.TextField('Observações', blank=True, default='')
+    # CLASSIFICACAO AUTOMATICA da carteira de contatos: ao ENCERRAR um atendimento, o
+    # contato que ainda nao tem setor nenhum herda o setor daquele atendimento (ver
+    # Contact.inherit_sector_if_unclassified). Existe porque classificar mil contatos
+    # a mao nao acontece: sem isto a carteira nasce vazia e continua vazia.
+    #
+    # Ligado por padrao, e desligavel pelo ADM em Permissoes -> Contatos: e escrita
+    # automatica em dado do cliente, entao ele precisa poder dizer "nao".
+    auto_classify_contacts = models.BooleanField(
+        'Classificar contatos automaticamente', default=True,
+    )
     is_active = models.BooleanField('Ativa', default=True)
     # A empresa padrao (dona de tudo o que existia antes do multiempresa). Nao
     # pode ser excluida nem desativada.
@@ -1034,6 +1044,36 @@ class Contact(models.Model):
         indexes = [
             models.Index(fields=['company', 'name'], name='contato_empresa_nome_idx'),
         ]
+
+    def inherit_sector_if_unclassified(self, sector):
+        """Classifica o contato no setor do atendimento que acabou de ser encerrado.
+
+        Devolve True quando classificou. Chamado no encerramento do atendimento (ver
+        `conversation_close_view`), e existe porque classificar mil contatos a mao nao
+        acontece — sem isto a carteira nasce vazia e fica vazia.
+
+        Duas travas que fazem isto ser seguro:
+
+        1. So age em contato SEM NENHUM SETOR. Nunca sobrescreve nem ACRESCENTA a uma
+           classificacao existente. Se acrescentasse, um contato que passou por cinco
+           setores acabaria nas cinco carteiras — visivel para todo mundo, o oposto do
+           que a carteira serve. E a escolha do ADM nunca e mexida por automatismo.
+        2. A empresa pode desligar (`Company.auto_classify_contacts`), porque isto e
+           escrita automatica em dado do cliente.
+
+        O primeiro atendimento encerrado define a carteira; dali em diante quem manda e
+        o ADM, na tela Contatos.
+        """
+        if sector is None or not getattr(self, 'company_id', None):
+            return False
+        if sector.company_id != self.company_id:
+            return False  # nunca classificar com setor de outra empresa
+        if not self.company.auto_classify_contacts:
+            return False
+        if self.sectors.exists():
+            return False
+        self.sectors.add(sector)
+        return True
 
     @property
     def display_name(self):

@@ -78,7 +78,7 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
 > `wapi/` é um módulo Python comum (importa `accounts.models`); **não** está em
 > `INSTALLED_APPS`, por isso os models ficam em `accounts/models.py`.
 
-## 3. Modelos (`accounts/models.py`) — migração atual: `0041`
+## 3. Modelos (`accounts/models.py`) — migração atual: `0042`
 
 > **Índices (migração `0036`)**: até ela, o único `db_index` do projeto era
 > `Conversation.external_id`. As FKs ganham índice sozinhas, mas as consultas reais
@@ -710,6 +710,23 @@ sai por duas rotas do Django:
     organizar a carteira sem varrer a lista inteira. Os setores do contato aparecem como
     selos **na própria linha**, porque é a classificação que explica por que um colega
     não está vendo a mesma lista.
+- **Classificação AUTOMÁTICA** (migração **`0042`**, ligada por padrão): ao **encerrar**
+  um atendimento, o contato que ainda **não tem setor nenhum** entra na carteira do setor
+  que encerrou. Existe porque classificar mil contatos à mão não acontece — sem isso a
+  carteira nasce vazia e continua vazia.
+  - **`Contact.inherit_sector_if_unclassified()`**, chamado em `conversation_close_view`
+    **antes** do `conversation.sector = None` daquela view: depois de encerrar, a
+    informação de qual setor atendeu já se perdeu.
+  - **Nunca sobrescreve nem ACRESCENTA** a uma classificação existente. Se acrescentasse,
+    um contato que passou por cinco setores acabaria nas cinco carteiras — visível para
+    todo mundo, o oposto do que a carteira serve — e a escolha do ADM seria mexida por
+    automatismo. O **primeiro** atendimento encerrado define a carteira; dali em diante
+    quem manda é o ADM.
+  - O setor que vale é o que **ENCERROU**, não o que abriu: transferido de Vendas para
+    Suporte e encerrado lá, a carteira é do Suporte.
+  - **Desligável** pelo ADM (`Company.auto_classify_contacts`), no interruptor no topo da
+    aba Permissões → Contatos — é escrita automática em dado do cliente, então ele
+    precisa poder dizer "não". Testes: `AutoClassifyContactTests`.
 - **LIMITE DO ESCOPO — leia antes de mexer:** a restrição vale **só nesta tela**.
   Conversa, transferência e o **nome que aparece no lugar do número** NÃO passam por
   `visible_contacts` e continuam com as regras próprias. Um contato de Vendas que
@@ -1108,7 +1125,7 @@ OPENAI_TIMEOUT=30
 ### Rodar os testes
 
 ```bash
-python manage.py test                              # tudo (610 testes, ~13 s)
+python manage.py test                              # tudo (620 testes, ~13 s)
 python manage.py test accounts.tests.master        # só um assunto
 python manage.py test accounts.tests.NomeDaClasse  # só uma classe
 ```

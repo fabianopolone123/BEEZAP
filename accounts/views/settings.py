@@ -11,6 +11,7 @@ from .common import (
     ALL_FEATURE_KEYS,
     Attendant,
     AttendantForm,
+    Company,
     Contact,
     ContactSectorAccess,
     Conversation,
@@ -505,6 +506,10 @@ def permissions_view(request):
             usuarios_validos = set(
                 company_users.filter(attendant_profile__isnull=False).values_list('id', flat=True)
             )
+            # O interruptor vem no MESMO formulario da aba (o autosave manda tudo).
+            Company.objects.filter(pk=company.pk).update(
+                auto_classify_contacts=bool(request.POST.get('auto_classify'))
+            )
             for sid in setor_ids:
                 sec_ids = [int(v) for v in request.POST.getlist(f'carteira__{sid}__sector')
                            if v.isdigit() and int(v) in validos and int(v) != sid]
@@ -747,6 +752,7 @@ def permissions_view(request):
             'role_options': role_options,
             'carteiras': carteiras_ctx,
             'contatos_sem_setor': sem_setor,
+            'auto_classify': company.auto_classify_contacts,
             'view_sectors': view_sectors_ctx,
             'view_selected': view_selected_ctx,
             'scope_levels': scope_levels,

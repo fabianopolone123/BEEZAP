@@ -1006,3 +1006,144 @@ class ContactAccessTabTests(TestCase):
     def test_atendente_nao_alcanca_a_tela(self):
         self.client.force_login(self.atendente)
         self.assertEqual(self.client.get(reverse('permissions')).status_code, 403)
+
+
+class AutoClassifyContactTests(TestCase):
+    """Classificacao automatica: ao ENCERRAR, o contato sem setor herda o setor.
+
+    Existe porque classificar mil contatos a mao nao acontece — sem isto a carteira
+    nasce vazia e fica vazia. As duas travas que fazem isto ser seguro sao o alvo
+    principal dos testes: so age em contato SEM NENHUM setor (nunca sobrescreve nem
+    acrescenta) e a empresa pode desligar.
+    """
+
+    def setUp(self):
+        from accounts.models import Company, Contact, Conversation, Sector
+        self.Contact = Contact
+        self.Conversation = Conversation
+        self.empresa = default_company()
+        self.vendas = Sector.objects.create(company=self.empresa, name='Vendas')
+        self.suporte = Sector.objects.create(company=self.empresa, name='Suporte')
+        self.adm = User.objects.create_user(
+            company=self.empresa, email='adm@x.com', password='x', role=User.Role.ADM)
+        self.client.force_login(self.adm)
+
+    def _conversa(self, setor, telefone='5516900000001', nome='Cliente'):
+        contato = self.Contact.objects.create(
+            company=self.empresa, name=nome, phone=telefone)
+        conversa = self.Conversation.objects.create(
+            company=self.empresa, contact=contato, external_id=telefone,
+            chat_type='private', status='open', sector=setor)
+        return contato, conversa
+
+    def _encerrar(self, conversa):
+        return self.client.post(
+            reverse('conversation-close', args=[conversa.pk]),
+            HTTP_X_REQUESTED_WITH='XMLHttpRequest')
+
+    def test_encerrar_classifica_o_contato_sem_setor(self):
+        contato, conversa = self._conversa(self.vendas)
+        self.assertEqual(self._encerrar(conversa).status_code, 200)
+        self.assertEqual([s.name for s in contato.sectors.all()], ['Vendas'])
+
+    def test_nao_mexe_em_contato_ja_classificado(self):
+        """A escolha do ADM nunca e sobrescrita — nem acrescentada.
+
+        Se acrescentasse, um contato que passou por cinco setores acabaria nas cinco
+        carteiras, visivel para todo mundo: o oposto do que a carteira serve.
+        """
+        contato, conversa = self._conversa(self.suporte)
+        contato.sectors.add(self.vendas)
+        self._encerrar(conversa)
+        self.assertEqual([s.name for s in contato.sectors.all()], ['Vendas'])
+
+    def test_empresa_pode_desligar(self):
+        from accounts.models import Company
+        Company.objects.filter(pk=self.empresa.pk).update(auto_classify_contacts=False)
+        contato, conversa = self._conversa(self.vendas)
+        self._encerrar(conversa)
+        self.assertEqual(list(contato.sectors.all()), [])
+
+    def test_conversa_sem_setor_nao_classifica_nada(self):
+        contato, conversa = self._conversa(None)
+        self._encerrar(conversa)
+        self.assertEqual(list(contato.sectors.all()), [])
+
+    def test_grupo_nao_tem_contato_para_classificar(self):
+        """Conversa de grupo nao tem contato: encerrar nao pode estourar."""
+        grupo = self.Conversation.objects.create(
+            company=self.empresa, external_id='120363000000000001@g.us',
+            chat_type='group', name='Equipe', status='open', sector=self.vendas)
+        self.assertEqual(self._encerrar(grupo).status_code, 200)
+
+    def test_o_setor_e_o_que_ENCERROU_nao_o_que_abriu(self):
+        """Transferido de Vendas para Suporte e encerrado la: a carteira e do Suporte."""
+        contato, conversa = self._conversa(self.vendas)
+        conversa.sector = self.suporte
+        conversa.save(update_fields=['sector'])
+        self._encerrar(conversa)
+        self.assertEqual([s.name for s in contato.sectors.all()], ['Suporte'])
+
+    def test_o_encerramento_continua_limpando_o_setor_da_conversa(self):
+        """A classificacao nao pode ter mudado o comportamento de encerrar."""
+        contato, conversa = self._conversa(self.vendas)
+        self._encerrar(conversa)
+        conversa.refresh_from_db()
+        self.assertEqual(conversa.status, 'closed')
+        self.assertIsNone(conversa.sector_id)
+
+    def test_setor_de_outra_empresa_nunca_classifica(self):
+        from accounts.models import Company, Sector
+        outra = Company.objects.create(name='Outra', slug='outra')
+        alheio = Sector.objects.create(company=outra, name='Alheio')
+        contato = self.Contact.objects.create(
+            company=self.empresa, name='Cliente', phone='5516900000002')
+        self.assertFalse(contato.inherit_sector_if_unclassified(alheio))
+        self.assertEqual(list(contato.sectors.all()), [])
+
+    def test_o_interruptor_aparece_e_salva(self):
+        from accounts.models import Company
+        corpo = self.client.get(reverse('permissions')).content.decode()
+        self.assertIn('name="auto_classify"', corpo)
+        # Vem marcado por padrao.
+        self.assertIn('name="auto_classify" checked', corpo)
+
+        # Salvar a aba sem a caixa marcada desliga.
+        self.client.post(reverse('permissions'), {'form_type': 'contact-access'},
+                         HTTP_X_REQUESTED_WITH='XMLHttpRequest')
+        self.assertFalse(Company.objects.get(pk=self.empresa.pk).auto_classify_contacts)
+
+        # E marcar de novo religa.
+        self.client.post(reverse('permissions'),
+                         {'form_type': 'contact-access', 'auto_classify': 'on'},
+                         HTTP_X_REQUESTED_WITH='XMLHttpRequest')
+        self.assertTrue(Company.objects.get(pk=self.empresa.pk).auto_classify_contacts)
+
+    def test_classificado_automaticamente_ja_entra_na_carteira_do_setor(self):
+        """Ponta a ponta: encerrou em Vendas -> quem e de Vendas passa a ver o contato."""
+        from accounts.permissions import visible_contacts
+        contato, conversa = self._conversa(self.vendas)
+        de_vendas = User.objects.create_user(
+            company=self.empresa, email='v@x.com', password='x', role=User.Role.USUARIO)
+        att = Attendant.objects.create(
+            company=self.empresa, user=de_vendas, name='V', must_change_password=False)
+        att.sectors.add(self.vendas)
+        do_suporte = User.objects.create_user(
+            company=self.empresa, email='s@x.com', password='x', role=User.Role.USUARIO)
+        att2 = Attendant.objects.create(
+            company=self.empresa, user=do_suporte, name='S', must_change_password=False)
+        att2.sectors.add(self.suporte)
+
+        # Antes de encerrar, sem setor: os dois veem.
+        self.assertIn('Cliente', [c.name for c in visible_contacts(
+            de_vendas, self.Contact.objects.all())])
+        self.assertIn('Cliente', [c.name for c in visible_contacts(
+            do_suporte, self.Contact.objects.all())])
+
+        self._encerrar(conversa)
+
+        # Depois: virou carteira de Vendas.
+        self.assertIn('Cliente', [c.name for c in visible_contacts(
+            de_vendas, self.Contact.objects.all())])
+        self.assertNotIn('Cliente', [c.name for c in visible_contacts(
+            do_suporte, self.Contact.objects.all())])

@@ -317,6 +317,22 @@
             {% endif %}
           </p>
 
+          {% comment %}
+          Interruptor da classificacao automatica. Fica DENTRO do mesmo formulario da
+          aba, entao o autosave que ja existe cuida dele.
+          {% endcomment %}
+          <label class="perm-auto-classify">
+            <input type="checkbox" name="auto_classify" {% if auto_classify %}checked{% endif %}>
+            <span>
+              <strong>Classificar automaticamente ao encerrar o atendimento</strong>
+              <small>
+                Contato que ainda não tem setor nenhum entra na carteira do setor que
+                encerrou o atendimento. Nunca mexe em contato já classificado — a sua
+                escolha manda.
+              </small>
+            </span>
+          </label>
+
           {% if not carteiras %}
             <p class="perm-note">Cadastre setores primeiro (menu Setores) para classificar contatos.</p>
           {% endif %}
