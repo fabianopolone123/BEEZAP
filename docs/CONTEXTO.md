@@ -47,6 +47,7 @@ accounts/          app principal: models, urls, forms, admin, middleware,
                    export.py (ZIP de portabilidade do cliente),
                    context_processors.py (marca do cliente),
                    checks.py, signals.py, test_runner.py,
+                   webpush.py (aviso de nova mensagem — ver seção 5.4),
                    templatetags/beeonboard_assets.py ({% asset %}),
                    management/commands/, templates de accounts
 accounts/views/    PACOTE de views por assunto (era um arquivo de 3.875 linhas):
@@ -58,16 +59,19 @@ accounts/views/    PACOTE de views por assunto (era um arquivo de 3.875 linhas):
                      settings.py       IA, chatbot, WhatsApp, Permissões, Setores
                      company.py        Marca, Meus dados, exportação (do cliente)
                      master.py         Clientes, Gestores, Métricas (do master)
+                     push.py           service worker + inscrição do Web Push
                      webhook.py        porta de entrada da W-API
                    `__init__.py` reexporta tudo: `from .views import X` não mudou.
 accounts/tests/    PACOTE de testes por assunto (era um arquivo de 6.701 linhas):
                      base.py (imports + `default_company()`), acesso, permissoes,
-                     conversas, atendimento, wapi, master, infra
+                     conversas, atendimento, wapi, master, push, infra
 wapi/              MÓDULO (não é app instalado): client.py, parser.py, services.py, formatting.py
 gpt/               MÓDULO (não é app): client.py, attendant.py (atendente virtual IA)
 chatbot/           MÓDULO (não é app): handler.py (chatbot de menu, sem IA)
-static/css/        CSS por página (dashboard.css, conversations.css, clients.css, ...)
-static/js/         conversations.js (o comportamento da tela Conversas)
+static/css/        CSS por página (dashboard.css, conversations.css, clients.css,
+                   dashboard_detail.css = janela de detalhe das métricas, ...)
+static/js/         conversations.js (tela Conversas)
+                   dashboard.js      (clique nas métricas do Dashboard)
 templates/accounts/_logout_form.html   botão Sair (POST + CSRF)
 templates/         base.html + accounts/*.html
                    (accounts/_sidebar.html = barra lateral única, incluída por todas)
@@ -96,6 +100,8 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
 - **Company**: a **EMPRESA CLIENTE** (uma "instância" do sistema): dados cadastrais,
   CNPJ, logo, cor de destaque e `is_active`. `get_default()` devolve a **empresa
   padrão**, que não pode ser excluída nem desativada. Ver seção 16.
+  **`auto_classify_contacts`** (migração `0042`, ligado por padrão): liga/desliga a
+  classificação automática da carteira de contatos — ver seção 5.1.
 - **User** (AbstractUser, login por e-mail; `role`:
   `master`/`adm`/`usuario`/`leitor`). **`company`** = empresa da pessoa; **nulo =
   gestor master** (dono da plataforma, fica acima das empresas e não lê conversas).
@@ -116,6 +122,12 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
   campo `full_history` saiu na migração `0038`: o controle de "ver conversa inteira"
   migrou para `Sector.view_full_history` / `UserConversationView.view_full_history`.)*
 - **GroupAccess**: quem pode ver um grupo do WhatsApp (M2M com setores e usuários).
+- **ContactSectorAccess** (migração `0041`): quem, **além do próprio setor**, vê a
+  **carteira de contatos** daquele setor (M2M com setores e usuários). Uma linha por
+  **SETOR**, não por contato — ver seção 5.1 e a aba Contatos na seção 15.
+- **PushSubscription** (migração `0040`): inscrição de **Web Push** de um navegador
+  (`endpoint` único, `p256dh`, `auth`). É o que permite o aviso de nova mensagem chegar
+  com a aba em segundo plano — ver seção 5.4.
   Sem regra, o grupo só aparece para o admin. Ver seção 15.
 - **Sector** (setores; M2M com Attendant; usado em transferência/roteamento manual).
   Na tela Setores, um atendente pode ficar em **vários setores** (fica sempre na
@@ -194,8 +206,8 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
   Ver seção 14.
 - **MenuOption**: uma opção do menu (`config` FK, `order` = número que o cliente
   digita, `label`, `sector` FK). `key` = `order`.
-- **Contact**: `name`, `phone` (único, guardado **só em dígitos**), `display_name`,
-  `initials`. É a base da tela **Contatos** e da resolução de nomes: criado
+- **Contact**: `name`, `phone` (único, guardado **só em dígitos**), **`sectors`**
+  (M2M, migração `0041` — a "carteira"; ver seção 5.1), `display_name`, `initials`. É a base da tela **Contatos** e da resolução de nomes: criado
   **automaticamente** na 1ª mensagem de uma conversa **direta**, mas **SEM nome**
   (`name=''`) — o nome **nunca** vem do WhatsApp (pushName). Enquanto ninguém
   cadastrar, `display_name` cai para o **número**, então Conversas mostra o número; o
@@ -1108,7 +1120,21 @@ OPENAI_BASE_URL=https://api.openai.com
 OPENAI_API_KEY=                   # opcional (fallback; o normal é cadastrar na tela)
 OPENAI_MODEL=gpt-4.1-nano         # modelo padrão (o mais barato)
 OPENAI_TIMEOUT=30
+# AVISO DE NOVA MENSAGEM (Web Push) — sem estas chaves o pop-up NÃO chega com a aba
+# em segundo plano, e o `check` avisa (beezap.W003). Gerar UMA vez, no servidor:
+#   python manage.py gerar_chaves_vapid
+# Trocar o par obriga TODOS os navegadores a se inscreverem de novo. Ver seção 5.4.
+WEBPUSH_VAPID_PUBLIC_KEY=...
+WEBPUSH_VAPID_PRIVATE_KEY=...     # SEGREDO: nunca versionar
+WEBPUSH_VAPID_SUBJECT=mailto:contato@fabianopolone.com.br
 ```
+
+**Avisos do `manage.py check`** (nenhum deles impede o sistema de subir):
+`beezap.W001` = ffmpeg fora do PATH (envio de áudio gravado e de imagem
+webp/gif/bmp/heic falha); `beezap.W002` = o `.env` ainda tem credencial de W-API com
+mais de um cliente cadastrado; `beezap.W003` = chaves VAPID ausentes (o aviso de nova
+mensagem fica inerte). **No ambiente local é normal ver W001 e W003** — não são
+regressão.
 
 ## 8. Fluxo de trabalho obrigatório (ver `CODEX_PADROES.md` e `GIT.md`)
 

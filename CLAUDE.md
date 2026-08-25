@@ -64,9 +64,15 @@ W-API, API Key do GPT, senha).
 
 ## Ambiente
 
-- Local: venv em `./venv` — usar `.\venv\Scripts\python.exe manage.py ...`. Sem
-  `.env` local (SQLite + `DEBUG=True` por padrão). **ffmpeg não instalado** aqui, então
-  `manage.py check` sempre emite o aviso `beezap.W001` — é esperado, não é regressão.
+- Local: venv na raiz do projeto — **confira o nome antes**, pode ser `venv\` ou
+  `.venv\` (na máquina de desenvolvimento atual é **`.venv`**): usar
+  `.\.venv\Scripts\python.exe manage.py ...`. Sem `.env` local (SQLite +
+  `DEBUG=True` por padrão), e o `db.sqlite3` local pode estar **sem migrações
+  aplicadas** — a suíte de testes usa banco próprio, então testar não exige `migrate`.
+- **Dois avisos do `check` são ESPERADOS no local e não são regressão:**
+  `beezap.W001` (ffmpeg fora do PATH — o envio de áudio gravado e de imagem
+  webp/gif/bmp/heic falha) e `beezap.W003` (chaves VAPID ausentes — o aviso de nova
+  mensagem por Web Push fica inerte). Em produção os dois estão resolvidos.
 - Produção: VPS Linux em `https://fabianopolone.com.br/beeonboard/`, app em
   `/var/www/beezap`, deploy com `bash deploy/deploy.sh`. **Todo deploy reinicia o
   gunicorn e confirma que os PIDs reciclaram** (com `DEBUG=False` o template fica em
