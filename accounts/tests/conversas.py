@@ -1393,3 +1393,65 @@ class MessageWindowTests(TestCase):
         url = reverse('conversation-messages', args=[grupo.pk])
         dados = self.client.get(url).json()
         self.assertEqual(dados['messages'][0]['sender_name'], 'Participante Fulano')
+
+
+class MergeConversationsIsScopedByCompanyTests(TestCase):
+    """`merge_contact_conversations` nao pode unificar conversas de empresas
+    diferentes.
+
+    O JID do WhatsApp e GLOBAL: duas empresas clientes podem falar com o mesmo
+    grupo (ou o mesmo @lid). A chave de agrupamento das conversas SEM contato era
+    `(external_id, chat_type)`, sem a empresa — o comando juntaria o atendimento das
+    duas numa conversa so. E o unico comando que escreve unificando conversas.
+
+    A duplicata que motivou o teste apareceu de verdade: o `inspect_wapi_groups`
+    listou o grupo `120363257947973768@g.us` DUAS vezes na mesma empresa (dois
+    webhooks do mesmo grupo novo chegando juntos criam duas conversas, porque
+    `get_or_create_conversation` consulta e depois cria).
+    """
+
+    GRUPO = '120363257947973768@g.us'
+
+    def setUp(self):
+        from accounts.models import Company, Conversation
+        self.Conversation = Conversation
+        self.empresa_a = default_company()
+        self.empresa_b = Company.objects.create(name='Vizinha', slug='vizinha')
+
+    def _criar(self, empresa, nome=''):
+        return self.Conversation.objects.create(
+            company=empresa, external_id=self.GRUPO, chat_type='group',
+            name=nome, status='open',
+        )
+
+    def test_nao_junta_o_mesmo_grupo_de_empresas_diferentes(self):
+        from django.core.management import call_command
+        a = self._criar(self.empresa_a, 'Grupo da A')
+        b = self._criar(self.empresa_b, 'Grupo da B')
+        call_command('merge_contact_conversations', '--apply')
+        self.assertTrue(self.Conversation.objects.filter(pk=a.pk).exists())
+        self.assertTrue(self.Conversation.objects.filter(pk=b.pk).exists())
+        self.assertEqual(
+            self.Conversation.objects.filter(external_id=self.GRUPO).count(), 2
+        )
+
+    def test_junta_a_duplicata_dentro_da_mesma_empresa(self):
+        from django.core.management import call_command
+        from accounts.models import Message
+        antiga = self._criar(self.empresa_a, 'Compra e vendas')
+        nova = self._criar(self.empresa_a)
+        Message.objects.create(
+            conversation=nova, direction='in', message_type='text', text='oi')
+        # Uma conversa de OUTRA empresa no meio nao pode ser arrastada.
+        vizinha = self._criar(self.empresa_b, 'Grupo da B')
+
+        call_command('merge_contact_conversations', '--apply')
+
+        self.assertEqual(
+            self.Conversation.objects.filter(company=self.empresa_a,
+                                             external_id=self.GRUPO).count(), 1)
+        self.assertTrue(self.Conversation.objects.filter(pk=antiga.pk).exists())
+        self.assertFalse(self.Conversation.objects.filter(pk=nova.pk).exists())
+        self.assertTrue(self.Conversation.objects.filter(pk=vizinha.pk).exists())
+        # A mensagem da duplicata foi para a conversa canonica.
+        self.assertTrue(Message.objects.filter(conversation=antiga, text='oi').exists())

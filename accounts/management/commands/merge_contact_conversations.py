@@ -1,5 +1,10 @@
 """Unifica conversas picotadas: um unico chat por pessoa/grupo (padrao WhatsApp).
 
+Serve para dois casos: o historico (encerrar um atendimento criava uma conversa
+nova na mensagem seguinte) e as DUPLICATAS de grupo — duas mensagens do mesmo grupo
+novo chegando quase juntas fazem dois webhooks criarem duas conversas, porque
+`get_or_create_conversation` consulta e depois cria, sem unicidade no banco.
+
 Antes, ao encerrar um atendimento, a proxima mensagem do mesmo contato criava uma
 NOVA `Conversation`. Este comando junta essas conversas separadas do mesmo contato
 (ou grupo/LID) em um unico chat, na ordem cronologica, inserindo uma divisoria
@@ -31,15 +36,22 @@ class Command(BaseCommand):
     def _groups(self):
         """Agrupa conversas que representam o MESMO chat.
 
-        - com contato: por contact_id.
-        - sem contato (grupo / @lid): por (external_id, chat_type).
+        - com contato: por contact_id (o contato ja pertence a uma empresa).
+        - sem contato (grupo / @lid): por (EMPRESA, external_id, chat_type).
+
+        MULTIEMPRESA: a empresa entra na chave. Sem ela, duas empresas clientes que
+        conversam com o MESMO grupo (ou o mesmo @lid) — o JID do WhatsApp e global —
+        teriam as suas conversas unificadas numa so, misturando o atendimento de
+        clientes diferentes. E o unico comando que ESCREVE juntando conversas, entao
+        aqui o escopo nao pode faltar.
+
         Retorna apenas grupos com mais de uma conversa (os que precisam unificar)."""
         by_key = defaultdict(list)
         for conv in Conversation.objects.all():
             if conv.contact_id:
                 key = ('contact', conv.contact_id)
             elif conv.external_id:
-                key = ('external', conv.chat_type, conv.external_id)
+                key = ('external', conv.company_id, conv.chat_type, conv.external_id)
             else:
                 continue  # sem chave de agrupamento -> deixa como esta
             by_key[key].append(conv)

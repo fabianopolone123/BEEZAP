@@ -913,7 +913,7 @@ OPENAI_TIMEOUT=30
 ### Rodar os testes
 
 ```bash
-python manage.py test                              # tudo (515 testes, ~13 s)
+python manage.py test                              # tudo (517 testes, ~13 s)
 python manage.py test accounts.tests.master        # só um assunto
 python manage.py test accounts.tests.NomeDaClasse  # só uma classe
 ```
@@ -962,7 +962,7 @@ cleanup_unknown_messages [--delete]     # remove mensagens de tipo 'unknown' (si
 cleanup_nonpersonal_conversations [--delete]  # remove conversas de canal/transmissão/"status"
 cleanup_pushname_contacts [--apply]     # limpa nome herdado do pushName (contato volta a aparecer pelo NÚMERO)
 link_lid_contacts [--apply]             # conversas diretas @lid antigas: acha o telefone real no histórico e anexa o Contato
-merge_contact_conversations [--apply]   # unifica conversas picotadas em 1 chat por pessoa/grupo (dry-run)
+merge_contact_conversations [--apply]   # unifica conversas picotadas E duplicatas de grupo (1 chat por pessoa/grupo POR EMPRESA; dry-run)
 seed_demo_data [--no-clear]             # popula DEMO: 5 setores/atendentes + conversas 7 dias (preserva admin/config)
 prune_wapi_events [--dias 90] [--dias-apagar 365] [--empresa X] [--apply]
                                         # RETENCAO: esvazia o payload bruto de eventos antigos e apaga os muito velhos
@@ -1369,6 +1369,16 @@ esconder o botão também bloqueia a URL.
     A lista de grupos é **dirigida por mensagem recebida** (um grupo aparece quando
     chega mensagem dele; não vem do `get-all-groups`), então grupos onde o número saiu
     podem ser removidos daqui; se chegar nova mensagem, o grupo reaparece.
+  - **Grupo DUPLICADO na lista.** `get_or_create_conversation` **consulta e depois
+    cria**, e não há unicidade no banco (`Conversation` só tem índices, nenhuma
+    `UniqueConstraint`), então duas mensagens de um grupo **novo** chegando quase
+    juntas fazem dois webhooks criarem **duas conversas com o mesmo `external_id`** —
+    o histórico do grupo racha entre as duas. Aconteceu de verdade com
+    `120363257947973768@g.us`. Quem junta é o `merge_contact_conversations`
+    (dry-run por padrão), que agrupa as conversas **sem contato** por
+    **(empresa, `external_id`, `chat_type`)** — a empresa entra na chave porque o JID
+    do WhatsApp é **global** e duas empresas clientes podem falar com o mesmo grupo;
+    sem ela o comando misturaria o atendimento das duas (`MergeConversationsIsScopedByCompanyTests`).
   - **Por que um grupo fica mostrando `Grupo <id>`?** O nome é buscado na W-API
     **uma única vez, na CRIAÇÃO da conversa** (`resolve_group_name` dentro de
     `get_or_create_conversation`), a não ser que o próprio webhook traga o nome
