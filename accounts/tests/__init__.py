@@ -11,6 +11,7 @@ custava rolar um arquivo de 6 mil linhas — e o arquivo inteiro entrava no cont
     atendimento.py   Atendimento automatico (IA e chatbot de menu), setores e
     wapi.py          Recebimento da W-API: parser, webhook e ingestao das mensagens.
     master.py        Gestor master: Clientes, Gestores, Metricas, exportacao e o
+    busca.py         Tela Pesquisar: texto dentro das mensagens + filtros.
     push.py          Aviso de nova mensagem (Web Push): inscricao e destinatarios.
     infra.py         Configuracao, comandos de management, versionamento de estaticos,
 
@@ -25,5 +26,6 @@ from .conversas import *  # noqa: F401,F403
 from .atendimento import *  # noqa: F401,F403
 from .wapi import *  # noqa: F401,F403
 from .master import *  # noqa: F401,F403
+from .busca import *  # noqa: F401,F403
 from .push import *  # noqa: F401,F403
 from .infra import *  # noqa: F401,F403

@@ -40,6 +40,8 @@ from .views import (
     push_public_key_view,
     push_subscribe_view,
     push_unsubscribe_view,
+    search_results_view,
+    search_view,
     sectors_view,
     service_worker_view,
     wapi_webhook_events_view,
@@ -85,6 +87,9 @@ urlpatterns = [
     # Lista por tras de um numero do Dashboard (a janela que abre ao clicar no card
     # ou no grafico). Ver accounts/views/dashboard.py.
     path('dashboard/detalhe/', dashboard_metric_detail_view, name='dashboard-metric-detail'),
+    # Tela Pesquisar (garimpa o historico) + o endpoint que devolve o resultado.
+    path('pesquisar/', search_view, name='search'),
+    path('pesquisar/resultado/', search_results_view, name='search-results'),
     path('setores/', sectors_view, name='sectors'),
     path('setores/salvar/', sectors_save_organization_view, name='sectors-save'),
     path('atendentes/', attendants_view, name='attendants'),

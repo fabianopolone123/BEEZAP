@@ -1,0 +1,136 @@
+{% extends "base.html" %}
+{% load static %}
+{% load beeonboard_assets %}
+
+{% block title %}Pesquisar | BEEonBOARD{% endblock %}
+{% block extra_head %}
+<link rel="stylesheet" href="{% asset 'css/dashboard.css' %}">
+<link rel="stylesheet" href="{% asset 'css/search.css' %}">
+{% endblock %}
+
+{% block content %}
+<main class="dashboard-shell">
+  {% include "accounts/_sidebar.html" %}
+
+  <section class="dashboard-main">
+    <div class="search-page">
+      <header class="topbar">
+        <div class="topbar-left">
+          <button class="icon-button" type="button" aria-label="Abrir menu">☰</button>
+          <div>
+            <p class="page-kicker">Atendimento</p>
+            <h1>Pesquisar</h1>
+          </div>
+        </div>
+
+        <div class="topbar-right">
+          <div class="profile-chip">
+            <div class="profile-avatar">{{ user_initial }}</div>
+            <div>
+              <strong>{{ request.user.get_full_name|default:request.user.email }}</strong>
+              <span>{{ role_label }}</span>
+            </div>
+          </div>
+          {% include 'accounts/_logout_form.html' %}
+        </div>
+      </header>
+
+      {% comment %}
+      A barra de busca é a tela. Sem botão "Pesquisar": digita e o resultado vem (o JS
+      espera 300 ms). O campo de texto procura DENTRO das mensagens e também no nome do
+      contato/grupo — quem digita "nota fiscal" quer uma coisa, quem digita "Joana"
+      quer outra, e não deveria precisar saber a diferença.
+      {% endcomment %}
+      <section class="search-bar">
+        <div class="search-main-field">
+          <span class="search-icon" aria-hidden="true">🔎</span>
+          <input type="search" data-search-q autocomplete="off"
+                 placeholder="Buscar em conversas: palavra, nome, número..."
+                 aria-label="Buscar em conversas">
+          <button type="button" class="search-clear" data-search-clear hidden
+                  aria-label="Limpar busca">&times;</button>
+        </div>
+
+        <div class="search-filters">
+          <label class="search-filter">
+            <span>Atendente</span>
+            <select data-search-filter="atendente">
+              <option value="">Todos</option>
+              {% for u in atendentes %}
+                <option value="{{ u.attendant_profile.id }}">{{ u.attendant_profile.name|default:u.email }}</option>
+              {% endfor %}
+            </select>
+          </label>
+
+          <label class="search-filter">
+            <span>Setor</span>
+            <select data-search-filter="setor">
+              <option value="">Todos</option>
+              {% for s in setores %}
+                <option value="{{ s.id }}">{{ s.name }}</option>
+              {% endfor %}
+            </select>
+          </label>
+
+          <label class="search-filter">
+            <span>Estado</span>
+            <select data-search-filter="status">
+              <option value="">Todos</option>
+              {% for valor, rotulo in status_options %}
+                <option value="{{ valor }}">{{ rotulo }}</option>
+              {% endfor %}
+            </select>
+          </label>
+
+          <label class="search-filter">
+            <span>Tipo</span>
+            <select data-search-filter="tipo">
+              <option value="">Todos</option>
+              <option value="diretas">Diretas</option>
+              <option value="grupos">Grupos</option>
+            </select>
+          </label>
+
+          <label class="search-filter">
+            <span>Contato</span>
+            <input type="text" data-search-filter="contato" placeholder="nome ou número"
+                   autocomplete="off">
+          </label>
+
+          <label class="search-filter">
+            <span>De</span>
+            <input type="date" data-search-filter="de">
+          </label>
+
+          <label class="search-filter">
+            <span>Até</span>
+            <input type="date" data-search-filter="ate">
+          </label>
+
+          <button type="button" class="search-reset" data-search-reset>Limpar filtros</button>
+        </div>
+      </section>
+
+      <p class="search-summary" data-search-summary></p>
+
+      <section class="search-results" data-search-results>
+        <div class="search-hint">
+          <span class="search-hint-icon" aria-hidden="true">💡</span>
+          <div>
+            <strong>Comece a digitar.</strong>
+            <span>
+              A busca olha o conteúdo das mensagens e o nome do contato. Os filtros
+              acima funcionam sozinhos também — por exemplo, tudo do setor Financeiro
+              em julho.
+            </span>
+          </div>
+        </div>
+      </section>
+    </div>
+  </section>
+</main>
+
+<script src="{% asset 'js/search.js' %}" defer
+        data-results-url="{% url 'search-results' %}"
+        data-conversations-url="{% url 'conversations' %}"></script>
+{% endblock %}

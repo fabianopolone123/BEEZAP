@@ -1,0 +1,338 @@
+/* Tela Pesquisar. Raiz própria (.search-page) para não afetar as outras telas que
+   reaproveitam dashboard.css. Herda os tokens (--card-bg, --shadow, --muted, ...). */
+
+.search-page {
+  display: grid;
+  gap: 14px;
+  align-content: start;
+}
+
+/* ---------- A barra de busca É a tela ---------- */
+.search-bar {
+  display: grid;
+  gap: 12px;
+  padding: 18px;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 22px;
+  box-shadow: var(--shadow);
+}
+
+.search-main-field {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.search-icon {
+  position: absolute;
+  left: 16px;
+  font-size: 1.05rem;
+  pointer-events: none;
+  opacity: 0.7;
+}
+
+.search-main-field input {
+  width: 100%;
+  padding: 15px 46px;
+  border: 1px solid rgba(100, 116, 139, 0.22);
+  border-radius: 16px;
+  background: #fff;
+  color: var(--text);
+  font: inherit;
+  font-size: 1.02rem;
+  outline: none;
+  transition: border-color 0.14s ease, box-shadow 0.14s ease;
+}
+
+.search-main-field input:focus {
+  border-color: rgba(33, 194, 94, 0.65);
+  box-shadow: 0 0 0 4px rgba(33, 194, 94, 0.12);
+}
+
+.search-clear {
+  position: absolute;
+  right: 10px;
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.06);
+  color: var(--text);
+  font-size: 1.15rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.search-clear:hover { background: rgba(15, 23, 42, 0.13); }
+
+.search-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: flex-end;
+}
+
+.search-filter {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.search-filter > span {
+  font-size: 0.74rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--muted);
+}
+
+.search-filter select,
+.search-filter input {
+  padding: 9px 11px;
+  border: 1px solid rgba(100, 116, 139, 0.22);
+  border-radius: 12px;
+  background: #fff;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.88rem;
+  max-width: 190px;
+}
+
+.search-filter select:focus,
+.search-filter input:focus {
+  outline: none;
+  border-color: rgba(45, 108, 223, 0.55);
+}
+
+.search-reset {
+  margin-left: auto;
+  padding: 9px 15px;
+  border: 0;
+  border-radius: 12px;
+  background: rgba(100, 116, 139, 0.12);
+  color: #475569;
+  font: inherit;
+  font-weight: 700;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.search-reset:hover { background: rgba(100, 116, 139, 0.2); }
+
+.search-summary {
+  margin: 0;
+  padding: 0 4px;
+  color: var(--muted);
+  font-size: 0.86rem;
+  min-height: 1.1em;
+}
+
+/* ---------- Resultados ---------- */
+.search-results {
+  display: grid;
+  gap: 10px;
+}
+
+.search-results[aria-busy="true"] { opacity: 0.55; }
+
+.search-row {
+  display: grid;
+  gap: 10px;
+  width: 100%;
+  padding: 14px 16px;
+  border: 1px solid var(--card-border);
+  border-radius: 18px;
+  background: var(--card-bg);
+  box-shadow: 0 8px 22px rgba(10, 22, 54, 0.06);
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: transform 0.14s ease, box-shadow 0.14s ease, border-color 0.14s ease;
+}
+
+.search-row:hover,
+.search-row:focus-visible {
+  transform: translateY(-1px);
+  border-color: rgba(33, 194, 94, 0.42);
+  box-shadow: 0 14px 32px rgba(10, 22, 54, 0.12);
+  outline: none;
+}
+
+.search-row-head {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr) auto;
+  gap: 11px;
+  align-items: center;
+}
+
+.search-avatar {
+  width: 42px;
+  height: 42px;
+  border-radius: 14px;
+  display: grid;
+  place-items: center;
+  font-weight: 700;
+  font-size: 0.86rem;
+  color: #fff;
+  background: linear-gradient(135deg, var(--primary), var(--primary-deep));
+}
+
+.search-avatar.is-group {
+  background: linear-gradient(135deg, #7c3aed, #4c1d95);
+}
+
+.search-row-id { min-width: 0; }
+
+.search-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.search-badge {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: rgba(124, 58, 237, 0.12);
+  color: #6d28d9;
+  font-size: 0.66rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.search-meta {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 0.82rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.search-chip {
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.search-chip.is-open { background: rgba(33, 194, 94, 0.14); color: var(--primary-deep); }
+.search-chip.is-pending { background: rgba(244, 183, 64, 0.18); color: #92400e; }
+.search-chip.is-closed { background: rgba(100, 116, 139, 0.14); color: #475569; }
+
+.search-last {
+  display: block;
+  padding-left: 53px;
+  color: var(--muted);
+  font-size: 0.86rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Os trechos que casaram: é a prova de por que a conversa apareceu. */
+.search-excerpts {
+  display: grid;
+  gap: 7px;
+  padding-left: 53px;
+}
+
+.search-excerpt {
+  display: block;
+  padding: 8px 11px;
+  border-radius: 12px;
+  border-left: 3px solid var(--primary);
+  background: rgba(33, 194, 94, 0.06);
+}
+
+.search-excerpt.is-out {
+  border-left-color: var(--blue);
+  background: rgba(45, 108, 223, 0.06);
+}
+
+.search-excerpt-meta {
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--muted);
+  margin-bottom: 2px;
+}
+
+.search-excerpt-text {
+  display: block;
+  font-size: 0.88rem;
+  line-height: 1.45;
+  word-break: break-word;
+}
+
+.search-excerpt mark {
+  padding: 0 2px;
+  border-radius: 4px;
+  background: #fde68a;
+  color: #713f12;
+  font-weight: 700;
+}
+
+.search-more {
+  font-size: 0.79rem;
+  font-weight: 700;
+  color: var(--primary-deep);
+}
+
+/* ---------- Dica e vazio ---------- */
+.search-hint,
+.search-empty {
+  background: var(--card-bg);
+  border: 1px dashed rgba(100, 116, 139, 0.3);
+  border-radius: 18px;
+}
+
+.search-hint {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 20px;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.search-hint strong { display: block; }
+.search-hint span { color: var(--muted); }
+.search-hint-icon { font-size: 1.3rem; }
+
+.search-empty {
+  display: grid;
+  gap: 5px;
+  justify-items: center;
+  padding: 46px 20px;
+  text-align: center;
+  color: var(--muted);
+}
+
+.search-empty span[aria-hidden] { font-size: 1.9rem; }
+.search-empty strong { color: var(--text); font-size: 1rem; }
+
+/* ---------- Responsivo ---------- */
+@media (max-width: 900px) {
+  .search-filter select,
+  .search-filter input { max-width: none; width: 100%; }
+  .search-filter { flex: 1 1 150px; }
+  .search-reset { margin-left: 0; width: 100%; }
+}
+
+@media (max-width: 620px) {
+  .search-bar { padding: 14px; border-radius: 18px; }
+  .search-main-field input { font-size: 1rem; padding: 13px 42px; }
+  .search-last,
+  .search-excerpts { padding-left: 0; }
+  .search-row-head { grid-template-columns: 38px minmax(0, 1fr); }
+  .search-chip { grid-column: 2; justify-self: start; }
+  .search-avatar { width: 38px; height: 38px; }
+}

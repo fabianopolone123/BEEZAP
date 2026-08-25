@@ -60,11 +60,12 @@ accounts/views/    PACOTE de views por assunto (era um arquivo de 3.875 linhas):
                      company.py        Marca, Meus dados, exportação (do cliente)
                      master.py         Clientes, Gestores, Métricas (do master)
                      push.py           service worker + inscrição do Web Push
+                     search.py         tela Pesquisar (garimpa o histórico)
                      webhook.py        porta de entrada da W-API
                    `__init__.py` reexporta tudo: `from .views import X` não mudou.
 accounts/tests/    PACOTE de testes por assunto (era um arquivo de 6.701 linhas):
                      base.py (imports + `default_company()`), acesso, permissoes,
-                     conversas, atendimento, wapi, master, push, infra
+                     conversas, atendimento, wapi, master, push, busca, infra
 wapi/              MÓDULO (não é app instalado): client.py, parser.py, services.py, formatting.py
 gpt/               MÓDULO (não é app): client.py, attendant.py (atendente virtual IA)
 chatbot/           MÓDULO (não é app): handler.py (chatbot de menu, sem IA)
@@ -72,6 +73,7 @@ static/css/        CSS por página (dashboard.css, conversations.css, clients.cs
                    dashboard_detail.css = janela de detalhe das métricas, ...)
 static/js/         conversations.js (tela Conversas)
                    dashboard.js      (clique nas métricas do Dashboard)
+                   search.js         (tela Pesquisar: busca ao digitar)
 templates/accounts/_logout_form.html   botão Sair (POST + CSRF)
 templates/         base.html + accounts/*.html
                    (accounts/_sidebar.html = barra lateral única, incluída por todas)
@@ -966,6 +968,63 @@ O pop-up chega com o navegador fechado, mas **não** com o computador desligado 
 sistema operacional estiver com o modo "não perturbe"/Assistente de Foco ligado — isso é
 do S.O., não do sistema. Testes: `accounts/tests/push.py`.
 
+## 5.5. Tela Pesquisar (`templates/accounts/search.html` + `search.css` + `js/search.js`)
+
+Rota `pesquisar/` (`search_view`, nome de rota `search`) + `pesquisar/resultado/`
+(`search_results_view`, JSON). Botão **Pesquisar** 🔎 na barra lateral, gateado pela
+feature **`search`**.
+
+**O problema que resolve:** o sistema guardava o histórico todo e não havia como
+garimpar nele. Para responder *"em que conversa falaram de nota fiscal em julho?"* só
+restava abrir conversa por conversa.
+
+### Como funciona
+
+- **Campo de texto** procura **dentro das mensagens** *e* na identificação da conversa
+  (nome do contato, telefone, nome do grupo). Quem digita "nota fiscal" quer uma coisa,
+  quem digita "Joana" quer outra — e não deveria precisar saber a diferença.
+- **Filtros**: atendente, setor, estado, tipo (diretas/grupos), contato (texto: nome ou
+  número), **de** e **até**. Funcionam **sozinhos**, sem texto — "tudo do Financeiro em
+  julho" é uma busca válida.
+- **Busca ao digitar** (300 ms de espera no JS). Sem botão "Pesquisar".
+- **O resultado é sempre CONVERSAS**, nunca uma aba separada de mensagens: a pergunta
+  real é "qual conversa?". Cada linha mostra até **3 trechos que casaram**, com o termo
+  **realçado**, mais "+N outras mensagens nesta conversa" — a resposta e a prova juntas.
+- Clicar na linha abre aquela conversa (`conversas/?conversa=<id>`).
+- A data filtra pela **atividade** da conversa (última mensagem), que é o que a pessoa
+  tem em mente ao dizer "aquela conversa de julho".
+
+### Decisões que não são óbvias
+
+- **Escopo é regra, não filtro.** Tudo passa por `visible_conversations` — quem recebe o
+  botão mas tem alcance restrito **não** garimpa a conversa dos outros. Liberar a tela
+  não vira "ver tudo". O gestor master leva 403 (é feature de empresa).
+- **Não entra no padrão de `usuario`/`leitor`.** Só o ADM tem por padrão
+  (`DEFAULT_ROLE_KEYS['adm']` = todas as features); a liberação é decisão dele na aba
+  "Botões do perfil".
+- **Tetos, para a tela responder em vez de "carregar"**: `SEARCH_LIMIT = 40` conversas,
+  `MESSAGE_SCAN = 400` mensagens varridas para agrupar, `MIN_QUERY = 2` letras (texto
+  curto casa com quase tudo e só custa varredura). O rodapé mostra "Mostrando 40 de N".
+- **Mensagem de SISTEMA não conta** (as divisórias "Atendimento encerrado" / "Novo
+  atendimento iniciado" não são conteúdo de conversa).
+- **O trecho vem centrado na ocorrência** (`_excerpt`, ±70 caracteres com reticências):
+  uma mensagem de 2 mil caracteres não viaja inteira para a tela.
+- **Realce feito no JS depois de escapar o HTML** — o texto vem do cliente final, então
+  escapar primeiro e só então injetar `<mark>` não é detalhe: é o que impede o conteúdo
+  de uma mensagem virar marcação na tela.
+- **Requisição numerada** (`pedido`): só a resposta do pedido mais novo é desenhada. Sem
+  isso, a resposta lenta de "not" chegaria depois de "nota" e sobrescreveria o resultado
+  certo.
+
+### Limite conhecido
+
+A busca por conteúdo é `icontains`, que no SQLite é **varredura** (não há índice de
+texto). Com o volume atual isso é imperceptível, e os tetos acima limitam o custo. Se um
+dia ficar lento, o próximo passo é **FTS5** do SQLite (tabela virtual de índice de
+texto) — não mais índice comum, que não serve para `LIKE '%x%'`.
+
+Testes: `accounts/tests/busca.py` (`SearchScreenTests`).
+
 ## 6. Deploy no VPS (LEIA — tem armadilhas específicas)
 
 - App em `/var/www/beezap/`, serviço systemd **`beezap`**, gunicorn em
@@ -1159,7 +1218,7 @@ regressão.
 ### Rodar os testes
 
 ```bash
-python manage.py test                              # tudo (624 testes, ~13 s)
+python manage.py test                              # tudo (651 testes, ~13 s)
 python manage.py test accounts.tests.master        # só um assunto
 python manage.py test accounts.tests.NomeDaClasse  # só uma classe
 ```
@@ -1568,7 +1627,8 @@ esconder o botão também bloqueia a URL.
 > `AjaxEndpointsRespectMenuPermissionsTests`).
 
 - **Features** (botões reais, com ícone) em `MENU_FEATURES`: `dashboard`,
-  `conversations`, `contacts`, `attendants`, `sectors`, `settings`. O botão
+  `conversations`, **`search`** (a tela Pesquisar — seção 5.5), `contacts`,
+  `attendants`, `sectors`, `settings`. O botão
   **Permissões** (`permissions`) é exclusivo do ADM e o botão **Clientes**
   (`clients`) é exclusivo do **gestor master**; os dois ficam **fora** da matriz de
   toggles. Os placeholders antigos (Atendimentos/Campanhas/Relatórios) foram

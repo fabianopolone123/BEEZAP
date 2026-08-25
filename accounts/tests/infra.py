@@ -280,7 +280,7 @@ class AssetVersioningTests(TestCase):
         self.client.force_login(adm)
         for rota in ('dashboard', 'conversations', 'contacts', 'attendants',
                      'sectors', 'permissions', 'atendimento', 'company-brand',
-                     'company-data'):
+                     'company-data', 'search'):
             with self.subTest(rota=rota):
                 corpo = self.client.get(reverse(rota)).content.decode()
                 links = re.findall(r'href="([^"]*\.css[^"]*)"', corpo)

@@ -30,6 +30,11 @@ delas entra na matriz de toggles.
 MENU_FEATURES = [
     {'key': 'dashboard',     'label': 'Dashboard',      'url_name': 'dashboard',     'icon': '🏠'},
     {'key': 'conversations', 'label': 'Conversas',      'url_name': 'conversations', 'icon': '💬'},
+    # PESQUISAR: garimpa o historico (texto dentro das mensagens + atendente, setor,
+    # contato, estado e periodo). Nao entra em `usuario`/`leitor` por padrao — e o ADM
+    # que decide liberar, na aba "Botoes do perfil". O resultado respeita o ALCANCE de
+    # quem pesquisa, entao liberar nao vira "ver tudo".
+    {'key': 'search',        'label': 'Pesquisar',      'url_name': 'search',        'icon': '🔎'},
     {'key': 'contacts',      'label': 'Contatos',       'url_name': 'contacts',      'icon': '👥'},
     {'key': 'attendants',    'label': 'Atendentes',     'url_name': 'attendants',    'icon': '🎧'},
     {'key': 'sectors',       'label': 'Setores',        'url_name': 'sectors',       'icon': '🗂️'},
