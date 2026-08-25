@@ -1024,6 +1024,21 @@ auditar_empresas [--detalhe]            # AUDITORIA (só leitura): acha registro
 - **Planos/limites por cliente**: **decidido não fazer por enquanto** (a pedido) — a
   plataforma **mede** o consumo e **não trava** nada. Se um dia existir teto por
   cliente, é `CompanyAiUsage` que já tem o consumo do ciclo mensal para ler.
+- **`SECRET_KEY` fraca em PRODUÇÃO** (adiada a pedido em 25/08/2026). O
+  `check --deploy` do `deploy.sh` acusa **`security.W009`**: a chave do `.env` do VPS
+  tem menos de 50 caracteres, menos de 5 caracteres distintos ou o prefixo
+  `django-insecure-`. Com chave fraca, **sessão e token assinado são forjáveis** (a
+  guarda da seção 11 só barra a chave de desenvolvimento **exata**, e essa é outra).
+  Gerar com
+  `venv/bin/python -c "from django.core.management.utils import get_random_secret_key as k; print(k())"`,
+  pôr em `SECRET_KEY=` no `.env` e reiniciar. **Derruba todas as sessões abertas uma
+  vez** — é por isso que a troca é decisão do dono, não do deploy. Os outros dois
+  avisos do `check --deploy` (`W004` HSTS e `W008` `SECURE_SSL_REDIRECT`) são
+  **intencionais** — ver seção 6.
+- **Agendar `sync_wapi_group_names`** (adiado a pedido em 25/08/2026). O nome do grupo
+  é buscado na W-API **uma única vez, na criação da conversa**; se aquela chamada
+  falhar, o grupo fica mostrando `Grupo <id>` para sempre (ver seção 15, aba Grupos).
+  Um agendamento — **uma** chamada de API por empresa — faria isso se curar sozinho.
 - **Nova conversa**: botão para iniciar um chat digitando número + mensagem (e abrir
   em Conversas). Combinado como próxima etapa.
 - **Fila de atendimento**: tela/fluxo da fila por setor. Próxima etapa.
