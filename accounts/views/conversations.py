@@ -1066,13 +1066,13 @@ def conversation_close_view(request, conversation_id):
     denied = deny_conversation_json(request, conversation)
     if denied:
         return denied
-    # CLASSIFICACAO AUTOMATICA da carteira: o contato que ainda nao tem setor herda o
-    # setor deste atendimento. Tem de ser AQUI, antes do `conversation.sector = None`
-    # logo abaixo — depois de encerrar, a informacao de qual setor atendeu ja se
-    # perdeu. So age em contato sem nenhum setor e a empresa pode desligar; ver
-    # Contact.inherit_sector_if_unclassified.
+    # CLASSIFICACAO AUTOMATICA da carteira: o setor que atendeu entra na carteira do
+    # contato. Tem de ser AQUI, antes do `conversation.sector = None` logo abaixo —
+    # depois de encerrar, a informacao de qual setor atendeu ja se perdeu. So
+    # acrescenta (nunca remove) e a empresa pode desligar; ver
+    # Contact.inherit_sector_from_service.
     if conversation.contact_id and conversation.sector_id:
-        conversation.contact.inherit_sector_if_unclassified(conversation.sector)
+        conversation.contact.inherit_sector_from_service(conversation.sector)
 
     # Divisoria no chat marcando o fim do atendimento (o chat permanece; padrao
     # WhatsApp = um unico chat por pessoa com todo o historico).

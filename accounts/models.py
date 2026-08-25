@@ -94,9 +94,12 @@ class Company(models.Model):
     accent_color = models.CharField('Cor de destaque', max_length=7, blank=True, default='')
     notes = models.TextField('Observações', blank=True, default='')
     # CLASSIFICACAO AUTOMATICA da carteira de contatos: ao ENCERRAR um atendimento, o
-    # contato que ainda nao tem setor nenhum herda o setor daquele atendimento (ver
-    # Contact.inherit_sector_if_unclassified). Existe porque classificar mil contatos
-    # a mao nao acontece: sem isto a carteira nasce vazia e continua vazia.
+    # setor que atendeu e ACRESCENTADO a carteira do contato (ver
+    # Contact.inherit_sector_from_service). Existe porque classificar mil contatos a
+    # mao nao acontece: sem isto a carteira nasce vazia e continua vazia.
+    #
+    # So acrescenta, nunca remove: quem foi atendido por Compras e depois pelo
+    # Financeiro fica nas duas carteiras.
     #
     # Ligado por padrao, e desligavel pelo ADM em Permissoes -> Contatos: e escrita
     # automatica em dado do cliente, entao ele precisa poder dizer "nao".
@@ -1045,24 +1048,30 @@ class Contact(models.Model):
             models.Index(fields=['company', 'name'], name='contato_empresa_nome_idx'),
         ]
 
-    def inherit_sector_if_unclassified(self, sector):
-        """Classifica o contato no setor do atendimento que acabou de ser encerrado.
+    def inherit_sector_from_service(self, sector):
+        """Acrescenta a carteira do contato o setor que acabou de atende-lo.
 
-        Devolve True quando classificou. Chamado no encerramento do atendimento (ver
-        `conversation_close_view`), e existe porque classificar mil contatos a mao nao
-        acontece — sem isto a carteira nasce vazia e fica vazia.
+        Devolve True quando acrescentou algo. Chamado no encerramento do atendimento
+        (ver `conversation_close_view`), e existe porque classificar mil contatos a mao
+        nao acontece — sem isto a carteira nasce vazia e continua vazia.
 
-        Duas travas que fazem isto ser seguro:
+        REGRA: so ACRESCENTA, nunca remove. Um cliente atendido por Compras e depois
+        pelo Financeiro fica nas DUAS carteiras — e para isso que o contato aceita
+        varios setores. As duas alternativas foram descartadas de proposito:
 
-        1. So age em contato SEM NENHUM SETOR. Nunca sobrescreve nem ACRESCENTA a uma
-           classificacao existente. Se acrescentasse, um contato que passou por cinco
-           setores acabaria nas cinco carteiras — visivel para todo mundo, o oposto do
-           que a carteira serve. E a escolha do ADM nunca e mexida por automatismo.
-        2. A empresa pode desligar (`Company.auto_classify_contacts`), porque isto e
-           escrita automatica em dado do cliente.
+        - *mover* (o ultimo setor fica com o cliente) tiraria o contato da agenda de
+          Compras sem ninguem decidir isso, faria o contato ir e voltar conforme os
+          atendimentos alternassem, e sobrescreveria a classificacao manual do ADM;
+        - *nao fazer nada* deixaria o Financeiro atendendo um cliente que nunca
+          aparece na agenda dele.
 
-        O primeiro atendimento encerrado define a carteira; dali em diante quem manda e
-        o ADM, na tela Contatos.
+        Um setor so entra na carteira se REALMENTE atendeu aquela pessoa, entao
+        continua valendo a ideia de "nao vejo cliente com quem nunca lidei". O efeito
+        colateral aceito: um cliente atendido por todos os setores acaba na carteira de
+        todos — o ADM tira a mao na tela Contatos.
+
+        Duas travas: setor de outra empresa nunca entra, e a empresa pode desligar o
+        automatismo (`Company.auto_classify_contacts`).
         """
         if sector is None or not getattr(self, 'company_id', None):
             return False
@@ -1070,8 +1079,8 @@ class Contact(models.Model):
             return False  # nunca classificar com setor de outra empresa
         if not self.company.auto_classify_contacts:
             return False
-        if self.sectors.exists():
-            return False
+        if self.sectors.filter(pk=sector.pk).exists():
+            return False  # ja esta nesta carteira
         self.sectors.add(sector)
         return True
 

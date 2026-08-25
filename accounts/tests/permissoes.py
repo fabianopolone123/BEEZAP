@@ -1046,14 +1046,32 @@ class AutoClassifyContactTests(TestCase):
         self.assertEqual(self._encerrar(conversa).status_code, 200)
         self.assertEqual([s.name for s in contato.sectors.all()], ['Vendas'])
 
-    def test_nao_mexe_em_contato_ja_classificado(self):
-        """A escolha do ADM nunca e sobrescrita — nem acrescentada.
+    def test_segundo_setor_e_ACRESCENTADO_a_carteira(self):
+        """Atendido por Vendas e depois pelo Suporte: fica nas DUAS carteiras.
 
-        Se acrescentasse, um contato que passou por cinco setores acabaria nas cinco
-        carteiras, visivel para todo mundo: o oposto do que a carteira serve.
+        E o caso que o dono do produto levantou ("se depois ele entrar em financeiro e
+        sair..."). Decidido acrescentar, nao mover: mover tiraria o contato da agenda
+        do primeiro setor sem ninguem decidir isso.
         """
         contato, conversa = self._conversa(self.suporte)
         contato.sectors.add(self.vendas)
+        self._encerrar(conversa)
+        self.assertEqual(
+            sorted(s.name for s in contato.sectors.all()), ['Suporte', 'Vendas'])
+
+    def test_nunca_remove_um_setor(self):
+        """A regra em uma frase: so acrescenta. Se um dia virar `set()`, isto reprova."""
+        contato, conversa = self._conversa(self.suporte)
+        contato.sectors.add(self.vendas)
+        self._encerrar(conversa)
+        self.assertIn('Vendas', [s.name for s in contato.sectors.all()])
+
+    def test_atender_duas_vezes_no_mesmo_setor_nao_duplica(self):
+        contato, conversa = self._conversa(self.vendas)
+        self._encerrar(conversa)
+        conversa.status = 'open'
+        conversa.sector = self.vendas
+        conversa.save(update_fields=['status', 'sector'])
         self._encerrar(conversa)
         self.assertEqual([s.name for s in contato.sectors.all()], ['Vendas'])
 
@@ -1076,8 +1094,12 @@ class AutoClassifyContactTests(TestCase):
             chat_type='group', name='Equipe', status='open', sector=self.vendas)
         self.assertEqual(self._encerrar(grupo).status_code, 200)
 
-    def test_o_setor_e_o_que_ENCERROU_nao_o_que_abriu(self):
-        """Transferido de Vendas para Suporte e encerrado la: a carteira e do Suporte."""
+    def test_o_setor_que_entra_e_o_que_ENCERROU(self):
+        """Transferido de Vendas para Suporte e encerrado la: entra o Suporte.
+
+        Quem atendeu de fato foi o Suporte. Vendas nao entra: a conversa passou por
+        lai sem ser encerrada ali, e o gancho e o encerramento.
+        """
         contato, conversa = self._conversa(self.vendas)
         conversa.sector = self.suporte
         conversa.save(update_fields=['sector'])
@@ -1098,7 +1120,7 @@ class AutoClassifyContactTests(TestCase):
         alheio = Sector.objects.create(company=outra, name='Alheio')
         contato = self.Contact.objects.create(
             company=self.empresa, name='Cliente', phone='5516900000002')
-        self.assertFalse(contato.inherit_sector_if_unclassified(alheio))
+        self.assertFalse(contato.inherit_sector_from_service(alheio))
         self.assertEqual(list(contato.sectors.all()), [])
 
     def test_o_interruptor_aparece_e_salva(self):
