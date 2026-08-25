@@ -8,6 +8,7 @@ from .base import (
     TestCase,
     User,
     default_company,
+    patch,
     reverse,
 )
 
@@ -428,3 +429,72 @@ class FrontEndCsrfTokenTests(SimpleTestCase):
             problemas, [],
             'use o token renderizado ({{ csrf_token }}), nao o cookie "csrftoken"',
         )
+
+
+class InspectWapiGroupsCommandTests(TestCase):
+    """`inspect_wapi_groups` tem que dizer POR QUE um grupo esta sem nome.
+
+    A tela mostrava "Grupo 120363183095447474" e "Grupo 556784455916-1560176734@g.us"
+    e nao havia como saber a causa: o comando so imprimia a resposta da W-API, e
+    comparar na mao com o `external_id` de cada conversa (que pode vir com ou sem
+    `@g.us`, e a comparacao e por DIGITOS) e justamente a parte que erra.
+
+    As tres causas: (1) a W-API tem o nome, mas a busca da criacao falhou; (2) a
+    W-API devolve o grupo sem nome em campo conhecido; (3) a W-API nao lista o chat
+    (canal/comunidade que chegou com id "pelado", ou a conta saiu do grupo).
+    """
+
+    def setUp(self):
+        from accounts.models import Conversation
+        self.empresa = default_company()
+        self.Conversation = Conversation
+        self.com_nome = Conversation.objects.create(
+            company=self.empresa, external_id='120363000000000001@g.us',
+            chat_type='group', name='Equipe Vendas')
+        self.causa1 = Conversation.objects.create(
+            company=self.empresa, external_id='120363000000000002@g.us',
+            chat_type='group', name='')
+        self.causa2 = Conversation.objects.create(
+            company=self.empresa, external_id='556784455916-1560176734@g.us',
+            chat_type='group', name='')
+        self.causa3 = Conversation.objects.create(
+            company=self.empresa, external_id='120363183095447474',
+            chat_type='group', name='')
+
+    def _rodar(self, resposta):
+        from io import StringIO
+        from django.core.management import call_command
+        out = StringIO()
+        with patch('wapi.services.get_all_groups_safe', return_value=resposta):
+            call_command('inspect_wapi_groups', stdout=out)
+        return out.getvalue()
+
+    def test_separa_as_tres_causas(self):
+        saida = self._rodar([
+            {'id': '120363000000000001@g.us', 'name': 'Equipe Vendas'},
+            {'id': '120363000000000002@g.us', 'name': 'Financeiro'},
+            # Devolvido pela W-API, mas sem nome em nenhum campo conhecido.
+            {'id': '556784455916-1560176734@g.us', 'participants': 12},
+            # O grupo "pelado" 120363183095447474 nao vem na lista.
+        ])
+        linhas = {}
+        for linha in saida.splitlines():
+            if linha.startswith('- external_id='):
+                chave = linha.split('external_id=', 1)[1].split(' |', 1)[0]
+                linhas[chave] = linha
+        self.assertIn('ok (nome: Equipe Vendas)', linhas['120363000000000001@g.us'])
+        self.assertIn('causa 1', linhas['120363000000000002@g.us'])
+        self.assertIn('Financeiro', linhas['120363000000000002@g.us'])
+        self.assertIn('causa 2', linhas['556784455916-1560176734@g.us'])
+        self.assertIn('causa 3', linhas['120363183095447474'])
+
+    def test_id_pelado_casa_com_o_jid_da_wapi(self):
+        """A comparacao e por DIGITOS: sem sufixo no banco e com sufixo na W-API."""
+        saida = self._rodar([{'id': '120363183095447474@g.us', 'subject': 'Obra Centro'}])
+        self.assertIn('Obra Centro', saida)
+        self.assertNotIn('causa 3', saida.split('120363183095447474 |')[1].split('\n')[0])
+
+    def test_falha_na_wapi_avisa_e_para(self):
+        saida = self._rodar(None)
+        self.assertIn('Falha ao chamar get-all-groups', saida)
+        self.assertNotIn('Conversas de grupo no banco', saida)

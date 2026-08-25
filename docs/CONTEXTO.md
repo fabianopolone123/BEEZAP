@@ -913,7 +913,7 @@ OPENAI_TIMEOUT=30
 ### Rodar os testes
 
 ```bash
-python manage.py test                              # tudo (512 testes, ~13 s)
+python manage.py test                              # tudo (515 testes, ~13 s)
 python manage.py test accounts.tests.master        # só um assunto
 python manage.py test accounts.tests.NomeDaClasse  # só uma classe
 ```
@@ -956,7 +956,7 @@ sync_wapi_group_names               # atualiza os nomes dos grupos pela W-API
 retry_wapi_media                    # rebaixa TODAS as mídias recebidas sem arquivo local
 inspect_wapi_messages --name X --full   # DIAGNÓSTICO: payload cru + veredito do parser (Messages criadas)
 inspect_wapi_events --hours 6 --full    # DIAGNÓSTICO: eventos BRUTOS do webhook, INCLUSIVE os descartados
-inspect_wapi_groups [--full]            # DIAGNÓSTICO: resposta de get-all-groups + nome extraído por grupo
+inspect_wapi_groups [--full]            # DIAGNÓSTICO: get-all-groups + nome extraído + POR QUE cada conversa de grupo está sem nome (3 causas)
 cleanup_status_messages [--delete]      # remove mensagens de Status que viraram conversa
 cleanup_unknown_messages [--delete]     # remove mensagens de tipo 'unknown' (sistema)
 cleanup_nonpersonal_conversations [--delete]  # remove conversas de canal/transmissão/"status"
@@ -1369,6 +1369,25 @@ esconder o botão também bloqueia a URL.
     A lista de grupos é **dirigida por mensagem recebida** (um grupo aparece quando
     chega mensagem dele; não vem do `get-all-groups`), então grupos onde o número saiu
     podem ser removidos daqui; se chegar nova mensagem, o grupo reaparece.
+  - **Por que um grupo fica mostrando `Grupo <id>`?** O nome é buscado na W-API
+    **uma única vez, na CRIAÇÃO da conversa** (`resolve_group_name` dentro de
+    `get_or_create_conversation`), a não ser que o próprio webhook traga o nome
+    (`_GROUP_NAME_PATHS` → `display_name`). Se aquela busca falhar, **nada tenta de
+    novo sozinho**: fica no fallback `Conversation.display_title` (`Grupo <external_id>`,
+    que junto ao selo "Grupo" da lista aparece como "GrupoGrupo 1203…") até alguém
+    clicar em **Atualizar nomes**, rodar `sync_wapi_group_names` ou digitar o nome
+    aqui. As causas possíveis são três, e **`inspect_wapi_groups` diz qual é**, por
+    conversa: (1) a W-API tem o nome e a busca da criação falhou → re-sincronizar
+    resolve; (2) a W-API devolve o grupo **sem nome** em nenhum campo conhecido
+    (`name`/`subject`/`title`/`groupName`/`pushName`) → falta ensinar o campo novo a
+    `_group_item_name`; (3) a W-API **não lista o chat** → provavelmente **não é
+    grupo** (canal `@newsletter` ou comunidade que chegou com o id "pelado", sem
+    sufixo, e `is_group_jid` classificou como grupo pelo tamanho do número), ou a
+    conta saiu do grupo. A comparação é **por dígitos** (`_group_key`), então
+    `120363…` e `120363…@g.us` casam; um **JID antigo** (`<telefone>-<timestamp>@g.us`)
+    só casa se a W-API devolver esse mesmo id — se ela já usar o id novo do grupo, a
+    saída acusa a causa 3 mesmo sendo grupo de verdade (o mapa completo é impresso
+    junto, dá para conferir a olho).
   **Sem botão "Salvar"**: as alterações (perfis, botões, visualização e grupos) são
   **salvas automaticamente** ao clicar/alterar (fetch AJAX → `permissions_view`
   responde JSON quando `X-Requested-With`; toast de confirmação).
