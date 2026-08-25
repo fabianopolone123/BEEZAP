@@ -9,6 +9,10 @@
 Django==5.2.12
 gunicorn>=23.0,<24.0          # servidor WSGI em producao (atras do Nginx)
 psycopg[binary]>=3.2,<4.0     # driver PostgreSQL (se usar DATABASE_URL=postgres...)
+pywebpush>=2.0,<3.0           # aviso de nova mensagem (Web Push). Assina o envio com
+                              # a chave VAPID e cifra o conteudo (RFC 8291/8292) — sem
+                              # ele o pop-up nao chega com a aba em segundo plano.
+                              # Traz cryptography/py-vapid/http-ece como dependencia.
 
 # ============================================================================
 # --- Dependencias de SISTEMA (NAO sao pacotes pip; instalar no S.O.) ---

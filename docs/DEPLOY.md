@@ -16,7 +16,8 @@ garantir que alterações de **CSS/JS apareçam** em produção após o deploy.
 ## Dependências do sistema
 
 Além do Python **3.12+** e dos pacotes pip (`requirements.txt`: Django, gunicorn,
-psycopg), o servidor precisa destas dependências de **sistema** (não vêm pelo pip):
+psycopg e **pywebpush**, este último para o aviso de nova mensagem), o servidor precisa
+destas dependências de **sistema** (não vêm pelo pip):
 
 - **ffmpeg** — **OBRIGATÓRIO** para o envio de mídia. Converte (1) o áudio gravado
   no navegador (`.webm` do Chrome) para `.ogg` e (2) imagens não suportadas pela
@@ -51,6 +52,35 @@ MEDIA_URL=/beeonboard/media/       # caminho dos arquivos salvos (logos das empr
 
 As credenciais da W-API (Instance ID e Token) ficam salvas no banco pela tela de
 Configurações — não precisam estar no `.env`.
+
+### Aviso de nova mensagem (Web Push): chaves VAPID
+
+**Sem estas chaves o pop-up de nova mensagem NÃO chega com a aba em segundo plano** —
+e é justamente aí que ele importa. O aviso antigo dependia de um timer de 6s na tela, e
+o Chrome estrangula timer de aba oculta para 1x/minuto (ver seção 5.4 do `CONTEXTO.md`).
+
+Gere o par **uma vez, no servidor** (a chave privada não deve trafegar por chat/e-mail
+nem ir para o Git):
+
+```bash
+cd /var/www/beezap && venv/bin/python manage.py gerar_chaves_vapid
+```
+
+Cole as três linhas no `.env` e reinicie o serviço:
+
+```
+WEBPUSH_VAPID_PUBLIC_KEY=...
+WEBPUSH_VAPID_PRIVATE_KEY=...      # SEGREDO
+WEBPUSH_VAPID_SUBJECT=mailto:contato@fabianopolone.com.br
+```
+
+> O `manage.py check` avisa quando faltam (**`beezap.W003`**), como faz com o ffmpeg.
+> **Trocar o par depois obriga todos os navegadores a se inscreverem de novo** (as
+> inscrições antigas param de ser aceitas) — então gere uma vez e guarde.
+
+Cada pessoa ainda precisa **clicar no sino** da tela Conversas uma vez, para conceder a
+permissão do navegador e inscrever aquele aparelho. Um aparelho por inscrição: celular e
+desktop são duas.
 
 ## ⚠️ Mídia das conversas NÃO pode ser servida pelo Nginx
 

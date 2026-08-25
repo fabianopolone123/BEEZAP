@@ -35,7 +35,13 @@ from django.core import signing
 from django.db import IntegrityError, transaction
 from django.db.models import Count, Max, Min, OuterRef, Q, Subquery, Sum
 from django.db.models.functions import Coalesce
-from django.http import FileResponse, Http404, HttpResponseForbidden, JsonResponse
+from django.http import (
+    FileResponse,
+    Http404,
+    HttpResponse,
+    HttpResponseForbidden,
+    JsonResponse,
+)
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
@@ -101,6 +107,7 @@ from ..models import (
     Message,
     OpenAiConfiguration,
     PasswordResetCode,
+    PushSubscription,
     RoleMenuPermission,
     Sector,
     User,
@@ -109,6 +116,7 @@ from ..models import (
     WapiConfiguration,
     WapiWebhookEvent,
 )
+from ..webpush import vapid_configured
 from gpt.attendant import DEFAULT_INSTRUCTIONS, resolved_instructions
 from gpt.client import test_connection as gpt_test_connection
 from chatbot.handler import (

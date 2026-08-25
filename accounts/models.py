@@ -1236,3 +1236,53 @@ class Message(models.Model):
 
     def __str__(self):
         return f'{self.get_direction_display()} ({self.message_type}): {self.text[:30]}'
+
+
+class PushSubscription(models.Model):
+    """Inscricao de Web Push de UM navegador de UM usuario.
+
+    Por que existe: o pop-up de nova mensagem dependia de um `setInterval` de 6s na
+    tela Conversas comparando o contador de nao lidas. O Chrome ESTRANGULA timer de
+    aba em segundo plano para 1x por minuto (medido em producao: as chamadas caem de
+    6s para 60s no instante em que a aba sai da frente) — justamente quando o aviso
+    importa. Pior: se a pessoa voltasse para a aba antes do tique atrasado, a
+    deteccao acontecia com a janela em foco e o codigo mostrava o toast interno em vez
+    do pop-up, ou seja, o aviso do sistema nunca chegava.
+
+    Com Web Push quem avisa e o SERVIDOR, na hora que a mensagem entra pelo webhook:
+    chega com a aba em segundo plano e mesmo com o navegador fechado, sem timer no
+    meio.
+
+    Uma linha por NAVEGADOR (o mesmo usuario no celular e no desktop tem duas). O
+    `endpoint` e a URL que o proprio navegador gera e e unica no mundo — e a chave
+    natural. Quando o navegador troca a inscricao, o registro e atualizado por ela.
+
+    Sem campo `company`: a inscricao pertence a uma PESSOA, e a empresa vem de
+    `user.company`. Duplicar aqui so criaria um jeito de os dois discordarem — o
+    escopo de empresa do envio sai de `can_see_conversation` (ver accounts/webpush.py).
+    """
+
+    user = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name='push_subscriptions',
+        verbose_name='Usuário',
+    )
+    endpoint = models.URLField('Endpoint', max_length=500, unique=True)
+    # Chaves publicas do navegador usadas para CIFRAR o aviso (RFC 8291): o servico de
+    # push (Google/Mozilla) transporta, mas nao consegue ler o conteudo.
+    p256dh = models.CharField(max_length=200)
+    auth = models.CharField(max_length=100)
+    # So para o usuario reconhecer o aparelho numa futura tela de dispositivos.
+    user_agent = models.CharField(max_length=200, blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+    last_sent_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = 'Inscrição de notificação'
+        verbose_name_plural = 'Inscrições de notificação'
+        ordering = ('-created_at',)
+        indexes = [
+            models.Index(fields=['user'], name='push_user_idx'),
+        ]
+
+    def __str__(self):
+        return f'{self.user.email} ({self.endpoint[:40]}...)'

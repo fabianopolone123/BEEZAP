@@ -19,6 +19,7 @@ from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from accounts.models import Company, Contact, Conversation, Message
+from accounts.webpush import notify_new_message_async
 from wapi.parser import (
     is_ignorable_jid,
     is_status_or_broadcast,
@@ -942,6 +943,15 @@ def ingest_wapi_payload(payload, trigger_ai=True, company=None, slug='',
         download_async=download_media_async,
     )
     if trigger_ai:
+        # `trigger_ai` marca o webhook AO VIVO — a sincronizacao de eventos antigos
+        # passa False. So aqui faz sentido avisar alguem: reprocessar historico nao
+        # pode disparar pop-up de mensagem de semanas atras.
+        #
+        # O aviso vai por WEB PUSH, do servidor, porque o pop-up antigo dependia de um
+        # timer de 6s na tela e o Chrome estrangula timer de aba em segundo plano para
+        # 1x/minuto (ver accounts/webpush.py). Roda em thread: e uma chamada HTTPS por
+        # navegador inscrito e isto esta dentro da requisicao do webhook.
+        notify_new_message_async(message)
         _maybe_trigger_reception(conversation, message)
     return message
 

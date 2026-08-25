@@ -13,6 +13,7 @@ custa contexto e esconde a estrutura.
     settings.py       IA, chatbot/modo, WhatsApp, Permissoes, Atendentes, Setores
     company.py        aba Marca, Meus dados e exportacao (do proprio cliente)
     master.py         Clientes, Gestores e Metricas (do gestor master)
+    push.py           aviso de nova mensagem (Web Push): service worker e inscricao
     webhook.py        porta de entrada das mensagens da W-API
 
 Este `__init__` reexporta TODOS os nomes, entao `accounts/urls.py`, os testes e
@@ -27,6 +28,7 @@ from .contacts import *        # noqa: F401,F403
 from .settings import *        # noqa: F401,F403
 from .company import *         # noqa: F401,F403
 from .master import *          # noqa: F401,F403
+from .push import *            # noqa: F401,F403
 from .webhook import *         # noqa: F401,F403
 
 # `import *` ignora nomes que comecam com _, e o projeto tem varios helpers

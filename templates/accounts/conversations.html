@@ -41,7 +41,11 @@
          data-csrf="{{ csrf_token }}"
          {% if read_only %}data-read-only="1"{% endif %}
          data-page-size="{{ page_size|default:60 }}"
-         data-logo="{% static 'images/logo-beeonboard.png' %}">
+         data-logo="{% static 'images/logo-beeonboard.png' %}"
+         data-sw-url="{% url 'service-worker' %}"
+         data-push-key-url="{% url 'push-public-key' %}"
+         data-push-subscribe-url="{% url 'push-subscribe' %}"
+         data-push-unsubscribe-url="{% url 'push-unsubscribe' %}">
 
       <!-- COLUNA ESQUERDA — Lista de conversas -->
       <div class="conv-list-col">
@@ -62,9 +66,16 @@
               <span class="conv-waiting-label">aguardando</span>
             </button>
 
-            <span class="conv-icon-btn conv-notif-toggle conv-notif-indicator" data-notif-toggle title="Notificacoes do navegador" role="img" aria-label="Estado das notificacoes do navegador">
+            {% comment %}
+            O sino voltou a ser BOTAO. Antes era so indicador, e o sistema nunca
+            chamava requestPermission(): quem nao tivesse liberado a permissao na mao,
+            pelo cadeado da barra de endereco, nunca recebia pop-up — e nada na tela
+            explicava isso. Clicar aqui pede a permissao, inscreve o navegador no
+            aviso do servidor (Web Push) e manda um aviso de teste.
+            {% endcomment %}
+            <button type="button" class="conv-icon-btn conv-notif-toggle" data-notif-toggle title="Ativar aviso de novas mensagens" aria-label="Ativar aviso de novas mensagens">
               <span data-notif-icon aria-hidden="true">🔔</span>
-            </span>
+            </button>
 
             <button type="button" class="conv-icon-btn conv-sound-toggle" data-sound-toggle title="Aviso sonoro de novas mensagens" aria-label="Aviso sonoro de novas mensagens">
               <span data-sound-icon aria-hidden="true">🔊</span>

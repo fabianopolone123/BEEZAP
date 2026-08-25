@@ -36,7 +36,11 @@ from .views import (
     password_recovery_set_password_view,
     password_recovery_verify_code_view,
     sectors_save_organization_view,
+    push_public_key_view,
+    push_subscribe_view,
+    push_unsubscribe_view,
     sectors_view,
+    service_worker_view,
     wapi_webhook_events_view,
     wapi_webhook_view,
     wapi_settings_view,
@@ -108,5 +112,12 @@ urlpatterns = [
     path('webhook/wapi/', wapi_webhook_view, name='wapi-webhook'),
     path('beeonboard/webhook/wapi/', wapi_webhook_view, name='wapi-webhook-beeonboard'),
     path('beezap/webhook/wapi/', wapi_webhook_view, name='wapi-webhook-beezap'),
+    # Aviso de nova mensagem (Web Push). O `sw.js` fica na RAIZ do prefixo de
+    # proposito: o escopo de um service worker e a pasta dele, e em
+    # static/js/ ele nao cobriria as telas do sistema (ver views/push.py).
+    path('sw.js', service_worker_view, name='service-worker'),
+    path('push/chave/', push_public_key_view, name='push-public-key'),
+    path('push/inscrever/', push_subscribe_view, name='push-subscribe'),
+    path('push/cancelar/', push_unsubscribe_view, name='push-unsubscribe'),
     path('logout/', logout_view, name='logout'),
 ]

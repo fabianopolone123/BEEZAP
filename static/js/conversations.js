@@ -1454,10 +1454,24 @@
   document.addEventListener('click', firstGestureUnlock);
   document.addEventListener('keydown', firstGestureUnlock);
 
-  /* ---------- Permissao e pop-up do desktop ---------- */
+  /* ---------- Aviso de novas mensagens: permissao + Web Push ----------
+     O pop-up NAO pode depender do poll desta pagina: o Chrome estrangula
+     `setInterval` de aba em segundo plano para 1x por minuto (medido em producao),
+     exatamente quando o aviso importa — e se a pessoa voltasse para a aba antes do
+     tique atrasado, a deteccao rodava "em foco" e o codigo mostrava o toast interno
+     em vez do pop-up. Quem avisa agora e o SERVIDOR, por Web Push, na hora que a
+     mensagem entra pelo webhook (ver accounts/webpush.py).
+
+     O sino tambem voltou a ser clicavel: antes o sistema NUNCA chamava
+     requestPermission(), entao quem nao liberasse a permissao na mao (pelo cadeado da
+     barra de endereco) nunca recebia pop-up, sem nenhuma pista do motivo. */
   var notifToggle = document.querySelector('[data-notif-toggle]');
   var notifIcon = document.querySelector('[data-notif-icon]');
   var notifLabel = document.querySelector('[data-notif-label]');
+  var SW_URL = body.dataset.swUrl || '';
+  var PUSH_KEY_URL = body.dataset.pushKeyUrl || '';
+  var PUSH_SUB_URL = body.dataset.pushSubscribeUrl || '';
+  var pushRegistration = null;
 
   function notifState() {
     if (!('Notification' in window)) return 'unsupported';
@@ -1468,8 +1482,12 @@
     return notifState() === 'granted';
   }
 
-  // Indicador SOMENTE informativo (nao clicavel): apenas reflete se o navegador
-  // esta liberado para notificacoes (verde=ativas, ambar=desativadas, vermelho=bloqueadas).
+  function pushSupported() {
+    return 'serviceWorker' in navigator && 'PushManager' in window;
+  }
+
+  // O sino mostra o estado E convida a agir (verde=ativo, ambar=clique para ativar,
+  // vermelho=bloqueado no navegador, e so o usuario pode desbloquear).
   function setNotifUI() {
     if (!notifToggle) return;
     var s = notifState();
@@ -1478,28 +1496,121 @@
     notifToggle.classList.toggle('off', s === 'default');
     notifToggle.classList.toggle('blocked', s === 'denied');
     if (s === 'granted') {
-      if (notifIcon) notifIcon.textContent = '🔔';
-      if (notifLabel) notifLabel.textContent = 'Notificações ativas';
-      notifToggle.title = 'Notificacoes do navegador ativas';
+      if (notifIcon) notifIcon.textContent = '\u{1F514}';
+      if (notifLabel) notifLabel.textContent = 'Avisos ativos';
+      notifToggle.title = 'Voce sera avisado de novas mensagens, mesmo em outra aba';
     } else if (s === 'default') {
-      if (notifIcon) notifIcon.textContent = '🔕';
-      if (notifLabel) notifLabel.textContent = 'Notificações desativadas';
-      notifToggle.title = 'Notificacoes do navegador desativadas — ative no cadeado ao lado do endereco (Configuracoes do site)';
+      if (notifIcon) notifIcon.textContent = '\u{1F515}';
+      if (notifLabel) notifLabel.textContent = 'Ativar avisos';
+      notifToggle.title = 'Clique para ser avisado de novas mensagens';
     } else {
-      if (notifIcon) notifIcon.textContent = '🔕';
-      if (notifLabel) notifLabel.textContent = 'Notificações bloqueadas';
-      notifToggle.title = 'Notificacoes bloqueadas — libere no cadeado da barra de endereco';
+      if (notifIcon) notifIcon.textContent = '\u{1F515}';
+      if (notifLabel) notifLabel.textContent = 'Avisos bloqueados';
+      notifToggle.title = 'Avisos bloqueados neste navegador — libere no cadeado da barra de endereco';
     }
+  }
+
+  // A chave publica VAPID vem em base64url e o navegador exige Uint8Array.
+  function urlBase64ToUint8Array(base64) {
+    var falta = (4 - base64.length % 4) % 4;
+    var base64Safe = (base64 + '===='.slice(0, falta)).replace(/-/g, '+').replace(/_/g, '/');
+    var raw = window.atob(base64Safe);
+    var out = new Uint8Array(raw.length);
+    for (var i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
+    return out;
+  }
+
+  function registerServiceWorker() {
+    if (!pushSupported() || !SW_URL) return Promise.resolve(null);
+    if (pushRegistration) return Promise.resolve(pushRegistration);
+    return navigator.serviceWorker.register(SW_URL)
+      .then(function (reg) { pushRegistration = reg; return reg; })
+      .catch(function () { return null; });
+  }
+
+  // Inscreve o navegador no push do servidor. Falha em silencio de proposito: sem a
+  // inscricao o sistema continua funcionando (som e toast seguem valendo com a aba
+  // aberta), so nao ha aviso em segundo plano.
+  function subscribeToPush() {
+    if (!canNotify()) return Promise.resolve(false);
+    return registerServiceWorker().then(function (reg) {
+      if (!reg) return false;
+      return fetch(PUSH_KEY_URL, {headers: {'X-Requested-With': 'XMLHttpRequest'}})
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (d) {
+          if (!d || !d.ok || !d.public_key) return null;
+          return reg.pushManager.getSubscription().then(function (existente) {
+            if (existente) return existente;
+            return reg.pushManager.subscribe({
+              userVisibleOnly: true,
+              applicationServerKey: urlBase64ToUint8Array(d.public_key)
+            });
+          });
+        })
+        .then(function (sub) {
+          if (!sub) return false;
+          return fetch(PUSH_SUB_URL, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrf,
+                      'X-Requested-With': 'XMLHttpRequest'},
+            body: JSON.stringify(sub.toJSON ? sub.toJSON() : sub)
+          }).then(function (r) { return r.ok; });
+        })
+        .catch(function () { return false; });
+    });
   }
 
   if (notifToggle) {
     setNotifUI();
-    // Atualiza a cor sozinho se a permissao mudar no navegador (ex.: liberou no cadeado).
+    // Se a permissao ja estava concedida, garante a inscricao a cada carga da tela: o
+    // navegador pode ter descartado a inscricao (dados limpos, inscricao expirada).
+    if (canNotify()) subscribeToPush();
     if (navigator.permissions && navigator.permissions.query) {
       navigator.permissions.query({name: 'notifications'})
         .then(function (status) { status.onchange = setNotifUI; })
         .catch(function () {});
     }
+    notifToggle.addEventListener('click', function () {
+      var s = notifState();
+      if (s === 'denied') {
+        showToast('Os avisos estao bloqueados neste navegador. Libere no cadeado ao lado do endereco.', 'error');
+        return;
+      }
+      if (s === 'granted') {
+        subscribeToPush().then(function (ok) {
+          showToast(ok ? 'Avisos de novas mensagens ativos.'
+                       : 'Avisos ativos nesta aba, mas nao em segundo plano.',
+                    ok ? 'success' : 'info');
+        });
+        return;
+      }
+      Notification.requestPermission().then(function (resultado) {
+        setNotifUI();
+        if (resultado !== 'granted') {
+          showToast('Sem permissao, o aviso so aparece com esta aba aberta.', 'info');
+          return;
+        }
+        subscribeToPush().then(function (ok) {
+          showToast(ok ? 'Pronto! Voce sera avisado mesmo em outra aba.'
+                       : 'Aviso ativado nesta aba.', 'success');
+          // Mostra na hora como o aviso vai aparecer.
+          try {
+            new Notification('BEEonBOARD', {
+              body: 'Aviso de novas mensagens ativado.',
+              icon: NOTIF_ICON || undefined
+            });
+          } catch (e) {}
+        });
+      }).catch(function () {});
+    });
+  }
+
+  // O service worker avisa qual conversa abrir quando a pessoa clica no pop-up.
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.addEventListener('message', function (event) {
+      var dados = event.data || {};
+      if (dados.tipo === 'abrir-conversa' && dados.id) openConvById(dados.id);
+    });
   }
 
   function showDesktopNotification(conv) {
@@ -1599,6 +1710,14 @@
       }
     });
   }
+
+  /* Clique no pop-up com a tela FECHADA cai aqui: o service worker abre
+     `conversas/?conversa=<id>` e a tela ja abre naquela conversa. */
+  (function abrirConversaDaUrl() {
+    var busca = window.location.search || '';
+    var achado = busca.match(/[?&]conversa=(\d+)/);
+    if (achado) openConvById(achado[1]);
+  }());
 
   /* Atualiza mensagens da conversa aberta periodicamente (recebe respostas novas). */
   pollTimer = window.setInterval(refreshOpenMessages, 6000);

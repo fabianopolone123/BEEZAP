@@ -78,7 +78,7 @@ deploy/            deploy.sh, diag_static.sh, patch_nginx_beezap.sh, exemplos ng
 > `wapi/` é um módulo Python comum (importa `accounts.models`); **não** está em
 > `INSTALLED_APPS`, por isso os models ficam em `accounts/models.py`.
 
-## 3. Modelos (`accounts/models.py`) — migração atual: `0039`
+## 3. Modelos (`accounts/models.py`) — migração atual: `0040`
 
 > **Índices (migração `0036`)**: até ela, o único `db_index` do projeto era
 > `Conversation.external_id`. As FKs ganham índice sozinhas, mas as consultas reais
@@ -564,6 +564,9 @@ sai por duas rotas do Django:
 - **Grupo NÃO é atendimento**: ao abrir um grupo, o painel **esconde Assumir/Encerrar/
   Transferir** (só nome/status/setor/atendente). E grupos **não entram em "Aguardando"**
   (o filtro/badge é só de conversas diretas).
+- **Notificações**: ver a **seção 5.4** — o pop-up é entregue por **Web Push**
+  (servidor), porque o timer da página é estrangulado em aba oculta. O que segue
+  nesta seção é o comportamento **com a tela aberta** (som e toast).
 - **Notificações (estilo WhatsApp Web)**: pop-up do desktop (Web Notifications) +
   **aviso sonoro** (beep via Web Audio, sem arquivo) quando a janela **não** está em
   foco (`document.hasFocus()`); toast interno quando em foco. No topo da lista:
@@ -751,6 +754,93 @@ sai por duas rotas do Django:
     no contexto). Testes: `AttendantAccessActionsTests`.
 - Reaproveita `dashboard.css` + `attendants.css`.
 
+## 5.4. Aviso de nova mensagem (Web Push)
+
+**O problema que isto resolve.** O pop-up dependia de um `setInterval` de **6s** em
+`static/js/conversations.js`, que comparava o contador de não lidas de todas as
+conversas. O Chrome **estrangula timer de aba em segundo plano para 1x por minuto** —
+medido no log do Nginx em produção, as chamadas a `conversas/lista/` caem de 6s para
+60s **no instante** em que a aba sai da frente, e voltam a 6s quando ela reaparece.
+Dois efeitos, os dois ruins:
+
+- o aviso chegava com **até um minuto de atraso**; e
+- se a pessoa voltasse para a aba **antes** do tique atrasado, a detecção rodava com a
+  janela em foco e o código mostrava o **toast interno** em vez do pop-up — ou seja, o
+  aviso do sistema simplesmente **não vinha**. Era exatamente o sintoma relatado:
+  *"quando abro a aba aparece a notificação"*.
+
+Não há como pedir exceção ao navegador: **enquanto o aviso depender de timer da
+página, ele é inconstante por desenho.**
+
+**A solução.** Quem avisa agora é o **servidor**, por Web Push (RFC 8291/8292), no
+momento em que a mensagem entra pelo webhook. Não passa por timer nenhum: chega com a
+aba em segundo plano e mesmo com o navegador fechado. O poll de 6s **continua**
+existindo, mas só para o que ele faz bem: contador da aba, lista e o toast de quem
+está com a tela aberta.
+
+### As peças
+
+| Peça | Onde | O que faz |
+|---|---|---|
+| `PushSubscription` | `accounts/models.py` (migration `0040`) | uma linha por **navegador**: `endpoint` (único no mundo, chave natural), `p256dh`, `auth` |
+| `accounts/webpush.py` | — | monta o texto, escolhe quem recebe e envia |
+| `sw.js` | `views/push.py` → rota `sw.js` | service worker: recebe o push e mostra a notificação |
+| `push/chave/`, `push/inscrever/`, `push/cancelar/` | `views/push.py` | chave pública VAPID e a inscrição do navegador |
+| sino da tela Conversas | `conversations.js` | pede a permissão, inscreve e manda um aviso de teste |
+| `gerar_chaves_vapid` | comando de management | gera o par VAPID para o `.env` |
+
+### Decisões que não são óbvias
+
+- **O `sw.js` é servido por VIEW, não como estático.** O escopo de um service worker é
+  a **pasta** dele: em `static/js/sw.js` o escopo seria `/beeonboard/static/js/`, que
+  não cobre as telas. Servindo em **`/beeonboard/sw.js`** o escopo passa a ser o
+  sistema inteiro, e não exige tocar na configuração do Nginx a cada deploy.
+- **Quem recebe sai de `can_see_conversation`** (`webpush.recipients_for`). "Quem é
+  avisado?" é a MESMA pergunta de "quem pode abrir a conversa", então alcance por
+  setor, personalização por usuário e o **gestor master** (que administra mas nunca lê
+  atendimento) valem para o pop-up também. Reimplementar a regra aqui seria criar um
+  segundo lugar por onde vazar conteúdo de atendimento.
+- **Envio em thread daemon**, como o download de mídia: isto roda **dentro da
+  requisição do webhook**, num serviço com `--workers 2 --timeout 60`, e cada inscrição
+  é uma chamada HTTPS ao serviço de push do navegador.
+- **Só o webhook AO VIVO avisa** (`trigger_ai=True`). O `sync_wapi_events_to_conversations`
+  passa `False`: reprocessar histórico não pode disparar pop-up de mensagem de semanas
+  atrás.
+- **Inscrição morta (HTTP 404/410) é APAGADA** no caminho do envio. O navegador
+  descarta a inscrição quando limpam os dados; sem isso a linha seria tentada para
+  sempre.
+- **O conteúdo vai cifrado ponta a ponta** (aes128gcm com as chaves que o navegador
+  gerou). O serviço de push do Google/Mozilla transporta e **não** consegue ler o texto
+  da mensagem.
+- **`pywebpush` é importado dentro da função.** Se a dependência faltar no servidor, o
+  sistema segue funcionando sem o pop-up em vez de quebrar o webhook — a mesma postura
+  do ffmpeg ausente.
+- **O sino voltou a ser clicável.** Ele era só indicador e o sistema **nunca** chamava
+  `Notification.requestPermission()`: quem não liberasse a permissão à mão, pelo cadeado
+  da barra de endereço, nunca receberia pop-up — e nada na tela explicava isso. Clicar
+  pede a permissão, inscreve e mostra um aviso de teste. Verde = ativo, âmbar = clique
+  para ativar, vermelho = bloqueado no navegador (só o usuário desbloqueia).
+- **Clique no pop-up** abre a conversa certa: o service worker **foca a aba** que já
+  está aberta e manda `postMessage` para ela; sem aba aberta, abre
+  `conversas/?conversa=<id>`, que o JS entende.
+
+### Configuração (obrigatória, senão fica inerte)
+
+```bash
+python manage.py gerar_chaves_vapid      # gera o par; cole as linhas no .env
+```
+
+`WEBPUSH_VAPID_PUBLIC_KEY`, `WEBPUSH_VAPID_PRIVATE_KEY` e `WEBPUSH_VAPID_SUBJECT`
+(`mailto:`). Sem as chaves, `manage.py check` avisa **`beezap.W003`** e o recurso não
+envia nada. **Trocar o par depois obriga todos os navegadores a se inscreverem de
+novo.** A chave privada é segredo: nunca versionar.
+
+### Limite conhecido
+
+O pop-up chega com o navegador fechado, mas **não** com o computador desligado nem se o
+sistema operacional estiver com o modo "não perturbe"/Assistente de Foco ligado — isso é
+do S.O., não do sistema. Testes: `accounts/tests/push.py`.
+
 ## 6. Deploy no VPS (LEIA — tem armadilhas específicas)
 
 - App em `/var/www/beezap/`, serviço systemd **`beezap`**, gunicorn em
@@ -930,7 +1020,7 @@ OPENAI_TIMEOUT=30
 ### Rodar os testes
 
 ```bash
-python manage.py test                              # tudo (532 testes, ~13 s)
+python manage.py test                              # tudo (557 testes, ~13 s)
 python manage.py test accounts.tests.master        # só um assunto
 python manage.py test accounts.tests.NomeDaClasse  # só uma classe
 ```
@@ -970,6 +1060,7 @@ venv/bin/python manage.py sync_wapi_events_to_conversations
 ```bash
 sync_wapi_events_to_conversations   # transforma eventos W-API antigos em conversas
 sync_wapi_group_names               # atualiza os nomes dos grupos pela W-API
+gerar_chaves_vapid                  # gera o par VAPID do aviso de nova mensagem (Web Push)
 retry_wapi_media                    # rebaixa TODAS as mídias recebidas sem arquivo local
 inspect_wapi_messages --name X --full   # DIAGNÓSTICO: payload cru + veredito do parser (Messages criadas)
 inspect_wapi_events --hours 6 --full    # DIAGNÓSTICO: eventos BRUTOS do webhook, INCLUSIVE os descartados

@@ -305,13 +305,25 @@
   box-shadow: inset 0 0 0 1px #ef4444;
 }
 
-/* O sino de notificacoes e SOMENTE informativo: nao e clicavel. */
-.conv-notif-indicator {
-  cursor: default;
+/* O sino e CLICAVEL: pede a permissao e inscreve o navegador no aviso do servidor
+   (Web Push). Enquanto era so indicador, o sistema nunca chamava requestPermission()
+   e quem nao liberasse a permissao na mao nunca recebia pop-up. O ambar ("off") e um
+   convite a clicar, nao um erro. */
+.conv-notif-toggle {
+  cursor: pointer;
 }
 
-.conv-notif-indicator:hover {
-  background: none;
+.conv-notif-toggle.off {
+  animation: convNotifChama 2.4s ease-in-out 3;
+}
+
+@keyframes convNotifChama {
+  0%, 100% { transform: scale(1); }
+  50%      { transform: scale(1.12); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .conv-notif-toggle.off { animation: none; }
 }
 
 .conv-sound-toggle.off {          /* som desligado */

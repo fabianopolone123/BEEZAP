@@ -65,3 +65,26 @@ def wapi_env_credentials_check(app_configs, **kwargs):
             id='beezap.W002',
         )
     ]
+
+@register()
+def webpush_vapid_keys_check(app_configs, **kwargs):
+    """Avisa quando as chaves VAPID nao estao no ambiente.
+
+    Sem elas o aviso de nova mensagem (Web Push) fica INERTE: ninguem recebe pop-up
+    com a aba em segundo plano — e nada na tela indicaria isso, porque a inscricao do
+    navegador falha em silencio. Em desenvolvimento e normal nao ter; em producao e
+    perda de funcionalidade, entao vale o aviso no `check` do deploy.
+    """
+    from accounts.webpush import vapid_configured
+
+    if vapid_configured():
+        return []
+    return [
+        Warning(
+            'Chaves VAPID de Web Push ausentes: o aviso de nova mensagem esta desligado.',
+            hint='Gere o par e ponha WEBPUSH_VAPID_PUBLIC_KEY / '
+                 'WEBPUSH_VAPID_PRIVATE_KEY no .env (ver config/settings.py e '
+                 'docs/DEPLOY.md). Sem elas o pop-up nao chega com a aba em segundo plano.',
+            id='beezap.W003',
+        )
+    ]

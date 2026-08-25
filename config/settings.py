@@ -147,6 +147,21 @@ SECURE_HSTS_PRELOAD = env_bool('SECURE_HSTS_PRELOAD', False)
 # O redirecionamento para HTTPS e feito pelo Nginx do dominio.
 SECURE_SSL_REDIRECT = env_bool('SECURE_SSL_REDIRECT', False)
 
+# WEB PUSH (aviso de nova mensagem) — par de chaves VAPID.
+#
+# O pop-up dependia de um timer de 6s na tela Conversas, e o Chrome estrangula timer
+# de aba em segundo plano para 1x/minuto: o aviso chegava atrasado ou nao chegava.
+# Com Web Push quem avisa e o servidor, na hora que a mensagem entra pelo webhook.
+#
+# Gerar o par UMA vez e guardar no .env (nunca versionar a privada):
+#   python manage.py gerar_chaves_vapid
+# Sem as chaves o recurso fica inerte e o `manage.py check` avisa (beezap.W003).
+WEBPUSH_VAPID_PUBLIC_KEY = os.getenv('WEBPUSH_VAPID_PUBLIC_KEY', '')
+WEBPUSH_VAPID_PRIVATE_KEY = os.getenv('WEBPUSH_VAPID_PRIVATE_KEY', '')
+# Exigido pela especificacao (RFC 8292): contato de quem envia, para o servico de push
+# avisar em caso de problema. `mailto:` ou uma URL.
+WEBPUSH_VAPID_SUBJECT = os.getenv('WEBPUSH_VAPID_SUBJECT', 'mailto:contato@fabianopolone.com.br')
+
 # Prefixo de caminho quando o app e servido sob um sub-caminho (ex.: /beeonboard/).
 # Com isso, reverse()/{% url %}/redirects geram URLs ja com o prefixo. O Nginx
 # do VPS remove o /beeonboard/ antes de repassar (proxy_pass .../), entao a resolucao
