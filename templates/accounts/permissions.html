@@ -360,6 +360,13 @@
 
 <script>
   (function () {
+    /* CSRF: o token vem RENDERIZADO pelo template, nao lido do cookie. O nome do
+       cookie e proprio (CSRF_COOKIE_NAME) para nao colidir com os outros sistemas
+       do mesmo dominio, entao procurar o nome PADRAO do Django no document.cookie
+       devolvia vazio: todo POST desta tela levava 403 e o usuario via
+       "Nao foi possivel alterar o perfil.". */
+    var CSRF_TOKEN = '{{ csrf_token }}';
+
     /* ── Abas ── */
     var tabs = document.querySelectorAll('.perm-tab');
     var panels = document.querySelectorAll('.perm-panel');
@@ -388,7 +395,7 @@
           body.append('role', role);
           fetch(location.pathname, {
             method: 'POST',
-            headers: {'X-Requested-With': 'XMLHttpRequest', 'X-CSRFToken': getCookie('csrftoken')},
+            headers: {'X-Requested-With': 'XMLHttpRequest', 'X-CSRFToken': CSRF_TOKEN},
             body: body,
           }).then(function (r) { return r.json(); }).then(function (d) {
             if (d && d.ok) {
@@ -409,10 +416,6 @@
     });
 
     /* ── Toast ── */
-    function getCookie(name) {
-      var m = document.cookie.match('(?:^|;\\s*)' + name + '=([^;]+)');
-      return m ? decodeURIComponent(m[1]) : '';
-    }
     function toast(type, msg) {
       var box = document.querySelector('.toast-container');
       if (!box) {
@@ -439,7 +442,7 @@
     function save(form) {
       fetch(location.pathname, {
         method: 'POST',
-        headers: {'X-Requested-With': 'XMLHttpRequest', 'X-CSRFToken': getCookie('csrftoken')},
+        headers: {'X-Requested-With': 'XMLHttpRequest', 'X-CSRFToken': CSRF_TOKEN},
         body: new FormData(form),
       }).then(function (r) { return r.json(); }).then(function (d) {
         if (d && d.ok) { toast('success', form.dataset.autosave || 'Salvo.'); }
@@ -512,7 +515,7 @@
         body.append('name', input.value);
         fetch(location.pathname, {
           method: 'POST',
-          headers: {'X-Requested-With': 'XMLHttpRequest', 'X-CSRFToken': getCookie('csrftoken')},
+          headers: {'X-Requested-With': 'XMLHttpRequest', 'X-CSRFToken': CSRF_TOKEN},
           body: body,
         }).then(function (r) { return r.json(); }).then(function (d) {
           toast(d && d.ok ? 'success' : 'error', d && d.ok ? 'Nome do grupo salvo.' : 'Nao foi possivel salvar.');
@@ -531,7 +534,7 @@
         body.append('group_id', btn.dataset.groupId);
         fetch(location.pathname, {
           method: 'POST',
-          headers: {'X-Requested-With': 'XMLHttpRequest', 'X-CSRFToken': getCookie('csrftoken')},
+          headers: {'X-Requested-With': 'XMLHttpRequest', 'X-CSRFToken': CSRF_TOKEN},
           body: body,
         }).then(function (r) { return r.json(); }).then(function (d) {
           if (d && d.ok) {
@@ -552,7 +555,7 @@
         syncBtn.textContent = 'Atualizando...';
         fetch(syncBtn.dataset.syncUrl, {
           method: 'POST',
-          headers: {'X-Requested-With': 'XMLHttpRequest', 'X-CSRFToken': getCookie('csrftoken')},
+          headers: {'X-Requested-With': 'XMLHttpRequest', 'X-CSRFToken': CSRF_TOKEN},
         }).then(function (r) { return r.json(); }).then(function (d) {
           if (d && d.ok && d.updated > 0) {
             toast('success', d.updated + ' nome(s) atualizado(s).');

@@ -243,10 +243,10 @@ ou arquivo. Quem precisar do conteudo e o Administrador da propria empresa.
   var label = card.querySelector('[data-health-label]');
   var detail = card.querySelector('[data-health-detail]');
 
-  function csrf() {
-    var m = document.cookie.match(/(^|;)\s*csrftoken=([^;]+)/);
-    return m ? m[2] : '';
-  }
+  // CSRF: token RENDERIZADO pelo template, nao lido do cookie -- o nome do cookie
+  // e proprio (CSRF_COOKIE_NAME), entao procurar o nome PADRAO do Django no
+  // document.cookie devolvia vazio e o POST voltava 403.
+  var CSRF_TOKEN = '{{ csrf_token }}';
 
   button.addEventListener('click', function () {
     button.disabled = true;
@@ -256,7 +256,7 @@ ou arquivo. Quem precisar do conteudo e o Administrador da propria empresa.
 
     fetch(button.dataset.checkUrl, {
       method: 'POST',
-      headers: { 'X-CSRFToken': csrf(), 'X-Requested-With': 'XMLHttpRequest' },
+      headers: { 'X-CSRFToken': CSRF_TOKEN, 'X-Requested-With': 'XMLHttpRequest' },
     })
       .then(function (r) { return r.json(); })
       .then(function (data) {

@@ -401,3 +401,30 @@ class TemplateCommentsDoNotLeakTests(SimpleTestCase):
             problemas, [],
             'comentario {# #} de varias linhas vaza para o HTML; use {% comment %}',
         )
+
+
+class FrontEndCsrfTokenTests(SimpleTestCase):
+    """Nenhuma tela pode ler o cookie CSRF pelo nome PADRAO do Django.
+
+    `CSRF_COOKIE_NAME` e proprio (`beeonboard_csrftoken`) porque o dominio serve
+    varios sistemas Django. Um JS que procure `csrftoken` no `document.cookie`
+    recebe vazio, manda o header em branco e leva 403 — e como a resposta do 403
+    vem em HTML, o `r.json()` estoura e o usuario ve so um erro generico. Foi o que
+    aconteceu nas telas Permissoes, Setores e Metricas do cliente. O certo e usar o
+    token RENDERIZADO (`{{ csrf_token }}`), que nao depende do nome do cookie.
+    """
+
+    def test_nenhum_front_le_o_cookie_csrf_pelo_nome_fixo(self):
+        import glob
+        problemas = []
+        alvos = (glob.glob('templates/**/*.html', recursive=True)
+                 + glob.glob('static/js/**/*.js', recursive=True))
+        for caminho in sorted(alvos):
+            with open(caminho, encoding='utf-8') as arquivo:
+                for numero, linha in enumerate(arquivo, 1):
+                    if 'csrftoken' in linha:  # minusculo = nome do cookie
+                        problemas.append('%s:%d' % (caminho, numero))
+        self.assertEqual(
+            problemas, [],
+            'use o token renderizado ({{ csrf_token }}), nao o cookie "csrftoken"',
+        )

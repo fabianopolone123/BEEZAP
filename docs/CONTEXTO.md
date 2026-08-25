@@ -747,6 +747,18 @@ sai por duas rotas do Django:
   Os vizinhos já resolvem assim (`italianoti_sessionid`, `formdesenv_sessionid`).
   Efeito colateral do deploy que introduziu isso: as sessões abertas caíram **uma
   vez**.
+  - **O JS nunca pode ler o cookie do CSRF pelo nome.** Como o nome é próprio,
+    procurar `csrftoken` no `document.cookie` devolve **vazio**: o header
+    `X-CSRFToken` sai em branco, o Django responde **403 em HTML**, o `r.json()` do
+    JS estoura e o usuário vê só um erro genérico ("Não foi possível…"), sem pista
+    do motivo. Aconteceu de verdade nas telas **Permissões** (todas as abas, que
+    salvam sozinhas), **Setores** (organizar arrastando) e **Métricas do cliente**
+    (botão *Verificar conexão*). O certo é o token **renderizado pelo template**
+    (`var CSRF_TOKEN = '{{ csrf_token }}';`, ou `data-csrf` como em Conversas), que
+    não depende do nome do cookie. Guardas: `FrontEndCsrfTokenTests` (nenhum
+    template/JS cita o cookie padrão) e `PermissionsCsrfTests` (POST da tela com o
+    CSRF **conferido de verdade** — os outros testes usam o `Client` sem CSRF e
+    passariam com a tela quebrada).
 - **`SESSION_COOKIE_SECURE` / `CSRF_COOKIE_SECURE`** ligam sozinhos quando
   `DEBUG=False` (o domínio é HTTPS). **HSTS vem desligado de propósito**: vale para o
   **domínio inteiro**, não só para `/beeonboard/`, e um `max-age` alto é difícil de
@@ -863,7 +875,7 @@ OPENAI_TIMEOUT=30
 ### Rodar os testes
 
 ```bash
-python manage.py test                              # tudo (495 testes, ~13 s)
+python manage.py test                              # tudo (498 testes, ~13 s)
 python manage.py test accounts.tests.master        # só um assunto
 python manage.py test accounts.tests.NomeDaClasse  # só uma classe
 ```

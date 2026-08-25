@@ -313,10 +313,10 @@
       .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
 
-  function getCsrf() {
-    const m = document.cookie.match(/(?:^|;\s*)csrftoken=([^;]+)/);
-    return m ? decodeURIComponent(m[1]) : '';
-  }
+  // CSRF: token RENDERIZADO pelo template, nao lido do cookie -- o nome do cookie
+  // e proprio (CSRF_COOKIE_NAME), entao procurar o nome PADRAO do Django no
+  // document.cookie devolvia vazio e o POST voltava 403.
+  const CSRF_TOKEN = '{{ csrf_token }}';
 
   function showToast(type, msg) {
     let container = document.querySelector('.toast-container');
@@ -507,7 +507,7 @@
     try {
       const res  = await fetch('{% url "sectors-save" %}', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCsrf() },
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF_TOKEN },
         body: JSON.stringify({ sectors: payload }),
       });
       const data = await res.json();

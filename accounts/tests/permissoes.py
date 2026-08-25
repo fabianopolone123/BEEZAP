@@ -585,3 +585,55 @@ class AjaxEndpointsRespectMenuPermissionsTests(TestCase):
             {'number': '5519333334444', 'name': 'Nome Novo'},
         )
         self.assertEqual(response.status_code, 403)
+
+
+class PermissionsCsrfTests(TestCase):
+    """A tela Permissoes salva sozinha por AJAX: o POST tem que passar no CSRF.
+
+    Regressao real: o JS pegava o token com `document.cookie['csrftoken']`, mas o
+    cookie tem nome proprio (`CSRF_COOKIE_NAME = beeonboard_csrftoken`, para nao
+    colidir com os outros sistemas do mesmo dominio). O header saia VAZIO, o Django
+    respondia 403 em HTML, o `r.json()` do JS estourava e o usuario via so
+    "Nao foi possivel alterar o perfil." — nenhum perfil mudava, em nenhuma aba.
+
+    Os outros testes desta tela usam o Client sem CSRF, entao passavam com a tela
+    quebrada; aqui o CSRF e conferido de verdade e o token vem SO do que a pagina
+    entrega ao navegador.
+    """
+
+    def setUp(self):
+        from django.test import Client
+        self.admin = User.objects.create_user(
+            company=default_company(), email='adm@x.com', password='x', role=User.Role.ADM)
+        self.user = User.objects.create_user(
+            company=default_company(), email='joao@x.com', password='x', role=User.Role.USUARIO)
+        self.client = Client(enforce_csrf_checks=True)
+        self.client.force_login(self.admin)
+
+    def _token_da_pagina(self):
+        """Le o token como o navegador leria: do que o template renderizou."""
+        import re
+        corpo = self.client.get(reverse('permissions')).content.decode()
+        achado = re.search(r"CSRF_TOKEN\s*=\s*'([^']+)'", corpo)
+        self.assertIsNotNone(achado, 'a tela nao entrega o token CSRF para o JS')
+        return achado.group(1)
+
+    def test_mudar_perfil_passa_no_csrf(self):
+        resposta = self.client.post(
+            reverse('permissions'),
+            {'form_type': 'profile-role', 'user_id': str(self.user.id), 'role': 'leitor'},
+            HTTP_X_REQUESTED_WITH='XMLHttpRequest',
+            HTTP_X_CSRFTOKEN=self._token_da_pagina(),
+        )
+        self.assertEqual(resposta.status_code, 200)
+        self.assertIn('application/json', resposta.headers.get('Content-Type', ''))
+        self.assertTrue(resposta.json()['ok'])
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.role, 'leitor')
+
+    def test_token_do_cookie_padrao_nao_serve(self):
+        """Prova o motivo do bug: nao existe cookie `csrftoken` para o JS achar."""
+        from django.conf import settings
+        self.client.get(reverse('permissions'))
+        self.assertNotIn('csrftoken', self.client.cookies)
+        self.assertIn(settings.CSRF_COOKIE_NAME, self.client.cookies)
