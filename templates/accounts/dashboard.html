@@ -6,6 +6,7 @@
 {% block title %}Dashboard | BEEonBOARD{% endblock %}
 {% block extra_head %}
 <link rel="stylesheet" href="{% asset 'css/dashboard.css' %}">
+<link rel="stylesheet" href="{% asset 'css/dashboard_detail.css' %}">
 <style>
   /* Estilo do gráfico "Atendimentos por dia" embutido no HTML de propósito:
      como o HTML sempre vem fresco do servidor, isto NUNCA fica em cache velho
@@ -54,12 +55,18 @@
       </div>
     </header>
 
+    {% comment %}
+    Cada card e um BOTAO: clicar abre a lista que esta por tras do numero. Botao (e
+    nao div com onclick) para funcionar no teclado e ser anunciado como acionavel.
+    {% endcomment %}
     <section class="stats-grid">
       {% for stat in stats %}
-        <article class="stat-card">
+        <button type="button" class="stat-card is-clickable" data-metrica="{{ stat.key }}"
+                aria-label="Ver detalhe de {{ stat.label }}">
           <p>{{ stat.label }}</p>
           <strong>{{ stat.value }}</strong>
-        </article>
+          <span class="stat-card-hint">ver detalhe</span>
+        </button>
       {% endfor %}
     </section>
 
@@ -87,9 +94,12 @@
           </svg>
 
           {% for p in chart_points %}
-            <span class="dc-dot" style="left: {{ p.left }}%; top: {{ p.top }}%;"></span>
-            <span class="dc-val" style="left: {{ p.left }}%; top: {{ p.top }}%;">{{ p.value }}</span>
-            <span class="dc-date" style="left: {{ p.left }}%;">{{ p.label }}</span>
+            <button type="button" class="dc-hit" data-dia="{{ p.iso }}"
+                    style="left: {{ p.left }}%;" aria-label="Ver atendimentos de {{ p.label }}">
+              <span class="dc-dot" style="top: {{ p.top }}%;"></span>
+              <span class="dc-val" style="top: {{ p.top }}%;">{{ p.value }}</span>
+              <span class="dc-date">{{ p.label }}</span>
+            </button>
           {% endfor %}
         </div>
         {% endlocalize %}
@@ -100,16 +110,31 @@
           <h2>Atendimentos por setor</h2>
           <span>Distribuição</span>
         </div>
+        {% comment %}
+        O donut e um conic-gradient: nao ha elemento por fatia para receber o clique.
+        O JS descobre o setor pelo ANGULO do clique, usando as faixas (inicio/fim em %)
+        que vao no json_script abaixo. A legenda tambem e clicavel, que e o caminho
+        obvio para quem usa teclado ou tela pequena.
+        {% endcomment %}
         <div class="donut-wrap">
-          <div class="donut-chart" style="background: {{ donut_gradient }};"></div>
+          <div class="donut-chart" data-donut style="background: {{ donut_gradient }};"
+               role="img" aria-label="Distribuição de atendimentos por setor"></div>
           <ul class="legend">
             {% for s in sector_legend %}
-              <li><span class="legend-dot" style="background: {{ s.color }};"></span> {{ s.name }} ({{ s.pct }}%)</li>
+              <li>
+                <button type="button" class="legend-btn" data-setor="{{ s.id }}"
+                        aria-label="Ver atendimentos do setor {{ s.name }}">
+                  <span class="legend-dot" style="background: {{ s.color }};"></span>
+                  <span class="legend-name">{{ s.name }}</span>
+                  <span class="legend-pct">{{ s.pct }}%</span>
+                </button>
+              </li>
             {% empty %}
-              <li>Sem dados de setor ainda.</li>
+              <li class="legend-empty">Sem dados de setor ainda.</li>
             {% endfor %}
           </ul>
         </div>
+        {{ sector_legend|json_script:"dados-setores" }}
       </article>
     </section>
 
@@ -148,4 +173,37 @@
     </section>
   </section>
 </main>
+
+{% comment %}
+Janela de detalhe das métricas. Uma só, reaproveitada por todos os números do
+painel: o conteúdo vem do endpoint `dashboard-metric-detail` conforme o que foi
+clicado. Fica fora do `<main>` para o backdrop cobrir a tela inteira.
+{% endcomment %}
+<div class="dash-modal" data-dash-modal hidden>
+  <div class="dash-modal-backdrop" data-dash-close></div>
+  <div class="dash-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="dash-modal-title" tabindex="-1">
+    <header class="dash-modal-head">
+      <div>
+        <h2 id="dash-modal-title" data-dash-title>Detalhe</h2>
+        <p class="dash-modal-sub" data-dash-sub></p>
+      </div>
+      <button type="button" class="dash-modal-close" data-dash-close aria-label="Fechar">&times;</button>
+    </header>
+
+    <div class="dash-modal-body" data-dash-body>
+      <div class="dash-skeleton" data-dash-loading>
+        <span></span><span></span><span></span><span></span>
+      </div>
+    </div>
+
+    <footer class="dash-modal-foot" data-dash-foot hidden>
+      <span data-dash-count></span>
+      <span class="dash-modal-hint" data-dash-hidden hidden></span>
+    </footer>
+  </div>
+</div>
+
+<script src="{% asset 'js/dashboard.js' %}" defer
+        data-detail-url="{% url 'dashboard-metric-detail' %}"
+        data-conversations-url="{% url 'conversations' %}"></script>
 {% endblock %}

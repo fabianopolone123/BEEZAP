@@ -716,6 +716,63 @@ sai por duas rotas do Django:
   removidos — a pedido; o painel é só indicadores).
 - Popular dados de demonstração: comando **`seed_demo_data`** (ver seção 9).
 
+### Clique nas métricas: a janela de detalhe
+
+Todo número do painel é **acionável** — o painel deixou de ser só um cartaz. Uma única
+janela suspensa é reaproveitada por todos, e o conteúdo vem do endpoint
+`dashboard/detalhe/` (`dashboard_metric_detail_view`, nome de rota
+`dashboard-metric-detail`).
+
+| O que se clica | Métrica | O que a janela mostra |
+|---|---|---|
+| Card **Conversas ativas** | `ativas` | cliente, setor, **quem está atendendo**, quem falou por último e o quê, horário, estado |
+| Card **Novas conversas** | `novas` | as criadas nos últimos 7 dias, mesmas colunas |
+| Card **Atendimentos finalizados** | `finalizadas` | os encerrados, mesmas colunas |
+| Card **Tempo médio de resposta** | `tempo-medio` | **uma linha por conversa**: da 1ª mensagem do cliente à 1ª resposta, com o tempo de cada uma |
+| **Fatia do donut** ou item da legenda | `setor` | os atendimentos daquele setor |
+| **Ponto do gráfico** de 7 dias | `dia` | os atendimentos com atividade naquele dia |
+
+Clicar numa linha abre aquela conversa direto na tela Conversas
+(`conversas/?conversa=<id>`).
+
+**A regra que não pode ser quebrada: o número do card e a lista saem da MESMA
+consulta.** As consultas vivem em `_metric_querysets()` e o tempo de resposta em
+`_response_times()`; os dois lados (card e janela) leem de lá. Se cada lado montasse a
+sua, a primeira mudança de regra faria o card dizer 12 e a lista mostrar 9 — foi o mesmo
+cuidado que a tela Conversas já toma com `CONVERSATION_COUNT_Q`. Há teste comparando
+`total` da janela com o valor do card, e a média dos tempos listados com o card.
+
+**Privacidade — a diferença entre um número e uma lista.** O card é um **número** e
+sempre contou a empresa inteira. A janela mostra **nome de cliente e trecho de
+mensagem**, ou seja, conteúdo de atendimento: por isso a lista passa por
+`visible_conversations` (o mesmo alcance da tela Conversas) e **não** pelo simples gate
+do botão Dashboard. Um usuário com o botão liberado mas alcance de um setor só veria,
+por essa URL, a conversa de todos os outros. Para o número do card não parecer errado, a
+janela informa quantos itens ficaram de fora: **"N fora do seu alcance"** no rodapé.
+Para o ADM (que vê tudo) não há diferença nenhuma.
+
+Outros pontos:
+
+- **`metrica` é uma chave fechada** (`METRIC_TITLES`): valor fora da lista responde 400,
+  então a URL não vira filtro livre sobre o banco. Setor de outra empresa dá **404**.
+- **Limite de 60 linhas** (`DETAIL_LIMIT`) — um cliente com 20 mil finalizados não pode
+  virar um JSON de 20 mil itens. O rodapé mostra "Mostrando 60 de N".
+- **O clique no donut é por ÂNGULO.** Um `conic-gradient` não tem elemento por fatia
+  para receber evento; o servidor manda as faixas (`inicio`/`fim` em %) num
+  `json_script`, e o JS converte a posição do clique em porcentagem para achar a fatia.
+  O buraco do meio não seleciona nada. A **legenda** também é clicável — é o caminho de
+  quem usa teclado ou tela pequena.
+- **Cards e pontos do gráfico são `<button>`**, não `div` com clique: funcionam no
+  teclado e são anunciados como acionáveis.
+- **Uma requisição por abertura**, sem poll: a janela é uma foto do momento do clique.
+  Clique rápido em dois cards descarta a resposta do primeiro (contador `pedidoAtual`).
+- **Responsivo**: até 900px setor/atendente descem para uma linha própria; até 620px a
+  janela virá tela cheia. Estados de **carregando** (esqueleto), **vazio** (texto
+  específico por métrica) e **erro**.
+- CSS próprio em `dashboard_detail.css` e JS em `static/js/dashboard.js`. Testes:
+  `DashboardMetricDetailTests` e `DashboardClickableUiTests`.
+
+
 ## 5.3. Tela Atendentes (`templates/accounts/attendants.html` + `attendants.css`)
 
 - Rota `atendentes/` (`attendants_view`, nome de rota `attendants`), gateada pelo botão
@@ -1020,7 +1077,7 @@ OPENAI_TIMEOUT=30
 ### Rodar os testes
 
 ```bash
-python manage.py test                              # tudo (557 testes, ~13 s)
+python manage.py test                              # tudo (579 testes, ~13 s)
 python manage.py test accounts.tests.master        # só um assunto
 python manage.py test accounts.tests.NomeDaClasse  # só uma classe
 ```

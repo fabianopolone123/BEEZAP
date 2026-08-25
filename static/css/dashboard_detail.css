@@ -1,0 +1,503 @@
+/* ===========================================================================
+   Dashboard — clique nas métricas e a janela de detalhe.
+   Raiz própria (.dash-modal / .stat-card.is-clickable / .dc-hit / .legend-btn)
+   para não afetar as outras telas que reaproveitam dashboard.css.
+   Herda os tokens de dashboard.css (--card-bg, --shadow, --muted, ...).
+   =========================================================================== */
+
+/* ---------- Cards: agora são botões ---------- */
+.stat-card.is-clickable {
+  position: relative;
+  display: block;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  overflow: hidden;
+  transition: transform 0.16s ease, box-shadow 0.16s ease, border-color 0.16s ease;
+}
+
+.stat-card.is-clickable::after {
+  /* Faixa de destaque que sobe ao passar o mouse — sinal de "isto abre algo". */
+  content: '';
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--primary), var(--blue));
+  transform: translateY(3px);
+  transition: transform 0.16s ease;
+}
+
+.stat-card.is-clickable:hover,
+.stat-card.is-clickable:focus-visible {
+  transform: translateY(-2px);
+  box-shadow: 0 22px 54px rgba(10, 22, 54, 0.18);
+  border-color: rgba(33, 194, 94, 0.4);
+  outline: none;
+}
+
+.stat-card.is-clickable:hover::after,
+.stat-card.is-clickable:focus-visible::after {
+  transform: translateY(0);
+}
+
+.stat-card.is-clickable:active {
+  transform: translateY(0);
+}
+
+.stat-card-hint {
+  display: block;
+  margin-top: 10px;
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--muted);
+  opacity: 0;
+  transition: opacity 0.16s ease;
+}
+
+.stat-card.is-clickable:hover .stat-card-hint,
+.stat-card.is-clickable:focus-visible .stat-card-hint {
+  opacity: 1;
+  color: var(--primary-deep);
+}
+
+/* Em tela de toque não existe hover: a dica fica sempre visível. */
+@media (hover: none) {
+  .stat-card-hint { opacity: 1; }
+  .stat-card.is-clickable::after { transform: translateY(0); }
+}
+
+/* ---------- Pontos do gráfico: área de clique confortável ---------- */
+.daychart .dc-hit {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 11%;                 /* alvo generoso, mas sem estourar a largura do painel */
+  transform: translateX(-50%);
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  cursor: pointer;
+  border-radius: 14px;
+  transition: background 0.16s ease;
+}
+
+.daychart .dc-hit:hover,
+.daychart .dc-hit:focus-visible {
+  background: rgba(33, 194, 94, 0.08);
+  outline: none;
+}
+
+.daychart .dc-hit:focus-visible {
+  box-shadow: inset 0 0 0 2px rgba(33, 194, 94, 0.5);
+}
+
+/* Os filhos posicionados por % continuam centrados no botão. */
+.daychart .dc-hit .dc-dot,
+.daychart .dc-hit .dc-val { left: 50%; }
+.daychart .dc-hit .dc-date { left: 50%; }
+
+.daychart .dc-hit:hover .dc-dot {
+  transform: translate(-50%, -50%) scale(1.35);
+  border-color: var(--primary-deep);
+}
+
+.daychart .dc-dot { transition: transform 0.16s ease, border-color 0.16s ease; }
+
+/* ---------- Legenda do donut: itens clicáveis ---------- */
+.legend-btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 12px;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.14s ease;
+}
+
+.legend-btn:hover,
+.legend-btn:focus-visible {
+  background: rgba(45, 108, 223, 0.08);
+  outline: none;
+}
+
+.legend-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.legend-pct {
+  font-weight: 700;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.legend-empty { color: var(--muted); }
+
+.donut-chart[data-donut] { cursor: pointer; }
+
+.donut-chart[data-donut]:hover {
+  filter: brightness(1.03) saturate(1.05);
+}
+
+/* ---------- A janela ---------- */
+.dash-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.dash-modal[hidden] { display: none; }
+
+.dash-modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(6, 20, 39, 0.5);
+  backdrop-filter: blur(2px);
+  animation: dashFade 0.16s ease;
+}
+
+.dash-modal-dialog {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: min(100%, 940px);
+  max-height: min(86vh, 780px);
+  background: #fff;
+  border-radius: 24px;
+  box-shadow: 0 30px 70px rgba(10, 22, 54, 0.3);
+  overflow: hidden;
+  animation: dashRise 0.18s ease;
+}
+
+@keyframes dashFade { from { opacity: 0; } }
+@keyframes dashRise {
+  from { opacity: 0; transform: translateY(12px) scale(0.99); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dash-modal-backdrop, .dash-modal-dialog { animation: none; }
+}
+
+.dash-modal-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 20px 22px 16px;
+  border-bottom: 1px solid rgba(100, 116, 139, 0.14);
+}
+
+.dash-modal-head h2 {
+  margin: 0;
+  font-size: 1.18rem;
+  line-height: 1.25;
+}
+
+.dash-modal-sub {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.dash-modal-close {
+  flex: 0 0 auto;
+  width: 38px;
+  height: 38px;
+  border: 0;
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.06);
+  color: var(--text);
+  font-size: 1.4rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.dash-modal-close:hover { background: rgba(15, 23, 42, 0.12); }
+
+.dash-modal-body {
+  flex: 1;
+  min-height: 120px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 10px 12px 14px;
+}
+
+.dash-modal-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 12px 22px 16px;
+  border-top: 1px solid rgba(100, 116, 139, 0.14);
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
+.dash-modal-hint {
+  color: #b45309;
+  background: #fffbeb;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-weight: 600;
+}
+
+/* ---------- Linhas de conversa ---------- */
+.dash-row {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1.6fr) minmax(0, 1fr) minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  width: 100%;
+  padding: 12px;
+  border: 0;
+  border-radius: 16px;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.14s ease;
+}
+
+.dash-row:hover,
+.dash-row:focus-visible {
+  background: rgba(33, 194, 94, 0.07);
+  outline: none;
+}
+
+.dash-row + .dash-row {
+  border-top: 1px solid rgba(100, 116, 139, 0.1);
+  border-radius: 16px;
+}
+
+.dash-avatar {
+  width: 42px;
+  height: 42px;
+  border-radius: 14px;
+  display: grid;
+  place-items: center;
+  font-weight: 700;
+  font-size: 0.86rem;
+  color: #fff;
+  background: linear-gradient(135deg, var(--primary), var(--primary-deep));
+}
+
+.dash-avatar.is-group {
+  background: linear-gradient(135deg, #7c3aed, #4c1d95);
+}
+
+.dash-cell { min-width: 0; }
+
+.dash-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dash-msg {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 0.86rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dash-msg b {
+  color: #334155;
+  font-weight: 700;
+}
+
+.dash-label {
+  display: block;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--muted);
+  margin-bottom: 2px;
+}
+
+.dash-value {
+  display: block;
+  font-size: 0.9rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dash-value.is-empty { color: #94a3b8; }
+
+.dash-meta {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.dash-time {
+  display: block;
+  font-size: 0.84rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.dash-chip {
+  display: inline-block;
+  margin-top: 4px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.dash-chip.is-open { background: rgba(33, 194, 94, 0.14); color: var(--primary-deep); }
+.dash-chip.is-pending { background: rgba(244, 183, 64, 0.18); color: #92400e; }
+.dash-chip.is-closed { background: rgba(100, 116, 139, 0.14); color: #475569; }
+
+.dash-group-badge {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: rgba(124, 58, 237, 0.12);
+  color: #6d28d9;
+  font-size: 0.66rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.dash-unread {
+  display: inline-block;
+  min-width: 20px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--primary);
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-align: center;
+}
+
+/* ---------- Linhas de tempo de resposta ---------- */
+.dash-row.is-time {
+  grid-template-columns: 42px minmax(0, 1.5fr) minmax(0, 1.4fr) auto;
+}
+
+.dash-tempo {
+  display: inline-block;
+  padding: 5px 12px;
+  border-radius: 999px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  background: rgba(33, 194, 94, 0.14);
+  color: var(--primary-deep);
+}
+
+/* Faixas: até 5 min ótimo, até 30 min atenção, acima disso ruim. O objetivo é
+   enxergar o problema na lista sem precisar ler cada número. */
+.dash-tempo.is-medio { background: rgba(244, 183, 64, 0.2); color: #92400e; }
+.dash-tempo.is-alto { background: rgba(229, 72, 77, 0.14); color: #b42318; }
+
+.dash-fluxo {
+  font-size: 0.86rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.dash-fluxo strong { color: #334155; font-weight: 700; }
+
+/* ---------- Estados: carregando, vazio, erro ---------- */
+.dash-skeleton {
+  display: grid;
+  gap: 10px;
+  padding: 8px;
+}
+
+.dash-skeleton span {
+  display: block;
+  height: 58px;
+  border-radius: 16px;
+  background: linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 37%, #f1f5f9 63%);
+  background-size: 400% 100%;
+  animation: dashShimmer 1.2s ease-in-out infinite;
+}
+
+@keyframes dashShimmer {
+  from { background-position: 100% 0; }
+  to { background-position: 0 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dash-skeleton span { animation: none; }
+}
+
+.dash-empty {
+  display: grid;
+  gap: 6px;
+  justify-items: center;
+  padding: 42px 18px;
+  text-align: center;
+  color: var(--muted);
+}
+
+.dash-empty-icon { font-size: 1.9rem; }
+.dash-empty strong { color: var(--text); font-size: 1rem; }
+
+/* ---------- Responsivo ---------- */
+@media (max-width: 900px) {
+  .dash-row {
+    grid-template-columns: 42px minmax(0, 1fr) auto;
+    row-gap: 8px;
+  }
+  /* Setor e atendente descem para uma linha própria, lado a lado. */
+  .dash-row .dash-cell.is-secondary {
+    grid-column: 2 / -1;
+    display: inline-flex;
+    gap: 6px;
+    align-items: baseline;
+  }
+  .dash-row .dash-cell.is-secondary .dash-label {
+    margin: 0;
+  }
+  .dash-row.is-time {
+    grid-template-columns: 42px minmax(0, 1fr) auto;
+  }
+  .dash-row.is-time .dash-fluxo {
+    grid-column: 2 / -1;
+  }
+}
+
+@media (max-width: 620px) {
+  .dash-modal { padding: 0; align-items: stretch; }
+  .dash-modal-dialog {
+    width: 100%;
+    max-height: 100%;
+    height: 100%;
+    border-radius: 0;
+  }
+  .dash-modal-head { padding: 16px; }
+  .dash-modal-body { padding: 8px; }
+  .dash-modal-foot { padding: 12px 16px; }
+  .dash-meta { text-align: left; }
+  .daychart .dc-hit { border-radius: 8px; }
+}

@@ -2,6 +2,10 @@
 admin do Django, sinais e Dashboard.
 """
 
+from datetime import timedelta
+
+from django.utils import timezone
+
 from .base import (
     Attendant,
     SimpleTestCase,
@@ -498,3 +502,275 @@ class InspectWapiGroupsCommandTests(TestCase):
         saida = self._rodar(None)
         self.assertIn('Falha ao chamar get-all-groups', saida)
         self.assertNotIn('Conversas de grupo no banco', saida)
+
+
+class DashboardMetricDetailTests(TestCase):
+    """A janela que abre ao clicar num numero do Dashboard.
+
+    A garantia que importa: a LISTA sai da mesma consulta que produziu o NUMERO do
+    card. Se um dia alguem mudar a regra de "conversa ativa" num lugar so, estes
+    testes reprovam.
+
+    A segunda garantia: a janela mostra nome de cliente e trecho de mensagem, ou seja
+    conteudo de atendimento — entao ela respeita o ALCANCE DE VISUALIZACAO de quem
+    esta logado, e nao apenas o gate do botao Dashboard.
+    """
+
+    def setUp(self):
+        from accounts.models import Company, Contact, Conversation, Message, Sector
+        self.Conversation = Conversation
+        self.Message = Message
+        self.empresa = default_company()
+        self.vizinha = Company.objects.create(name='Vizinha', slug='vizinha')
+        self.adm = User.objects.create_user(
+            company=self.empresa, email='adm@x.com', password='x', role=User.Role.ADM)
+        self.vendas = Sector.objects.create(company=self.empresa, name='Vendas')
+        self.suporte = Sector.objects.create(company=self.empresa, name='Suporte')
+
+        def conversa(nome, telefone, status, setor=None, empresa=None):
+            alvo = empresa or self.empresa
+            contato = Contact.objects.create(company=alvo, name=nome, phone=telefone)
+            return Conversation.objects.create(
+                company=alvo, contact=contato, external_id=telefone,
+                chat_type='private', status=status, sector=setor,
+                last_message_text='ultima de %s' % nome,
+                last_message_at=timezone.now(),
+            )
+
+        self.aberta = conversa('Joana', '5516900000001', 'open', self.vendas)
+        self.pendente = conversa('Carlos', '5516900000002', 'pending', self.suporte)
+        self.fechada = conversa('Marcia', '5516900000003', 'closed', self.vendas)
+        self.da_vizinha = conversa('Vizinho', '5516900000009', 'open', empresa=self.vizinha)
+        self.client.force_login(self.adm)
+
+    def _detalhe(self, **params):
+        return self.client.get(reverse('dashboard-metric-detail'), params,
+                               HTTP_X_REQUESTED_WITH='XMLHttpRequest')
+
+    def _card(self, chave):
+        """O numero que o card mostra, direto do contexto do dashboard."""
+        from accounts.views.dashboard import build_dashboard_context
+        contexto = build_dashboard_context(self.empresa)
+        return {s['key']: s for s in contexto['stats']}[chave]
+
+    # ----- o numero e a lista tem que bater -----
+
+    def test_ativas_lista_bate_com_o_card(self):
+        dados = self._detalhe(metrica='ativas').json()
+        self.assertTrue(dados['ok'])
+        self.assertEqual(dados['total'], self._card('ativas')['bruto'])
+        self.assertEqual(dados['total'], 2)  # aberta + pendente (fechada fica fora)
+        nomes = sorted(i['cliente'] for i in dados['itens'])
+        self.assertEqual(nomes, ['Carlos', 'Joana'])
+
+    def test_finalizadas_lista_bate_com_o_card(self):
+        dados = self._detalhe(metrica='finalizadas').json()
+        self.assertEqual(dados['total'], self._card('finalizadas')['bruto'])
+        self.assertEqual([i['cliente'] for i in dados['itens']], ['Marcia'])
+
+    def test_novas_lista_bate_com_o_card(self):
+        dados = self._detalhe(metrica='novas').json()
+        self.assertEqual(dados['total'], self._card('novas')['bruto'])
+        self.assertEqual(dados['total'], 3)
+
+    def test_conversa_de_outra_empresa_nunca_aparece(self):
+        for metrica in ('ativas', 'novas'):
+            with self.subTest(metrica=metrica):
+                dados = self._detalhe(metrica=metrica).json()
+                self.assertNotIn('Vizinho', [i['cliente'] for i in dados['itens']])
+
+    # ----- o conteudo da linha -----
+
+    def test_linha_diz_quem_falou_por_ultimo(self):
+        self.Message.objects.create(
+            conversation=self.aberta, direction='in', message_type='text',
+            text='preciso de ajuda', sender_name='Joana')
+        dados = self._detalhe(metrica='ativas').json()
+        linha = [i for i in dados['itens'] if i['cliente'] == 'Joana'][0]
+        self.assertEqual(linha['ultima_direcao'], 'in')
+        self.assertEqual(linha['ultima_de'], 'Joana')
+
+    def test_linha_mostra_quem_esta_atendendo(self):
+        atendente = Attendant.objects.create(
+            company=self.empresa, user=User.objects.create_user(
+                company=self.empresa, email='at@x.com', password='x',
+                role=User.Role.USUARIO),
+            name='Bruno', must_change_password=False)
+        self.aberta.assigned_attendant = atendente
+        self.aberta.save(update_fields=['assigned_attendant'])
+        dados = self._detalhe(metrica='ativas').json()
+        linha = [i for i in dados['itens'] if i['cliente'] == 'Joana'][0]
+        self.assertEqual(linha['atendente'], 'Bruno')
+        self.assertEqual(linha['setor'], 'Vendas')
+
+    # ----- setor (clique no donut / na legenda) -----
+
+    def test_setor_lista_so_os_atendimentos_dele(self):
+        dados = self._detalhe(metrica='setor', setor=self.vendas.pk).json()
+        self.assertEqual(dados['titulo'], 'Vendas')
+        self.assertEqual(sorted(i['cliente'] for i in dados['itens']), ['Joana', 'Marcia'])
+
+    def test_setor_de_outra_empresa_da_404(self):
+        from accounts.models import Sector
+        alheio = Sector.objects.create(company=self.vizinha, name='Vendas da vizinha')
+        self.assertEqual(self._detalhe(metrica='setor', setor=alheio.pk).status_code, 404)
+
+    def test_setor_inexistente_da_404(self):
+        self.assertEqual(self._detalhe(metrica='setor', setor=999999).status_code, 404)
+
+    def test_setor_com_id_invalido_nao_derruba(self):
+        self.assertEqual(self._detalhe(metrica='setor', setor='abc').status_code, 404)
+
+    # ----- dia (clique no grafico) -----
+
+    def test_dia_filtra_pela_data(self):
+        hoje = timezone.localdate().isoformat()
+        dados = self._detalhe(metrica='dia', data=hoje).json()
+        self.assertEqual(dados['total'], 3)
+        antiga = self.Conversation.objects.filter(pk=self.aberta.pk)
+        antiga.update(last_message_at=timezone.now() - timedelta(days=10))
+        dados = self._detalhe(metrica='dia', data=hoje).json()
+        self.assertEqual(dados['total'], 2)
+
+    def test_data_invalida_da_400(self):
+        self.assertEqual(self._detalhe(metrica='dia', data='ontem').status_code, 400)
+
+    # ----- tempo de resposta -----
+
+    def test_tempo_medio_bate_com_o_card_e_vem_ordenado(self):
+        from accounts.views.dashboard import _format_hms
+        agora = timezone.now()
+
+        def troca(conversa, segundos):
+            entrada = self.Message.objects.create(
+                conversation=conversa, direction='in', message_type='text', text='oi')
+            saida = self.Message.objects.create(
+                conversation=conversa, direction='out', message_type='text', text='ola')
+            self.Message.objects.filter(pk=entrada.pk).update(created_at=agora)
+            self.Message.objects.filter(pk=saida.pk).update(
+                created_at=agora + timedelta(seconds=segundos))
+
+        troca(self.aberta, 60)
+        troca(self.pendente, 600)
+
+        dados = self._detalhe(metrica='tempo-medio').json()
+        self.assertEqual(dados['tipo'], 'tempos')
+        # Mais demorado primeiro: e a ordem util para quem esta olhando.
+        self.assertEqual([i['tempo'] for i in dados['itens']],
+                         [_format_hms(600), _format_hms(60)])
+        # A media dos itens listados e exatamente o valor do card.
+        media = sum(i['segundos'] for i in dados['itens']) / len(dados['itens'])
+        self.assertEqual(_format_hms(media), self._card('tempo-medio')['value'])
+
+    def test_resposta_antes_da_pergunta_nao_conta(self):
+        """Conversa que comecou com o atendente falando nao e tempo de resposta."""
+        agora = timezone.now()
+        saida = self.Message.objects.create(
+            conversation=self.aberta, direction='out', message_type='text', text='ola')
+        entrada = self.Message.objects.create(
+            conversation=self.aberta, direction='in', message_type='text', text='oi')
+        self.Message.objects.filter(pk=saida.pk).update(created_at=agora)
+        self.Message.objects.filter(pk=entrada.pk).update(
+            created_at=agora + timedelta(seconds=30))
+        dados = self._detalhe(metrica='tempo-medio').json()
+        self.assertEqual(dados['itens'], [])
+
+    # ----- guardas -----
+
+    def test_metrica_desconhecida_da_400(self):
+        resposta = self._detalhe(metrica='qualquer-coisa')
+        self.assertEqual(resposta.status_code, 400)
+
+    def test_sem_metrica_da_400(self):
+        self.assertEqual(self._detalhe().status_code, 400)
+
+    def test_sem_o_botao_dashboard_da_403(self):
+        from accounts.models import UserMenuPermission
+        comum = User.objects.create_user(
+            company=self.empresa, email='comum@x.com', password='x', role=User.Role.USUARIO)
+        UserMenuPermission.objects.update_or_create(
+            user=comum, defaults={'allowed_keys': ['conversations']})
+        self.client.force_login(comum)
+        self.assertEqual(self._detalhe(metrica='ativas').status_code, 403)
+
+    def test_precisa_estar_logado(self):
+        self.client.logout()
+        resposta = self._detalhe(metrica='ativas')
+        self.assertIn(resposta.status_code, (302, 403))
+
+    def test_respeita_o_alcance_de_visualizacao(self):
+        """Quem tem o Dashboard mas alcance restrito nao ve a conversa dos outros.
+
+        O card conta a empresa inteira (e so um numero); a janela mostra conteudo,
+        entao passa por `visible_conversations` e informa quantos ficaram de fora.
+        """
+        from accounts.models import UserMenuPermission
+        from accounts.permissions import can_see_conversation
+        restrito = User.objects.create_user(
+            company=self.empresa, email='restrito@x.com', password='x',
+            role=User.Role.USUARIO)
+        atendente = Attendant.objects.create(
+            company=self.empresa, user=restrito, name='Restrito',
+            must_change_password=False)
+        atendente.sectors.add(self.suporte)
+        UserMenuPermission.objects.update_or_create(
+            user=restrito, defaults={'allowed_keys': ['dashboard', 'conversations']})
+        self.client.force_login(restrito)
+
+        dados = self._detalhe(metrica='ativas').json()
+        visiveis = [
+            c for c in (self.aberta, self.pendente)
+            if can_see_conversation(restrito, c)
+        ]
+        # A verdade vem da MESMA funcao que a tela Conversas usa.
+        self.assertEqual(dados['total'], len(visiveis))
+        self.assertEqual(dados['ocultas'], 2 - len(visiveis))
+
+    def test_limite_de_linhas(self):
+        from accounts.models import Contact
+        from accounts.views.dashboard import DETAIL_LIMIT
+        for i in range(DETAIL_LIMIT + 5):
+            telefone = '55169999%05d' % i
+            contato = Contact.objects.create(
+                company=self.empresa, name='Cliente %s' % i, phone=telefone)
+            self.Conversation.objects.create(
+                company=self.empresa, contact=contato, external_id=telefone,
+                chat_type='private', status='open', last_message_at=timezone.now())
+        dados = self._detalhe(metrica='ativas').json()
+        self.assertEqual(len(dados['itens']), DETAIL_LIMIT)
+        self.assertGreater(dados['total'], DETAIL_LIMIT)
+
+
+class DashboardClickableUiTests(TestCase):
+    """A tela entrega os ganchos de clique (e o gate continua valendo)."""
+
+    def setUp(self):
+        from accounts.models import Contact, Conversation, Sector
+        self.empresa = default_company()
+        self.adm = User.objects.create_user(
+            company=self.empresa, email='adm@x.com', password='x', role=User.Role.ADM)
+        setor = Sector.objects.create(company=self.empresa, name='Vendas')
+        contato = Contact.objects.create(
+            company=self.empresa, name='Joana', phone='5516900000001')
+        Conversation.objects.create(
+            company=self.empresa, contact=contato, external_id='5516900000001',
+            chat_type='private', status='open', sector=setor,
+            last_message_at=timezone.now())
+        self.client.force_login(self.adm)
+
+    def test_cards_e_grafico_sao_clicaveis(self):
+        corpo = self.client.get(reverse('dashboard')).content.decode()
+        for chave in ('ativas', 'novas', 'finalizadas', 'tempo-medio'):
+            self.assertIn('data-metrica="%s"' % chave, corpo)
+        self.assertIn('data-dia="', corpo)      # pontos do grafico de 7 dias
+        self.assertIn('data-setor="', corpo)    # legenda do donut
+        self.assertIn('data-donut', corpo)      # o proprio donut
+        self.assertIn('dados-setores', corpo)   # faixas para o clique por angulo
+        self.assertIn('data-dash-modal', corpo)
+
+    def test_a_tela_carrega_o_js_versionado(self):
+        import re
+        corpo = self.client.get(reverse('dashboard')).content.decode()
+        achados = re.findall(r'src="([^"]*dashboard\.js[^"]*)"', corpo)
+        self.assertTrue(achados)
+        self.assertIn('?v=', achados[0])

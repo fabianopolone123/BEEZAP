@@ -23,6 +23,7 @@ from .views import (
     conversation_transfer_view,
     conversations_view,
     contacts_view,
+    dashboard_metric_detail_view,
     dashboard_view,
     login_view,
     logout_view,
@@ -81,6 +82,9 @@ urlpatterns = [
     # W-API (nuvem) baixa a midia que enviamos. Ver accounts/views.py.
     path('midia/<int:message_id>/', message_media_view, name='message-media'),
     path('midia-publica/<str:token>/', media_public_view, name='media-public'),
+    # Lista por tras de um numero do Dashboard (a janela que abre ao clicar no card
+    # ou no grafico). Ver accounts/views/dashboard.py.
+    path('dashboard/detalhe/', dashboard_metric_detail_view, name='dashboard-metric-detail'),
     path('setores/', sectors_view, name='sectors'),
     path('setores/salvar/', sectors_save_organization_view, name='sectors-save'),
     path('atendentes/', attendants_view, name='attendants'),
