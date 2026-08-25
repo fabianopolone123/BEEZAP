@@ -70,7 +70,8 @@ wapi/              MÓDULO (não é app instalado): client.py, parser.py, servic
 gpt/               MÓDULO (não é app): client.py, attendant.py (atendente virtual IA)
 chatbot/           MÓDULO (não é app): handler.py (chatbot de menu, sem IA)
 static/css/        CSS por página (dashboard.css, conversations.css, clients.css,
-                   dashboard_detail.css = janela de detalhe das métricas, ...)
+                   dashboard_detail.css = janela de detalhe das métricas,
+                   search.css = tela Pesquisar, ...)
 static/js/         conversations.js (tela Conversas)
                    dashboard.js      (clique nas métricas do Dashboard)
                    search.js         (tela Pesquisar: busca ao digitar)
@@ -2165,6 +2166,7 @@ Todas as consultas passam pela empresa de quem está logado (`request_company(re
 | Tela | O que é escopado |
 |---|---|
 | Contatos | lista, busca, contagem, edição e exclusão — **e a carteira**: a listagem passa por `visible_contacts` e o POST não alcança contato fora dela |
+| Pesquisar | a busca inteira: `visible_conversations` antes de qualquer filtro, então o texto procurado nunca alcança conversa de outro cliente nem fora do alcance de quem pesquisa (seção 5.5) |
 | Setores | lista, edição, exclusão e o arrastar-e-soltar (com a re-inclusão dos admins) |
 | Atendentes | lista, edição (id de outro cliente dá 404) e inativar/excluir (atendente de outro cliente não existe no filtro) |
 | Permissões | pessoas, padrões por perfil, personalização por usuário, setores da aba Visualização e grupos |
@@ -2253,7 +2255,7 @@ uma empresa, nem o de outra, em nenhuma tela e por nenhuma URL.
 | **Nomear contato pelo chat** | `conversation-name-contact` passa por `deny_master_json` + `require_feature_json('contacts')`. Antes não tinha guarda nenhuma: o master gravava contato dentro da empresa do cliente por POST, enquanto a tela Contatos já dava 403 para ele |
 | **Texto das mensagens na tela WhatsApp** | o painel "Últimas mensagens que chegaram" mostra só **horário, direção e tipo** — nunca o texto, o telefone ou o nome do contato. Antes mostrava os três, na única tela que só o master abre (ver seção 4) |
 | **Arquivos** (foto/áudio/vídeo/documento) | só saem por `message-media`, que usa `can_see_conversation` → **403 para o master**. O Nginx não publica mais `media/whatsapp/` (seção 4) |
-| Contatos, Dashboard, Setores, Atendentes, Permissões e Atendimento | `user_can_access` devolve `False` para o master em **toda** feature da empresa — **403** inclusive no modo suporte e por POST forjado |
+| Contatos, Dashboard, **Pesquisar**, Setores, Atendentes, Permissões e Atendimento | `user_can_access` devolve `False` para o master em **toda** feature da empresa — **403** inclusive no modo suporte e por POST forjado. Em **Pesquisar** isso é duplo: além do gate, `visible_conversations` devolve vazio para ele |
 | **Nomes dos grupos** de WhatsApp | ficam na tela Permissões, que é do ADM da empresa: o master leva **403** na tela inteira e nos POSTs `groups`/`group-name`/`group-remove` |
 | Uma empresa ver a outra | toda consulta passa por `company`; `scoped()` sem empresa não devolve nada |
 | **Exportação (ZIP)** | é do **cliente** (aba Meus dados). `_deny_master_export` dá **403** para o master, inclusive no modo suporte |
