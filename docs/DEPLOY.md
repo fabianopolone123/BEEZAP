@@ -45,7 +45,7 @@ cd /var/www/beezap && venv/bin/python manage.py check   # não deve listar beeza
 Para o app funcionar sob o prefixo `/beeonboard/` e para a mídia funcionar:
 
 ```
-FORCE_SCRIPT_NAME=/beezap      # Django gera todas as URLs com o prefixo
+FORCE_SCRIPT_NAME=/beeonboard      # Django gera todas as URLs com o prefixo
 STATIC_URL=/beeonboard/static/     # CSS/JS servidos pelo Nginx sob /beeonboard/static/
 MEDIA_URL=/beeonboard/media/       # caminho dos arquivos salvos (logos das empresas)
 ```
