@@ -1065,6 +1065,25 @@ class Conversation(models.Model):
             # `created_at` alimenta "novas em 7 dias" (Dashboard e Metricas).
             models.Index(fields=['company', 'created_at'], name='conv_company_criada_idx'),
         ]
+        constraints = [
+            # UMA conversa por grupo, por empresa. `resolve_conversation_for_context`
+            # consulta e depois cria: sem trava no banco, duas mensagens de um grupo
+            # NOVO chegando quase juntas faziam dois webhooks criarem duas conversas
+            # com o mesmo JID, e o historico do grupo rachava entre as duas (aconteceu
+            # de verdade com 120363257947973768@g.us). A criacao trata o
+            # IntegrityError e reaproveita a conversa que ganhou a corrida.
+            #
+            # So GRUPO: e o caso chaveado unicamente pelo JID. Conversa direta com
+            # telefone e chaveada pelo CONTATO (que ja e por empresa) e historicamente
+            # tinha varias conversas por pessoa, unificadas pelo
+            # `merge_contact_conversations`. `external_id` vazio (linhas antigas) fica
+            # fora da trava, senao a migracao quebraria por causa delas.
+            models.UniqueConstraint(
+                fields=('company', 'external_id'),
+                condition=models.Q(chat_type='group') & ~models.Q(external_id=''),
+                name='unique_group_conversation_per_company',
+            ),
+        ]
 
     @property
     def status_label(self):

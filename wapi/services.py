@@ -15,6 +15,7 @@ import uuid
 from urllib import request
 
 from django.core.files.base import ContentFile
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from accounts.models import Company, Contact, Conversation, Message
@@ -320,13 +321,26 @@ def resolve_conversation_for_context(ctx, company):
         # Buscamos o nome real na W-API uma unica vez (na criacao) para nao ficar
         # mostrando "Grupo <jid>". Se falhar, o fallback cuida da exibicao.
         name = ctx.get('display_name') or resolve_group_name(chat_id, company)
-        return Conversation.objects.create(
-            company=company,
-            external_id=chat_id,
-            chat_type='group',
-            name=name or '',
-            contact=None,
-        )
+        try:
+            # Savepoint proprio: se OUTRO webhook do mesmo grupo novo criou a conversa
+            # entre a consulta acima e este insert, a trava do banco
+            # (`unique_group_conversation_per_company`) rejeita a segunda e nos
+            # reaproveitamos a que ganhou a corrida — antes as duas eram criadas e o
+            # historico do grupo rachava em dois chats.
+            with transaction.atomic():
+                return Conversation.objects.create(
+                    company=company,
+                    external_id=chat_id,
+                    chat_type='group',
+                    name=name or '',
+                    contact=None,
+                )
+        except IntegrityError:
+            return (
+                Conversation.objects
+                .filter(company=company, external_id=chat_id, chat_type='group')
+                .first()
+            )
 
     # Conversa direta com telefone real.
     phone = normalize_phone(chat_id)

@@ -1418,9 +1418,9 @@ class MergeConversationsIsScopedByCompanyTests(TestCase):
         self.empresa_a = default_company()
         self.empresa_b = Company.objects.create(name='Vizinha', slug='vizinha')
 
-    def _criar(self, empresa, nome=''):
+    def _criar(self, empresa, nome='', tipo='group', external_id=None):
         return self.Conversation.objects.create(
-            company=empresa, external_id=self.GRUPO, chat_type='group',
+            company=empresa, external_id=external_id or self.GRUPO, chat_type=tipo,
             name=nome, status='open',
         )
 
@@ -1436,10 +1436,16 @@ class MergeConversationsIsScopedByCompanyTests(TestCase):
         )
 
     def test_junta_a_duplicata_dentro_da_mesma_empresa(self):
+        """Usa uma DIRETA por @lid: a duplicata de GRUPO na mesma empresa nao existe
+        mais (a migration 0039 travou no banco), mas a de @lid continua possivel e
+        passa pela mesma chave de agrupamento. Bancos antigos podem ter duplicata de
+        grupo de antes da trava, e o comando segue dando conta dela."""
         from django.core.management import call_command
         from accounts.models import Message
-        antiga = self._criar(self.empresa_a, 'Compra e vendas')
-        nova = self._criar(self.empresa_a)
+        antiga = self._criar(self.empresa_a, 'Compra e vendas', tipo='private',
+                             external_id='183545595199545@lid')
+        nova = self._criar(self.empresa_a, tipo='private',
+                           external_id='183545595199545@lid')
         Message.objects.create(
             conversation=nova, direction='in', message_type='text', text='oi')
         # Uma conversa de OUTRA empresa no meio nao pode ser arrastada.
@@ -1449,7 +1455,7 @@ class MergeConversationsIsScopedByCompanyTests(TestCase):
 
         self.assertEqual(
             self.Conversation.objects.filter(company=self.empresa_a,
-                                             external_id=self.GRUPO).count(), 1)
+                                             external_id='183545595199545@lid').count(), 1)
         self.assertTrue(self.Conversation.objects.filter(pk=antiga.pk).exists())
         self.assertFalse(self.Conversation.objects.filter(pk=nova.pk).exists())
         self.assertTrue(self.Conversation.objects.filter(pk=vizinha.pk).exists())

@@ -565,3 +565,87 @@ class PruneWapiEventsCommandTests(TestCase):
         erros = StringIO()
         call_command('prune_wapi_events', empresa='nao-existe', stderr=erros)
         self.assertIn('nao encontrada', erros.getvalue())
+
+
+class GroupConversationIsUniquePerCompanyTests(TestCase):
+    """Uma conversa por grupo, por empresa — travado no BANCO.
+
+    `resolve_conversation_for_context` consulta e depois cria. Sem trava, duas
+    mensagens de um grupo NOVO chegando quase juntas faziam dois webhooks criarem
+    duas conversas com o mesmo JID e o historico do grupo rachava entre as duas
+    (aconteceu em producao com 120363257947973768@g.us). Agora a segunda criacao
+    bate na constraint e reaproveita a conversa que ganhou a corrida.
+    """
+
+    GRUPO = '120363257947973768@g.us'
+
+    def setUp(self):
+        from accounts.models import Company, Conversation
+        self.Conversation = Conversation
+        self.empresa = default_company()
+        self.vizinha = Company.objects.create(name='Vizinha', slug='vizinha')
+
+    def _ctx(self):
+        return {
+            'chat_id': self.GRUPO, 'chat_type': 'group', 'is_group': True,
+            'display_name': '', 'sender_id': '5516999999999',
+            'participant_id': '5516999999999', 'sender_phone': '5516999999999',
+            'connected_phone': '', 'sender_name': 'Fulano', 'from_me': False,
+        }
+
+    def test_o_banco_recusa_a_segunda_conversa_do_mesmo_grupo(self):
+        from django.db import IntegrityError, transaction
+        self.Conversation.objects.create(
+            company=self.empresa, external_id=self.GRUPO, chat_type='group')
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                self.Conversation.objects.create(
+                    company=self.empresa, external_id=self.GRUPO, chat_type='group')
+
+    def test_a_trava_e_por_empresa(self):
+        """O JID do WhatsApp e global: duas empresas podem ter o mesmo grupo."""
+        a = self.Conversation.objects.create(
+            company=self.empresa, external_id=self.GRUPO, chat_type='group')
+        b = self.Conversation.objects.create(
+            company=self.vizinha, external_id=self.GRUPO, chat_type='group')
+        self.assertNotEqual(a.pk, b.pk)
+
+    def test_corrida_reaproveita_a_conversa_que_ganhou(self):
+        """Simula o outro webhook criando a conversa no meio do caminho."""
+        from wapi.services import resolve_conversation_for_context
+        vencedora = {}
+
+        def criar_no_meio(group_id, company, groups_response=None):
+            # Roda depois da consulta e antes do insert (e onde a W-API e chamada).
+            vencedora['conv'] = self.Conversation.objects.create(
+                company=company, external_id=self.GRUPO, chat_type='group',
+                name='Compra e vendas')
+            return ''
+
+        with patch('wapi.services.resolve_group_name', side_effect=criar_no_meio):
+            conversa = resolve_conversation_for_context(self._ctx(), self.empresa)
+
+        self.assertIsNotNone(conversa)
+        self.assertEqual(conversa.pk, vencedora['conv'].pk)
+        self.assertEqual(conversa.name, 'Compra e vendas')
+        self.assertEqual(
+            self.Conversation.objects.filter(
+                company=self.empresa, external_id=self.GRUPO).count(), 1)
+
+    def test_grupo_novo_normal_continua_sendo_criado(self):
+        from wapi.services import resolve_conversation_for_context
+        with patch('wapi.services.resolve_group_name', return_value='Grupo Novo'):
+            conversa = resolve_conversation_for_context(self._ctx(), self.empresa)
+        self.assertIsNotNone(conversa)
+        self.assertEqual(conversa.name, 'Grupo Novo')
+        self.assertEqual(conversa.chat_type, 'group')
+
+    def test_external_id_vazio_fica_fora_da_trava(self):
+        """Linhas antigas sem JID nao podem quebrar a migracao nem a insercao."""
+        self.Conversation.objects.create(
+            company=self.empresa, external_id='', chat_type='group')
+        self.Conversation.objects.create(
+            company=self.empresa, external_id='', chat_type='group')
+        self.assertEqual(
+            self.Conversation.objects.filter(
+                company=self.empresa, external_id='').count(), 2)
