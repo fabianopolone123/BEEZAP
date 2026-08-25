@@ -43,11 +43,31 @@
     mas nunca vê Instance ID, token nem API Key — isso é do administrador da
     plataforma (ver accounts/views.build_service_status).
     {% endcomment %}
+    {% if service_status.all_ready %}
+      {% comment %}
+      Os dois lados prontos: afirma isso de uma vez, para nao restar duvida de que a
+      parte tecnica esta feita e o que falta e so escolher o modo aqui embaixo.
+      {% endcomment %}
+      <p class="service-ready">
+        <span class="service-ready-check" aria-hidden="true">✓</span>
+        <span>
+          <strong>Tudo configurado.</strong>
+          O WhatsApp e a Inteligência (IA) já estão cadastrados pelo administrador da
+          plataforma — falta só escolher abaixo como o primeiro atendimento acontece.
+        </span>
+      </p>
+    {% endif %}
+
     <section class="service-status">
       <article class="service-status-item {% if service_status.whatsapp_ok %}is-ok{% else %}is-off{% endif %}">
         <span class="service-status-dot" aria-hidden="true"></span>
         <div>
           <strong>{{ service_status.whatsapp_label }}</strong>
+          <span class="service-status-badge">
+            {% if service_status.whatsapp_ok %}<span aria-hidden="true">✓</span> {% endif %}
+            {{ service_status.whatsapp_badge }}
+            {% if service_status.whatsapp_since %} · desde {{ service_status.whatsapp_since }}{% endif %}
+          </span>
           <span>{{ service_status.whatsapp_help }}</span>
         </div>
       </article>
@@ -55,6 +75,11 @@
         <span class="service-status-dot" aria-hidden="true"></span>
         <div>
           <strong>{{ service_status.ai_label }}</strong>
+          <span class="service-status-badge">
+            {% if service_status.ai_ok %}<span aria-hidden="true">✓</span> {% endif %}
+            {{ service_status.ai_badge }}
+            {% if service_status.ai_model %} · modelo {{ service_status.ai_model }}{% endif %}
+          </span>
           <span>{{ service_status.ai_help }}</span>
         </div>
       </article>

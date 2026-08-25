@@ -52,6 +52,18 @@
               <h2>Configuracao da W-API</h2>
               <span>Defina a instancia ativa e o token de autenticacao.</span>
             </div>
+            {% comment %}
+            O estado ficava so no texto miudo embaixo do campo ("Token configurado"),
+            facil de nao ver. Aqui em cima ele responde de longe a pergunta "esta
+            cadastrado?". Nunca mostra o VALOR da credencial.
+            {% endcomment %}
+            {% if config_form.instance_id.value and token_configured %}
+              <span class="config-state is-ok"><span aria-hidden="true">✓</span> Instância e token cadastrados</span>
+            {% elif config_form.instance_id.value or token_configured %}
+              <span class="config-state is-partial">Configuração incompleta</span>
+            {% else %}
+              <span class="config-state is-off">Sem credenciais</span>
+            {% endif %}
           </div>
 
           <form method="post" class="settings-form-grid">

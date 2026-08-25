@@ -218,20 +218,49 @@ def build_service_status(company):
     whatsapp_ok = bool(
         wapi.resolved_instance_id().strip() and wapi.resolved_token().strip()
     )
-    ai_ok = OpenAiConfiguration.get_solo().has_api_key
+    ia = OpenAiConfiguration.get_solo()
+    ai_ok = ia.has_api_key
+
+    # DIZER O QUE ESTA CADASTRADO, com nome. Antes o bloco dizia so "WhatsApp
+    # conectado" / "IA disponivel", e ficava a duvida "conectado como? falta algo meu?".
+    # Agora ele afirma quais credenciais existem — sem NUNCA mostrar o valor delas, que
+    # e do gestor master (instancia/token da W-API e API Key do GPT).
+    #
+    # "configurado" e nao "conectado": esta funcao so sabe que as credenciais ESTAO
+    # PREENCHIDAS. Se a instancia caiu no WhatsApp, isto aqui continuaria dizendo
+    # "conectado" — a checagem real de conexao e outra (`build_wapi_health`, usada nas
+    # Metricas do cliente), e prometer conexao sem medir era exagero do texto antigo.
     return {
         'whatsapp_ok': whatsapp_ok,
-        'whatsapp_label': 'WhatsApp conectado' if whatsapp_ok else 'WhatsApp ainda não configurado',
+        'whatsapp_label': (
+            'WhatsApp configurado' if whatsapp_ok else 'WhatsApp ainda não configurado'
+        ),
+        'whatsapp_badge': (
+            'Instância e token cadastrados' if whatsapp_ok else 'Sem credenciais'
+        ),
         'whatsapp_help': (
-            'As mensagens do seu WhatsApp chegam normalmente aqui.' if whatsapp_ok else
+            'A instância e o token do seu WhatsApp já estão cadastrados, e as suas '
+            'mensagens chegam aqui.' if whatsapp_ok else
             'Fale com o administrador da plataforma para ligar o seu WhatsApp.'
         ),
+        'whatsapp_since': (
+            timezone.localtime(wapi.updated_at).strftime('%d/%m/%Y')
+            if whatsapp_ok and wapi.updated_at else ''
+        ),
         'ai_ok': ai_ok,
-        'ai_label': 'Inteligência (IA) disponível' if ai_ok else 'Inteligência (IA) indisponível',
+        'ai_label': (
+            'Inteligência (IA) liberada' if ai_ok else 'Inteligência (IA) indisponível'
+        ),
+        'ai_badge': 'API Key do GPT cadastrada' if ai_ok else 'Sem API Key',
         'ai_help': (
-            'Você pode escolher a IA como primeiro atendimento.' if ai_ok else
+            'A chave do GPT já está cadastrada. Você pode escolher a IA como primeiro '
+            'atendimento no seletor abaixo.' if ai_ok else
             'A IA ainda não foi liberada pelo administrador da plataforma.'
         ),
+        'ai_model': ia.resolved_model() if ai_ok else '',
+        # Os dois prontos: vale um aviso afirmativo, para nao restar duvida de que a
+        # parte tecnica esta feita e o que falta e so a escolha do cliente.
+        'all_ready': whatsapp_ok and ai_ok,
     }
 
 

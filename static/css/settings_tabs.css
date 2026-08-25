@@ -182,3 +182,89 @@
 .service-status-item.is-off .service-status-dot {
   background: var(--yellow);
 }
+
+/* Selo do que ESTA cadastrado. O bloco antes so dizia "conectado"/"disponivel" e
+   ficava a duvida "falta algo meu?"; agora afirma qual credencial existe — sem nunca
+   mostrar o valor dela, que e do gestor master. */
+.service-status-badge {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  margin: 4px 0 5px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 0.74rem !important;
+  font-weight: 700;
+  background: rgba(100, 116, 139, 0.14);
+  color: #475569 !important;
+}
+
+.service-status-item.is-ok .service-status-badge {
+  background: rgba(33, 194, 94, 0.16);
+  color: var(--primary-deep) !important;
+}
+
+.service-status-item.is-off .service-status-badge {
+  background: rgba(247, 181, 0, 0.2);
+  color: #92400e !important;
+}
+
+/* Os dois lados prontos: uma linha afirmativa acima dos cartoes. */
+.service-ready {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  margin: 0 0 12px;
+  padding: 13px 16px;
+  border: 1px solid rgba(33, 194, 94, 0.4);
+  border-radius: 14px;
+  background: linear-gradient(135deg, rgba(33, 194, 94, 0.12), rgba(45, 108, 223, 0.07));
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.service-ready-check {
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--primary);
+  color: #fff;
+  font-size: 0.8rem;
+  font-weight: 800;
+}
+
+/* Selo de estado no cabecalho dos cartoes de configuracao (telas do master). */
+.config-state {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 12px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.config-state.is-ok {
+  background: rgba(33, 194, 94, 0.16);
+  color: var(--primary-deep);
+}
+
+.config-state.is-partial {
+  background: rgba(247, 181, 0, 0.2);
+  color: #92400e;
+}
+
+.config-state.is-off {
+  background: rgba(229, 72, 77, 0.12);
+  color: #b42318;
+  white-space: normal;
+}
+
+@media (max-width: 620px) {
+  .config-state { white-space: normal; }
+}

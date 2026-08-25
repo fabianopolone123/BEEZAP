@@ -1131,12 +1131,42 @@ class TechnicalSettingsAreMasterOnlyTests(TestCase):
 
         self.client.force_login(self.adm)
         r = self.client.get(reverse('atendimento'))
-        self.assertContains(r, 'WhatsApp conectado')
-        self.assertContains(r, 'Inteligência (IA) disponível')
+        # DIZ o que esta cadastrado, com nome: antes o bloco falava so "conectado" /
+        # "disponivel" e ficava a duvida "falta algo meu?".
+        self.assertContains(r, 'WhatsApp configurado')
+        self.assertContains(r, 'Instância e token cadastrados')
+        self.assertContains(r, 'Inteligência (IA) liberada')
+        self.assertContains(r, 'API Key do GPT cadastrada')
+        # Os dois prontos: o aviso afirmativo aparece.
+        self.assertContains(r, 'Tudo configurado')
+        # E "configurado", nao "conectado": esta tela so sabe que a credencial existe;
+        # se a instancia caiu no WhatsApp, prometer conexao aqui seria mentira.
+        self.assertNotContains(r, 'WhatsApp conectado')
         # Nada de credencial na tela do cliente.
         self.assertNotContains(r, 'INSTANCIA-SECRETA')
         self.assertNotContains(r, 'TOKEN-SECRETO')
         self.assertNotContains(r, 'sk-super-secreta')
+
+    def test_status_card_diz_o_que_falta_quando_nao_ha_credencial(self):
+        """Sem credencial, o cliente tem de saber que a pendencia NAO e dele."""
+        self.client.force_login(self.adm)
+        r = self.client.get(reverse('atendimento'))
+        self.assertContains(r, 'WhatsApp ainda não configurado')
+        self.assertContains(r, 'A IA ainda não foi liberada pelo administrador da plataforma.')
+        self.assertNotContains(r, 'Tudo configurado')
+
+    def test_selo_de_estado_nas_telas_do_master(self):
+        """O master ve de longe se a credencial existe, sem ler o texto miudo."""
+        from accounts.models import OpenAiConfiguration
+        self.client.force_login(self.master)
+        corpo = self.client.get(reverse('openai-settings')).content.decode()
+        self.assertIn('Sem API Key', corpo)
+        ai = OpenAiConfiguration.get_solo()
+        ai.api_key = 'sk-abc'
+        ai.save(update_fields=['api_key'])
+        corpo = self.client.get(reverse('openai-settings')).content.decode()
+        self.assertIn('API Key cadastrada', corpo)
+        self.assertNotIn('sk-abc', corpo)
 
     # ---------- o master configura ----------
 

@@ -66,6 +66,16 @@
             <h2>Conexao com o GPT</h2>
             <span>Cadastre a API Key do OpenAI e escolha o modelo. A chave fica guardada com seguranca e nao aparece de novo depois de salva.</span>
           </div>
+          {% comment %}
+          Enquanto nao ha chave, TODO cliente ve "A IA ainda nao foi liberada pelo
+          administrador da plataforma" na tela Atendimento. Este selo deixa claro, de
+          longe, se a liberacao ja aconteceu.
+          {% endcomment %}
+          {% if api_key_configured %}
+            <span class="config-state is-ok"><span aria-hidden="true">✓</span> API Key cadastrada</span>
+          {% else %}
+            <span class="config-state is-off">Sem API Key — IA indisponível para os clientes</span>
+          {% endif %}
         </div>
 
         <div class="settings-field">

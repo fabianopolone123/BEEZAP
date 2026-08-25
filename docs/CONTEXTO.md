@@ -1133,7 +1133,7 @@ OPENAI_TIMEOUT=30
 ### Rodar os testes
 
 ```bash
-python manage.py test                              # tudo (622 testes, ~13 s)
+python manage.py test                              # tudo (624 testes, ~13 s)
 python manage.py test accounts.tests.master        # só um assunto
 python manage.py test accounts.tests.NomeDaClasse  # só uma classe
 ```
@@ -2043,11 +2043,34 @@ redirect amigável para *Clientes* quando o master ainda não escolheu a empresa
 não grava credencial nenhuma — há teste para os dois casos.
 
 **Status para o cliente (sem credencial).** `build_service_status(company)` monta dois
-avisos na tela Atendimento: **"WhatsApp conectado"** / *"ainda não configurado"* e
-**"Inteligência (IA) disponível"** / *"indisponível"*, com a orientação de falar com o
-administrador da plataforma. Verde = pronto, âmbar = pendente
-(`.service-status` em `settings_tabs.css`). Nenhum Instance ID, token ou API Key
-aparece ali — há teste garantindo isso.
+avisos na tela Atendimento e **diz o que está cadastrado, com nome**:
+
+- **"WhatsApp configurado"** + selo *"✓ Instância e token cadastrados · desde
+  dd/mm/aaaa"*, ou *"ainda não configurado"* + *"Sem credenciais"*;
+- **"Inteligência (IA) liberada"** + selo *"✓ API Key do GPT cadastrada · modelo
+  gpt-4.1-nano"*, ou *"indisponível"* + a orientação de falar com o administrador da
+  plataforma;
+- quando os **dois** estão prontos (`all_ready`), uma linha afirmativa acima dos
+  cartões: **"Tudo configurado — falta só escolher como o primeiro atendimento
+  acontece"**. Antes o bloco dizia apenas "conectado"/"disponível" e sobrava a dúvida
+  *"falta alguma coisa minha?"*.
+
+**"configurado", não "conectado"**: esta função só sabe que as credenciais estão
+**preenchidas**. Se a instância caiu no WhatsApp, o texto antigo continuaria dizendo
+"conectado" — a checagem real de conexão é outra (`build_wapi_health`, nas Métricas do
+cliente), e prometer conexão sem medir era exagero. Há teste que reprova a volta do
+texto antigo.
+
+Verde = pronto, âmbar = pendente (`.service-status` / `.service-ready` em
+`settings_tabs.css`). Nenhum Instance ID, token ou API Key aparece ali — há teste
+garantindo isso.
+
+**Nas telas do MASTER**, o mesmo estado aparece como selo no cabeçalho do cartão
+(`.config-state`): *"✓ Instância e token cadastrados"* / *"Configuração incompleta"* /
+*"Sem credenciais"* na tela WhatsApp, e *"✓ API Key cadastrada"* / *"Sem API Key — IA
+indisponível para os clientes"* na tela Inteligência (IA). Antes o estado vivia só no
+texto miúdo embaixo do campo, fácil de não ver — e é ele que explica por que **todo**
+cliente estaria vendo "a IA ainda não foi liberada".
 
 #### Telas escopadas por empresa
 
