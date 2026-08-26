@@ -1582,6 +1582,33 @@ queimado uma das três tentativas. Três decisões corrigiram isso:
    tentativa, um cliente mandando "oi" sem parar manteria a IA respondendo e queimando
    token para sempre. Batendo o teto, cai na fila humana pelo mesmo handoff.
 
+### A REGRA DE TRIAGEM (`TRIAGE_RULE`) não é editável — de propósito
+
+Caso real (26/08/2026): o cliente escreveu **`"ao tenho certre\zA"`** (erro de digitação
+de *"não tenho certeza"*) e a IA respondeu *"Entendi, você precisa de uma **certidão**.
+Pode me informar **qual setor** posso encaminhar sua solicitação?"*. Dois erros numa
+frase só: **afirmou ter entendido** o que não entendeu, e **devolveu ao cliente a
+decisão que é da IA**. O cliente final não conhece — nem tem por que conhecer — os
+setores da empresa. Ele repetiu que não tinha certeza e a conversa caiu no Geral.
+
+`TRIAGE_RULE` é anexada por `build_system_prompt` **sempre**, como a `OUTPUT_RULE`, e
+manda: nunca perguntar ao cliente para qual setor encaminhar (perguntar sobre o
+**assunto**); quando ele disser que não sabe, **oferecer as opções** numa mensagem
+curta em vez de repetir a pergunta; e, persistindo, encaminhar ao geral sem insistir.
+
+**Por que não ficou em `DEFAULT_INSTRUCTIONS`:** aquele texto é só o **padrão**. Quem
+já salvou um prompt próprio na tela guardou uma **cópia do padrão antigo**, e mudança
+lá **não chega nele**. Isto não é persona nem texto de negócio — é como a triagem
+funciona, então vale para toda empresa, com prompt customizado ou não. O `DEFAULT_INSTRUCTIONS`
+também foi ajustado (não afirmar que entendeu quando a mensagem veio truncada; listar
+opções quando o cliente diz que não sabe), mas **só alcança quem está com o prompt
+vazio ou clicar em "Restaurar prompt padrão"**.
+
+> **Limite de respostas:** o fluxo "oferecer as opções → o cliente escolhe" custa um
+> turno a mais. Com `max_turns=3` a margem fica curta; o campo é editável na tela
+> Inteligência (IA) ("limite de respostas"). O padrão do model segue `3` — mudá-lo só
+> valeria para instalação nova, não para a configuração que já existe.
+
 Testes: `AiTurnCountingTests` (`accounts/tests/atendimento.py`).
 - **Guardas** (`_should_handle` + `_human_replied_in_segment`): pula se desligada,
   sem API Key, grupo, `closed`, já tem setor/atendente, ou se um **humano já

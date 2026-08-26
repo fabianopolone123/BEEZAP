@@ -58,7 +58,8 @@ DEFAULT_INSTRUCTIONS = (
     'Como se comportar:\n'
     '- Seja simpatico, educado, paciente e objetivo. Nunca responda de forma seca ou rispida.\n'
     '- Seja BREVE: no maximo 1 ou 2 frases curtas por mensagem, em tom de conversa de '
-    'WhatsApp. Nao escreva textos longos nem fique listando opcoes.\n'
+    'WhatsApp. Nao escreva textos longos. So liste opcoes quando o cliente disser que '
+    'nao sabe do que precisa — nesse caso, listar e o que resolve.\n'
     '- Comece a PRIMEIRA mensagem do atendimento com a saudacao do horario (bom dia, boa '
     'tarde ou boa noite, conforme indicado no contexto). Nao use apenas "Ola" e nao repita '
     'a saudacao nas mensagens seguintes.\n'
@@ -66,7 +67,11 @@ DEFAULT_INSTRUCTIONS = (
     'esta no contexto) no inicio da conversa, ou novamente se ja fizer bastante tempo '
     'desde a ultima mensagem. Nunca cite o nome do sistema que voce usa.\n'
     '- Pergunte de forma clara como pode ajudar. Se o pedido estiver vago, faca UMA pergunta '
-    'curta por vez para entender melhor.\n'
+    'curta por vez para entender melhor — sempre sobre o ASSUNTO, nunca sobre para qual '
+    'setor encaminhar.\n'
+    '- Se voce nao tiver certeza do que o cliente escreveu (erro de digitacao, mensagem '
+    'truncada), NAO adivinhe nem afirme que entendeu: peca para ele repetir com outras '
+    'palavras, em uma frase curta.\n'
     '- Quando entender a necessidade, encaminhe para o setor mais adequado da lista de setores '
     'disponiveis e avise o cliente com uma frase curta e educada.\n'
     '- Se o cliente pedir uma pessoa/atendente especifico que esteja na lista de atendentes, '
@@ -110,6 +115,30 @@ HANDOFF_NOTICE_TEMPLATE = (
 HANDOFF_NOTICE = (
     'Desculpe, nao consegui entender bem a sua solicitacao. Vou pedir para um de '
     'nossos atendentes falar com voce. So um momento, por favor.'
+)
+
+# REGRA DE TRIAGEM — SEMPRE anexada, como a `OUTPUT_RULE`, e NAO editavel de proposito.
+#
+# Nao esta em `DEFAULT_INSTRUCTIONS` porque aquele texto e so o PADRAO: quem ja salvou
+# um prompt proprio na tela guardou uma copia do padrao antigo, e mudanca la nao chega
+# nele. Isto aqui nao e persona nem texto de negocio — e como a triagem funciona, entao
+# vale para toda empresa, com prompt customizado ou nao.
+#
+# Caso real (26/08/2026): o cliente escreveu "ao tenho certre\zA" (erro de digitacao de
+# "nao tenho certeza") e a IA respondeu "Entendi, voce precisa de uma certidao. Pode me
+# informar qual setor posso encaminhar sua solicitacao?". Dois erros numa frase so:
+# afirmou ter entendido o que nao entendeu, e devolveu ao CLIENTE a decisao que e da
+# IA — o cliente final nao conhece (nem tem por que conhecer) os setores da empresa.
+# Quando ele repetiu que nao tinha certeza, a conversa estourou o limite e caiu no Geral.
+TRIAGE_RULE = (
+    'REGRA DE TRIAGEM (vale sempre, acima de qualquer outra instrucao): '
+    'NUNCA pergunte ao cliente para qual SETOR ele quer ser encaminhado, nem cite a '
+    'estrutura interna da empresa. Ele nao conhece os setores, e escolher o destino e '
+    'SEU trabalho, nao dele — pergunte sempre sobre o ASSUNTO. '
+    'Se o cliente disser que nao sabe, nao tem certeza ou nao souber explicar, NAO '
+    'repita a mesma pergunta: ofereca numa UNICA mensagem curta as opcoes de assunto '
+    'correspondentes aos setores disponiveis, para ele so escolher. '
+    'Se mesmo assim ele nao souber, encaminhe para o setor geral/curinga sem insistir.'
 )
 
 # ULTIMO TURNO: linha anexada ao prompt quando esta e a ultima resposta que a IA pode
@@ -275,6 +304,8 @@ def build_system_prompt(config, company, now=None, context_note='', final_turn=F
     = prompt editavel do usuario (persona + regras de comportamento)
       + DADOS DINAMICOS anexados automaticamente (data/hora + saudacao, tempo desde
         a ultima msg, setores, atendentes, qual e o setor geral)
+      + a REGRA DE TRIAGEM (`TRIAGE_RULE`, nao editavel — nunca perguntar ao cliente
+        para qual setor encaminhar)
       + a regra de formato JSON (obrigatoria para o sistema ler a resposta).
 
     `final_turn` anexa o aviso de ULTIMO TURNO (`FINAL_TURN_RULE`). O modelo nao tinha
@@ -314,6 +345,7 @@ def build_system_prompt(config, company, now=None, context_note='', final_turn=F
             f'Setor geral/curinga (use quando o pedido nao se encaixar em nenhum '
             f'setor especifico): "{general.name}".'
         )
+    parts.append(TRIAGE_RULE)
     parts.append(OUTPUT_RULE)
     if final_turn:
         parts.append(FINAL_TURN_RULE)

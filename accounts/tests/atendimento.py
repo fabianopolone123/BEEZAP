@@ -649,6 +649,27 @@ class AiTurnCountingTests(TestCase):
         self.assertNotIn(FINAL_TURN_RULE, prompt)
         self.assertEqual(self.conv.ai_turns, 2)
 
+    def test_regra_de_triagem_vai_sempre_no_prompt(self):
+        # A REGRA DE TRIAGEM e anexada pelo codigo, como a de formato JSON — nao vive
+        # no prompt editavel. Quem ja salvou um prompt proprio guardou uma copia do
+        # padrao ANTIGO, e uma regra estrutural nao pode depender disso.
+        from gpt.attendant import TRIAGE_RULE
+        self.config.instructions = 'Prompt custom que nao fala nada de setor.'
+        self.config.save()
+        _, prompt = self._turno('quero falar sobre pagamento', 'Sobre qual pagamento?')
+        self.assertIn(TRIAGE_RULE, prompt)
+
+    def test_regra_de_triagem_proibe_perguntar_o_setor_ao_cliente(self):
+        # Caso real: "Pode me informar qual setor posso encaminhar sua solicitacao?".
+        # Escolher o destino e trabalho da IA — o cliente nao conhece os setores.
+        from gpt.attendant import TRIAGE_RULE
+        self.assertIn('NUNCA pergunte ao cliente para qual SETOR', TRIAGE_RULE)
+        self.assertIn('ASSUNTO', TRIAGE_RULE)
+        # E manda oferecer as opcoes quando o cliente diz que nao sabe, em vez de
+        # repetir a mesma pergunta ate estourar o limite.
+        self.assertIn('nao tem certeza', TRIAGE_RULE)
+        self.assertIn('ofereca', TRIAGE_RULE)
+
     def test_handoff_nomeia_o_setor_de_destino(self):
         from gpt.attendant import HANDOFF_NOTICE_TEMPLATE
         self.conv.ai_turns = 2

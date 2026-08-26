@@ -2581,6 +2581,7 @@ class AutomaticTextsUseClientBrandTests(TestCase):
             handler.DEFAULT_HANDOFF_MESSAGE,
             attendant.DEFAULT_INSTRUCTIONS, attendant.HANDOFF_NOTICE,
             attendant.HANDOFF_NOTICE_TEMPLATE, attendant.FINAL_TURN_RULE,
+            attendant.TRIAGE_RULE,
         )
         for texto in padroes:
             for nome in ('BEEZAP', 'BEEZap', 'Beezap', 'BEEonBOARD'):
