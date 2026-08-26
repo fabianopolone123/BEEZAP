@@ -1638,6 +1638,37 @@ nem esse sair, o motivo fica no logger `beezap.gpt`. Regras que vieram junto:
 > está servindo o anterior (ver a armadilha do `cached.Loader` na seção 6: todo deploy
 > tem que reiniciar o serviço **e confirmar que os PIDs reciclaram**).
 
+### Perguntar e encaminhar na MESMA resposta (`_is_question`)
+
+Defeito visto em produção (26/08/2026, `conv=29`) e o que realmente estava por trás
+do *"transferiu para o Geral e nem falou nada"*. O modelo respondeu:
+
+```json
+{"mensagem": "Claro, posso ajudar com dúvidas sobre serviços, pagamentos ou
+ informações gerais. Qual dessas opções você gostaria de explorar?",
+ "setor": "Geral"}
+```
+
+Perguntou **e** escolheu o destino na mesma resposta. O código trata qualquer `setor`
+preenchido como decisão tomada: mandou a pergunta e encaminhou **no mesmo segundo**
+(`22:06:37` nas duas coisas). O cliente respondeu *"Não sei"* **13 segundos depois**,
+às `22:06:50` — e aí `_should_handle` já barrava (`conversation.sector_id` preenchido).
+Ninguém respondeu mais nada. Da tela, parecia transferência muda; na verdade a IA
+tinha falado e saído junto, e quem ficou sem resposta foi a **última** mensagem.
+
+Duas travas, porque regra de prompt não é garantia:
+
+- a `OUTPUT_RULE` proíbe: *"se a sua mensagem contiver uma PERGUNTA, deixe setor e
+  atendente vazios"*, com o motivo escrito (o cliente responderia para uma fila);
+- **no código**, `_is_question(reply)` — se a fala termina em `?` e o modelo escolheu
+  destino, o destino é **descartado só naquele turno**. Perguntar vence o encaminhar:
+  adiar a transferência por um turno não custa nada (`max_turns` e o handoff seguem de
+  pé), enquanto encaminhar em cima de uma pergunta deixa o cliente falando sozinho.
+
+A `TRIAGE_RULE` também citava o Geral no mesmo parágrafo em que mandava oferecer as
+opções — o que convidava exatamente esse erro. Agora ela diz que o encaminhamento ao
+geral acontece numa resposta **separada, sem pergunta nenhuma**.
+
 Testes: `AiTurnCountingTests` (`accounts/tests/atendimento.py`).
 - **Guardas** (`_should_handle` + `_human_replied_in_segment`): pula se desligada,
   sem API Key, grupo, `closed`, já tem setor/atendente, ou se um **humano já

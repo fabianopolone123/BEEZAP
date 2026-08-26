@@ -566,7 +566,7 @@ class AiTurnCountingTests(TestCase):
             chat_type='private', status='open',
         )
 
-    def _turno(self, texto_cliente, gpt_mensagem, gpt_setor=''):
+    def _turno(self, texto_cliente, gpt_mensagem, gpt_setor='', gpt_atendente=''):
         """Uma troca completa: cliente escreve, a IA processa. Devolve o que foi
         ENVIADO ao cliente (lista) e o prompt de sistema usado na chamada."""
         import json as _json
@@ -577,7 +577,8 @@ class AiTurnCountingTests(TestCase):
                                     message_type='text', text=texto_cliente)
         resultado = GptResult(
             success=True, model='gpt-4.1-nano', total_tokens=10,
-            text=_json.dumps({'mensagem': gpt_mensagem, 'setor': gpt_setor, 'atendente': ''}),
+            text=_json.dumps({'mensagem': gpt_mensagem, 'setor': gpt_setor,
+                              'atendente': gpt_atendente}),
         )
         enviados = []
 
@@ -669,6 +670,40 @@ class AiTurnCountingTests(TestCase):
         # repetir a mesma pergunta ate estourar o limite.
         self.assertIn('nao tem certeza', TRIAGE_RULE)
         self.assertIn('ofereca', TRIAGE_RULE)
+
+    def test_pergunta_com_setor_na_mesma_resposta_nao_encaminha(self):
+        # Defeito visto em producao (conv=29): o modelo devolveu a PERGUNTA e o setor
+        # juntos ("Qual dessas opcoes voce gostaria de explorar?" + setor "Geral").
+        # O sistema encaminhou no mesmo segundo e, quando o cliente respondeu 13s
+        # depois, a conversa ja tinha saido da IA — ninguem respondeu mais nada.
+        pergunta = 'Claro, posso ajudar com servicos, pagamentos ou assuntos gerais. Qual delas?'
+        enviados, _ = self._turno('nao sei ao certo', pergunta, gpt_setor='Geral')
+        self.assertIsNone(self.conv.sector_id)      # NAO encaminhou
+        self.assertEqual(self.conv.status, 'open')  # segue com a IA
+        self.assertEqual(enviados, [pergunta])      # e a pergunta chegou ao cliente
+        self.assertEqual(self.conv.ai_turns, 1)     # a tentativa foi contada
+
+    def test_afirmacao_com_setor_encaminha_normalmente(self):
+        # A trava e so para PERGUNTA: quando o modelo afirma o destino, encaminha.
+        enviados, _ = self._turno('quero falar sobre pagamento',
+                                  'Vou te encaminhar para o Financeiro.',
+                                  gpt_setor='Financeiro')
+        self.assertEqual(self.conv.sector_id, self.financeiro.id)
+        self.assertEqual(self.conv.status, 'pending')
+        self.assertEqual(enviados, ['Vou te encaminhar para o Financeiro.'])
+
+    def test_pergunta_com_atendente_na_mesma_resposta_nao_encaminha(self):
+        from accounts.models import Attendant, User, Sector
+        user = User.objects.create_user(company=self.company, email='at@x.com',
+                                        password='x', role='usuario')
+        att = Attendant.objects.create(company=self.company, user=user, name='Claudeci')
+        att.sectors.add(self.financeiro)
+        pergunta = 'Voce quer falar com a Claudeci mesmo?'
+        enviados, _ = self._turno('quero falar com alguem', pergunta,
+                                  gpt_atendente='Claudeci')
+        self.assertIsNone(self.conv.sector_id)      # NAO encaminhou
+        self.assertEqual(self.conv.status, 'open')
+        self.assertEqual(enviados, [pergunta])
 
     def test_encaminhar_com_fala_vazia_ainda_avisa_o_cliente(self):
         # O modelo respondeu {"mensagem": "", "setor": "Financeiro"} — coisa que ele

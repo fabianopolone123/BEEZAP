@@ -98,7 +98,11 @@ OUTPUT_RULE = (
     'encaminhar; caso contrario, deixe os dois vazios e use "mensagem" para '
     'continuar o atendimento. Nao preencha os dois ao mesmo tempo. '
     'O campo "mensagem" NUNCA pode ficar vazio: mesmo ao encaminhar, escreva a frase '
-    'curta que avisa o cliente para onde ele esta sendo levado.'
+    'curta que avisa o cliente para onde ele esta sendo levado. '
+    'Se a sua "mensagem" contiver uma PERGUNTA, deixe "setor" e "atendente" VAZIOS: '
+    'perguntar e encaminhar na MESMA resposta faz o cliente responder para uma fila, '
+    'porque voce sai da conversa no mesmo instante em que pergunta. Pergunte agora e '
+    'encaminhe na resposta SEGUINTE, depois de ler o que ele responder.'
 )
 
 # Fala de encaminhamento ao desistir: a IA SEMPRE avisa o cliente (nunca transfere
@@ -140,8 +144,10 @@ TRIAGE_RULE = (
     'Se o cliente disser que nao sabe, nao tem certeza ou nao souber explicar, NAO '
     'repita a mesma pergunta e NAO encaminhe ainda: ofereca numa UNICA mensagem curta '
     'as opcoes de assunto correspondentes aos setores disponiveis, para ele so '
-    'escolher. Encaminhar para o setor geral/curinga e o ULTIMO recurso: so depois de '
-    'ja ter oferecido as opcoes e o cliente ainda assim nao escolher nenhuma.'
+    'escolher — e nessa resposta, como ela e uma pergunta, "setor" e "atendente" ficam '
+    'VAZIOS. Encaminhar para o setor geral/curinga e o ULTIMO recurso e acontece numa '
+    'resposta SEPARADA, sem pergunta nenhuma, depois que voce ja ofereceu as opcoes e '
+    'leu que o cliente ainda assim nao escolheu.'
 )
 
 # ULTIMO TURNO: linha anexada ao prompt quando esta e a ultima resposta que a IA pode
@@ -498,6 +504,25 @@ def _route_to_attendant(conversation, attendant):
                    conversation.id, sector.name if sector else '-', attendant.name)
 
 
+def _is_question(text):
+    """A fala do modelo termina perguntando alguma coisa?
+
+    Serve de TRAVA para o defeito visto em producao (26/08/2026, conv=29): o modelo
+    respondeu `{"mensagem": "Claro, posso ajudar com duvidas sobre servicos, pagamentos
+    ou informacoes gerais. Qual dessas opcoes voce gostaria de explorar?",
+    "setor": "Geral"}` — perguntou E encaminhou na MESMA resposta. O sistema tratou o
+    `setor` preenchido como decisao tomada, encaminhou no mesmo segundo, e quando o
+    cliente respondeu 13 segundos depois a conversa ja tinha saido da IA: ninguem
+    respondeu mais nada. Da tela, parecia "transferiu para o Geral sem falar nada".
+
+    A `OUTPUT_RULE` ja proibe isso, mas regra de prompt nao e garantia — o modelo erra.
+    Perguntar vence o encaminhar: adiar a transferencia por um turno nao custa nada
+    (o limite `max_turns` e o handoff continuam de pe), enquanto encaminhar em cima de
+    uma pergunta deixa o cliente falando sozinho para uma fila.
+    """
+    return (text or '').strip().endswith('?')
+
+
 def _announce_transfer(conversation, sector, reply=''):
     """Avisa o cliente ANTES de encaminhar — e NUNCA deixa passar em silencio.
 
@@ -663,6 +688,19 @@ def handle_incoming_for_ai(conversation_id):
             'IA citou atendente inexistente na empresa (conv=%s pedido=%r).',
             conversation_id, decision['atendente'],
         )
+
+    # PERGUNTOU? Entao nao encaminha ainda. O modelo as vezes devolve a pergunta e o
+    # destino na MESMA resposta; encaminhar ali faz o cliente responder para uma fila
+    # (ver `_is_question`). A decisao e descartada SO deste turno — ele decide de novo
+    # depois de ler a resposta, e o limite/handoff seguem valendo.
+    if (attendant or sector) and _is_question(reply):
+        ai_logger.info(
+            'IA perguntou e escolheu destino na mesma resposta (conv=%s destino=%r): '
+            'encaminhamento adiado para o proximo turno.',
+            conversation_id, decision['atendente'] or decision['setor'],
+        )
+        attendant = None
+        sector = None
 
     # Encaminhar SEMPRE avisa o cliente: `_announce_transfer` cobre a fala vazia e a
     # falha de envio, que antes viravam transferencia muda.
