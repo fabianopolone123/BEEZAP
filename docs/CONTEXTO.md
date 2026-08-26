@@ -1544,15 +1544,45 @@ background** (thread), nunca trava o webhook.
   assumir vê **todo o histórico** (inclusive a conversa com a IA). O escopo de
   histórico (seção 15) só é cortado por Encerrar/reabrir, não pelo encaminhamento.
 - **Limite/fallback**: ao atingir `max_turns` sem decidir, `_handoff_to_fallback`
-  **sempre avisa o cliente** com uma mensagem clara de handoff (`HANDOFF_NOTICE`:
-  "não consegui entender… vou pedir para um atendente…") — nunca transfere em
-  silêncio nem repete a pergunta de esclarecimento — e **sempre encaminha para um
-  SETOR real**: o `fallback_sector` configurado, um setor "Geral" existente ou, em
-  último caso, o setor "Geral" padrão (`Sector.ensure_general()`). Assim a
-  conversa **nunca fica órfã** (`pending` sem setor ficava invisível para os
-  atendentes e fora de qualquer fila — parecia que "a IA não transferiu para
-  ninguém"; era exatamente esse o bug). Criar o "Geral" dispara o sinal que inclui os
-  admins nele, então o admin já vê a conversa em "Aguardando Geral".
+  **sempre avisa o cliente** — nunca transfere em silêncio nem repete a pergunta de
+  esclarecimento — e **sempre encaminha para um SETOR real**: o `fallback_sector`
+  configurado, um setor "Geral" existente ou, em último caso, o setor "Geral" padrão
+  (`Sector.ensure_general()`). Assim a conversa **nunca fica órfã** (`pending` sem
+  setor ficava invisível para os atendentes e fora de qualquer fila — parecia que "a
+  IA não transferiu para ninguém"; era exatamente esse o bug). Criar o "Geral"
+  dispara o sinal que inclui os admins nele, então o admin já vê a conversa em
+  "Aguardando Geral".
+  - **O aviso NOMEIA o setor de destino** (`HANDOFF_NOTICE_TEMPLATE`: "Vou te
+    encaminhar para o setor X, que vai poder te ajudar melhor"). O texto antigo
+    (`HANDOFF_NOTICE`, mantido só para o caso impossível de não existir setor nenhum)
+    dizia **sempre** "não consegui entender bem a sua solicitação" — inclusive quando
+    o cliente tinha acabado de ser claro **e** tinha perguntado exatamente *"com quem
+    eu falo?"*. Era uma desculpa falsa que ainda deixava a pergunta sem resposta.
+
+### O limite `max_turns` conta TENTATIVA DE TRIAGEM, não resposta da IA
+
+Caso real (26/08/2026, `max_turns=3`): `"teste"` → `"nao sei me faa ai"` → `"queria
+ver algo relacionado a contas e pagamentos, com quem eu falo?"`. Na terceira mensagem
+o cliente **finalmente disse o que queria** e foi transferido para o "Geral" com a
+desculpa de que não tinha sido entendido — o `"teste"`, que não é pedido nenhum, tinha
+queimado uma das três tentativas. Três decisões corrigiram isso:
+
+1. **Saudação/ping não gasta tentativa** (`_message_has_intent`). O texto é
+   normalizado (minúsculo, sem acento, sem pontuação) e comparado **exatamente** com
+   `NO_INTENT_MESSAGES` (`oi`, `bom dia`, `teste`, `ok`, `obrigado`…) — nunca por
+   `contains`, senão *"bom dia, preciso da segunda via"* deixaria de contar. Abaixo de
+   `MIN_INTENT_CHARS` (3 caracteres alfanuméricos) também não conta. **"não sei" conta**:
+   ali a IA já está triando, o cliente é que não ajudou.
+2. **O modelo é avisado do último turno** (`FINAL_TURN_RULE`, anexado por
+   `build_system_prompt(..., final_turn=True)` quando a tentativa atual fecha o teto).
+   Antes ele não tinha como saber que a resposta seguinte seria **descartada**, então
+   seguia perguntando quando já devia decidir. Avisado, ele escolhe o setor.
+3. **Teto absoluto de falas** (`MAX_REPLIES_PER_SEGMENT = 8`, contado por
+   `_ai_replies_in_segment`). Existe **por causa** do item 1: como saudação não gasta
+   tentativa, um cliente mandando "oi" sem parar manteria a IA respondendo e queimando
+   token para sempre. Batendo o teto, cai na fila humana pelo mesmo handoff.
+
+Testes: `AiTurnCountingTests` (`accounts/tests/atendimento.py`).
 - **Guardas** (`_should_handle` + `_human_replied_in_segment`): pula se desligada,
   sem API Key, grupo, `closed`, já tem setor/atendente, ou se um **humano já
   respondeu** no atendimento atual (mensagem `out` com `is_ai=False` após a última

@@ -17,6 +17,15 @@ Roda SEMPRE em background (thread) para nunca travar o recebimento do webhook.
 Nunca levanta excecao para fora. A IA so atua quando o MODO mestre da empresa e `ai`
 (`MenuBotConfiguration.mode`) — ver `_should_handle`; o antigo interruptor
 `OpenAiConfiguration.enabled` nao existe mais.
+
+LIMITE DE TENTATIVAS (`max_turns`) — conta TRIAGEM, nao resposta:
+  - `Conversation.ai_turns` so anda quando a mensagem do cliente traz algo para
+    triar (`_message_has_intent`): saudacao/ping ("oi", "teste") nao gastam tentativa;
+  - o modelo e AVISADO quando esta na ultima tentativa (`FINAL_TURN_RULE`), para
+    decidir o setor em vez de fazer mais uma pergunta que seria descartada;
+  - ao desistir, o aviso NOMEIA o setor de destino (`HANDOFF_NOTICE_TEMPLATE`);
+  - `MAX_REPLIES_PER_SEGMENT` e o teto absoluto de falas, para saudacao repetida
+    nao virar conversa infinita.
 """
 
 import json
@@ -87,9 +96,31 @@ OUTPUT_RULE = (
 
 # Fala de encaminhamento ao desistir: a IA SEMPRE avisa o cliente (nunca transfere
 # em silencio) antes de mandar para o setor de fallback / fila humana.
+#
+# O aviso NOMEIA O SETOR de destino. O texto antigo dizia "nao consegui entender bem
+# a sua solicitacao" em TODO handoff — inclusive quando o cliente tinha acabado de ser
+# claro ("queria ver algo relacionado a contas e pagamentos, com quem eu falo?"). Era
+# uma desculpa falsa, e ainda deixava sem resposta justamente a pergunta que o cliente
+# fez: para quem ele estava sendo mandado. `HANDOFF_NOTICE` (generico) sobrevive so
+# para o caso de nao existir setor nenhum para nomear.
+HANDOFF_NOTICE_TEMPLATE = (
+    'Vou te encaminhar para o setor {setor}, que vai poder te ajudar melhor. '
+    'So um momento, por favor.'
+)
 HANDOFF_NOTICE = (
     'Desculpe, nao consegui entender bem a sua solicitacao. Vou pedir para um de '
     'nossos atendentes falar com voce. So um momento, por favor.'
+)
+
+# ULTIMO TURNO: linha anexada ao prompt quando esta e a ultima resposta que a IA pode
+# dar antes do teto (`max_turns`). Sem ela o modelo nao sabia que ia ser cortado, entao
+# seguia fazendo pergunta de esclarecimento e o sistema descartava a resposta dele para
+# transferir em cima. Avisado, ele decide o setor no lugar de perguntar.
+FINAL_TURN_RULE = (
+    'ATENCAO — ULTIMO TURNO: esta e a sua ULTIMA resposta neste atendimento. NAO faca '
+    'mais perguntas de esclarecimento. Escolha AGORA o setor mais adequado da lista e '
+    'preencha o campo "setor"; se nada se encaixar, use o setor geral/curinga. Na '
+    '"mensagem", avise o cliente para qual setor ele esta sendo encaminhado.'
 )
 
 
@@ -141,6 +172,84 @@ def resolved_instructions(config):
     return (config.instructions or '').strip() or DEFAULT_INSTRUCTIONS
 
 
+# Mensagens que NAO sao um pedido: ping, saudacao e educacao solta. Elas nao dao a
+# IA nada para triar, entao nao gastam tentativa (ver `_message_has_intent`). Texto
+# ja normalizado (minusculo, sem acento e sem pontuacao) — comparacao exata, nunca
+# "contem": "bom dia, preciso da segunda via" e um pedido de verdade.
+NO_INTENT_MESSAGES = frozenset({
+    'oi', 'ola', 'ole', 'opa', 'eae', 'e ai', 'eai', 'salve', 'alo', 'oi oi',
+    'bom dia', 'boa tarde', 'boa noite', 'boa', 'bom',
+    'teste', 'test', 'testando', 'testes',
+    'tudo bem', 'tudo bom', 'td bem', 'blz', 'beleza', 'ok', 'okay', 'okey',
+    'sim', 'nao', 'certo', 'obrigado', 'obrigada', 'valeu', 'vlw', 'de nada',
+    'oi bom dia', 'oi boa tarde', 'oi boa noite',
+    'ola bom dia', 'ola boa tarde', 'ola boa noite',
+})
+
+# Minimo de caracteres alfanumericos para uma mensagem valer como pedido. Abaixo
+# disso ("?", "...", "kk") nao ha o que triar.
+MIN_INTENT_CHARS = 3
+
+# Teto ABSOLUTO de falas da IA num mesmo atendimento. Existe por causa do
+# `_message_has_intent`: como saudacao nao gasta tentativa, um cliente mandando "oi"
+# em sequencia manteria a IA respondendo (e consumindo token) sem fim. Este teto conta
+# as falas de verdade, entao a conversa sempre termina caindo numa fila humana.
+MAX_REPLIES_PER_SEGMENT = 8
+
+
+def _strip_accents(text):
+    import unicodedata
+    normalized = unicodedata.normalize('NFD', text)
+    return ''.join(c for c in normalized if unicodedata.category(c) != 'Mn')
+
+
+def _normalize_for_intent(text):
+    """Minusculo, sem acento, sem pontuacao/emoji e com espacos colapsados."""
+    import re
+    text = _strip_accents((text or '').lower())
+    text = re.sub(r'[^a-z0-9\s]+', ' ', text)
+    return re.sub(r'\s+', ' ', text).strip()
+
+
+def _message_has_intent(text):
+    """A mensagem do cliente traz algo para TRIAR?
+
+    O contador de tentativas (`Conversation.ai_turns`, limitado por `max_turns`) so
+    pode andar quando a IA esta de fato tentando achar um setor. Antes ele contava
+    TODA resposta: um "teste" queimava uma das tres tentativas, e o cliente que
+    explicava o que queria na terceira mensagem era transferido no escuro, com a
+    resposta do GPT descartada. Saudacao e ping nao sao pedido — nao gastam tentativa.
+    """
+    normalized = _normalize_for_intent(text)
+    if not normalized:
+        return False
+    if normalized in NO_INTENT_MESSAGES:
+        return False
+    return len(normalized.replace(' ', '')) >= MIN_INTENT_CHARS
+
+
+def _last_incoming_text(conversation):
+    """Texto da ultima mensagem RECEBIDA do atendimento atual (a que disparou a IA)."""
+    message = (
+        conversation.messages.filter(direction='in')
+        .exclude(message_type='system')
+        .order_by('-created_at').first()
+    )
+    return (message.text or '') if message else ''
+
+
+def _ai_replies_in_segment(conversation):
+    """Quantas vezes a IA ja falou neste atendimento (apos a ultima divisoria)."""
+    last_divider = (
+        conversation.messages.filter(message_type='system')
+        .order_by('-created_at').first()
+    )
+    qs = conversation.messages.filter(direction='out', is_ai=True)
+    if last_divider:
+        qs = qs.filter(created_at__gt=last_divider.created_at)
+    return qs.count()
+
+
 def _time_since_previous_text(conversation):
     """Tempo desde a mensagem ANTERIOR (a penultima), para a IA decidir se deve
     reapresentar apos um tempo. A ultima mensagem e a atual do cliente."""
@@ -160,13 +269,17 @@ def _time_since_previous_text(conversation):
             'provavelmente uma nova conversa, vale se reapresentar.')
 
 
-def build_system_prompt(config, company, now=None, context_note=''):
+def build_system_prompt(config, company, now=None, context_note='', final_turn=False):
     """Monta o prompt de sistema enviado ao GPT (setores/atendentes DA EMPRESA).
 
     = prompt editavel do usuario (persona + regras de comportamento)
       + DADOS DINAMICOS anexados automaticamente (data/hora + saudacao, tempo desde
         a ultima msg, setores, atendentes, qual e o setor geral)
       + a regra de formato JSON (obrigatoria para o sistema ler a resposta).
+
+    `final_turn` anexa o aviso de ULTIMO TURNO (`FINAL_TURN_RULE`). O modelo nao tinha
+    como saber que a proxima resposta dele seria descartada pelo teto `max_turns`, e
+    por isso continuava perguntando quando ja devia decidir.
     """
     now = now or timezone.localtime()
     greeting = _greeting_for(now)
@@ -202,6 +315,8 @@ def build_system_prompt(config, company, now=None, context_note=''):
             f'setor especifico): "{general.name}".'
         )
     parts.append(OUTPUT_RULE)
+    if final_turn:
+        parts.append(FINAL_TURN_RULE)
     return '\n\n'.join(p for p in parts if p)
 
 
@@ -363,10 +478,20 @@ def _handoff_to_fallback(conversation, config):
     encaminha para um SETOR: o fallback configurado, um setor 'Geral' existente ou —
     em ultimo caso — um 'Geral' criado na hora. Antes, sem fallback, a conversa ficava
     `pending` SEM setor: nao entrava em nenhuma fila e so o admin a via (parecia que
-    'nao transferiu para ninguem'). Agora sempre cai numa fila real."""
-    _send_ai_reply(conversation, HANDOFF_NOTICE)
+    'nao transferiu para ninguem'). Agora sempre cai numa fila real.
+
+    O SETOR E RESOLVIDO ANTES DA FALA, para o aviso poder NOMEA-LO. O texto antigo era
+    sempre 'nao consegui entender bem a sua solicitacao', mesmo quando o cliente tinha
+    sido claro e tinha perguntado exatamente "com quem eu falo?" — dizia uma desculpa
+    falsa e nao respondia a pergunta. Ver HANDOFF_NOTICE_TEMPLATE.
+    """
     fallback = (_resolve_fallback_sector(conversation.company)
                 or Sector.ensure_general(conversation.company))
+    if fallback is not None:
+        aviso = HANDOFF_NOTICE_TEMPLATE.format(setor=fallback.name)
+    else:
+        aviso = HANDOFF_NOTICE
+    _send_ai_reply(conversation, aviso)
     _route_to_sector(conversation, fallback)
 
 
@@ -419,14 +544,31 @@ def handle_incoming_for_ai(conversation_id):
         _handoff_to_fallback(conversation, config)
         return
 
+    # Teto ABSOLUTO de falas no mesmo atendimento. Como saudacao/ping nao gastam
+    # tentativa (ver `_message_has_intent`), sem este teto um cliente mandando "oi"
+    # sem parar manteria a IA respondendo e consumindo token para sempre.
+    if _ai_replies_in_segment(conversation) >= MAX_REPLIES_PER_SEGMENT:
+        ai_logger.info('IA atingiu o teto de falas do atendimento conv=%s', conversation_id)
+        _handoff_to_fallback(conversation, config)
+        return
+
     history = build_history(conversation)
     if not history:
         return
 
+    # A TENTATIVA so conta quando ha o que triar. "teste"/"oi" nao e pedido: antes
+    # queimava uma das tentativas e o cliente que so explicava o assunto na terceira
+    # mensagem era cortado justamente ali. Ver `_message_has_intent`.
+    conta_tentativa = _message_has_intent(_last_incoming_text(conversation))
+    # ULTIMO TURNO: se esta tentativa fecha o teto, o modelo precisa SABER disso para
+    # decidir o setor agora em vez de fazer mais uma pergunta (que seria descartada).
+    final_turn = conta_tentativa and (conversation.ai_turns + 1 >= config.max_turns)
+
     # Setores/atendentes do prompt e a API Key sao SEMPRE da empresa da conversa.
     company = conversation.company
     system_prompt = build_system_prompt(
-        config, company, context_note=_time_since_previous_text(conversation)
+        config, company, context_note=_time_since_previous_text(conversation),
+        final_turn=final_turn,
     )
     messages = [{'role': 'system', 'content': system_prompt}] + history
 
@@ -454,9 +596,16 @@ def handle_incoming_for_ai(conversation_id):
         _route_to_sector(conversation, sector)
         return
 
-    # Nao decidiu o destino: conta o turno. Se atingir o limite agora, DESISTE
-    # avisando o cliente (mensagem de handoff, nao a pergunta de esclarecimento) e
-    # encaminha ao fallback; senao, envia a fala de esclarecimento e segue.
+    # Nao decidiu o destino. A tentativa so e contada quando a mensagem do cliente
+    # trazia algo para triar (`conta_tentativa`): saudacao e ping deixam a conversa
+    # seguir sem gastar o limite.
+    if not conta_tentativa:
+        _send_ai_reply(conversation, reply)
+        return
+
+    # Se a tentativa fecha o limite, DESISTE avisando o cliente (o aviso de handoff
+    # nomeia o setor de destino, nao a pergunta de esclarecimento que o modelo devolveu
+    # — mandar a pergunta E transferir deixaria o cliente respondendo para uma fila).
     new_turns = conversation.ai_turns + 1
     if new_turns >= config.max_turns:
         _handoff_to_fallback(conversation, config)

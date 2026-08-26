@@ -325,7 +325,8 @@ class AiAttendantFlowTests(TestCase):
         self.assertTrue(self.Message.objects.filter(conversation=self.conv, direction='out', is_ai=True).exists())
 
     def test_fallback_after_max_turns(self):
-        from gpt.attendant import HANDOFF_NOTICE
+        from gpt.attendant import HANDOFF_NOTICE_TEMPLATE
+        esperado = HANDOFF_NOTICE_TEMPLATE.format(setor=self.geral.name)
         self.config.fallback_sector = self.geral
         self.config.save()
         self.conv.ai_turns = 2  # com max_turns=3, o proximo turno sem decisao estoura
@@ -335,18 +336,20 @@ class AiAttendantFlowTests(TestCase):
         self.assertEqual(self.conv.sector_id, self.geral.id)
         self.assertEqual(self.conv.status, 'pending')
         # SEMPRE avisa o cliente antes de transferir (nunca em silencio), e a mensagem
-        # e o aviso de handoff (nao a pergunta de esclarecimento do GPT).
+        # e o aviso de handoff (nao a pergunta de esclarecimento do GPT) — NOMEANDO o
+        # setor de destino.
         mock_send.assert_called_once()
-        self.assertEqual(mock_send.call_args.args[1], HANDOFF_NOTICE)
+        self.assertEqual(mock_send.call_args.args[1], esperado)
+        self.assertIn(self.geral.name, mock_send.call_args.args[1])
         last_out = self.Message.objects.filter(
             conversation=self.conv, direction='out', is_ai=True
         ).order_by('-created_at').first()
-        self.assertEqual(last_out.text, HANDOFF_NOTICE)
+        self.assertEqual(last_out.text, esperado)
 
     def test_handoff_creates_general_sector_when_no_fallback(self):
         # Sem fallback configurado E sem setor "Geral": o handoff deve CRIAR o "Geral"
         # e encaminhar a conversa para la (nunca deixar orfa/invisivel).
-        from gpt.attendant import HANDOFF_NOTICE
+        from gpt.attendant import HANDOFF_NOTICE_TEMPLATE
         from accounts.models import Sector
         self.config.fallback_sector = None
         self.config.save()
@@ -358,7 +361,10 @@ class AiAttendantFlowTests(TestCase):
         self.conv.refresh_from_db()
         # Avisou o cliente com o handoff e encaminhou para o "Geral" recem-criado.
         mock_send.assert_called_once()
-        self.assertEqual(mock_send.call_args.args[1], HANDOFF_NOTICE)
+        self.assertEqual(
+            mock_send.call_args.args[1],
+            HANDOFF_NOTICE_TEMPLATE.format(setor=Sector.GENERAL_SECTOR_NAME),
+        )
         geral = Sector.objects.filter(name__iexact='Geral').first()
         self.assertIsNotNone(geral)                     # foi criado
         self.assertEqual(self.conv.sector_id, geral.id)  # conversa encaminhada
@@ -515,6 +521,159 @@ class AiAttendantFlowTests(TestCase):
         self.assertIn('Atendentes cadastrados', prompt)
         self.assertIn('Geral', prompt)  # setor geral/curinga (dado dinamico)
         self.assertIn('JSON', prompt)   # regra de formato (obrigatoria, automatica)
+
+
+class AiTurnCountingTests(TestCase):
+    """O limite `max_turns` conta TENTATIVA DE TRIAGEM, nao resposta da IA.
+
+    Caso real que originou estes testes (26/08/2026), com `max_turns=3`:
+
+        cliente: "teste"                                   -> turno 1
+        cliente: "nao sei me faa ai"                       -> turno 2
+        cliente: "queria ver algo relacionado a contas e
+                  pagamentos, com quem eu falo?"           -> ESTOUROU
+
+    Na terceira mensagem o cliente finalmente disse o que queria, e o sistema
+    descartou a resposta do GPT para transferir ao "Geral" dizendo "nao consegui
+    entender bem a sua solicitacao". O "teste" — que nao e pedido nenhum — tinha
+    queimado uma das tres tentativas.
+    """
+
+    def setUp(self):
+        from accounts.models import (
+            Contact, Conversation, MenuBotConfiguration, Message, OpenAiConfiguration, Sector,
+        )
+        self.Conversation = Conversation
+        self.Message = Message
+        company = default_company()
+        self.company = company
+
+        menubot = MenuBotConfiguration.for_company(company)
+        menubot.mode = MenuBotConfiguration.MODE_AI
+        menubot.save()
+
+        self.config = OpenAiConfiguration.get_solo()
+        self.config.api_key = 'sk-test'
+        self.config.max_turns = 3
+        self.config.save()
+
+        self.geral, _ = Sector.objects.get_or_create(company=company, name='Geral')
+        self.financeiro = Sector.objects.create(company=company, name='Financeiro')
+
+        contact = Contact.objects.create(company=company, name='Cliente', phone='5516988887777')
+        self.conv = Conversation.objects.create(
+            company=company, contact=contact, external_id='5516988887777',
+            chat_type='private', status='open',
+        )
+
+    def _turno(self, texto_cliente, gpt_mensagem, gpt_setor=''):
+        """Uma troca completa: cliente escreve, a IA processa. Devolve o que foi
+        ENVIADO ao cliente (lista) e o prompt de sistema usado na chamada."""
+        import json as _json
+        from gpt.attendant import handle_incoming_for_ai
+        from gpt.client import GptResult
+
+        self.Message.objects.create(conversation=self.conv, direction='in',
+                                    message_type='text', text=texto_cliente)
+        resultado = GptResult(
+            success=True, model='gpt-4.1-nano', total_tokens=10,
+            text=_json.dumps({'mensagem': gpt_mensagem, 'setor': gpt_setor, 'atendente': ''}),
+        )
+        enviados = []
+
+        def _fake_send(destino, texto, company=None):
+            enviados.append(texto)
+            return SimpleNamespace(success=True, message_id='wamid-1', error=None)
+
+        with patch('gpt.client.chat_completion', return_value=resultado) as mock_gpt, \
+             patch('wapi.client.send_text_message', side_effect=_fake_send):
+            handle_incoming_for_ai(self.conv.id)
+        self.conv.refresh_from_db()
+        prompt = ''
+        if mock_gpt.call_args:
+            prompt = mock_gpt.call_args.args[0][0]['content']
+        return enviados, prompt
+
+    def test_saudacao_nao_gasta_tentativa(self):
+        enviados, _ = self._turno('teste', 'Boa tarde! Como posso ajudar?')
+        self.assertEqual(self.conv.ai_turns, 0)          # "teste" nao e pedido
+        self.assertEqual(enviados, ['Boa tarde! Como posso ajudar?'])
+        self.assertIsNone(self.conv.sector_id)
+
+    def test_pedido_de_verdade_gasta_tentativa(self):
+        self._turno('preciso da segunda via do boleto', 'Voce quer a segunda via de qual mes?')
+        self.assertEqual(self.conv.ai_turns, 1)
+
+    def test_saudacao_com_pedido_junto_gasta_tentativa(self):
+        # "bom dia" sozinho nao conta; "bom dia" + pedido conta (comparacao exata,
+        # nunca "contem").
+        self._turno('bom dia, preciso falar sobre pagamento', 'Claro! Sobre qual pagamento?')
+        self.assertEqual(self.conv.ai_turns, 1)
+
+    def test_transcricao_real_chega_ao_setor_certo(self):
+        # A conversa que quebrou. "teste" e ping e NAO gasta tentativa; "nao sei me
+        # faa ai" gasta (ali a IA ja esta triando — o cliente e que nao ajudou). Com
+        # isso a terceira mensagem ainda encontra tentativa disponivel, em vez de
+        # chegar com o limite estourado como acontecia antes.
+        self._turno('teste', 'Boa tarde! Sou o atendente virtual, como posso ajudar?')
+        self.assertEqual(self.conv.ai_turns, 0)
+        self._turno('nao sei me faa ai', 'Claro! Pode me dizer qual e o assunto?')
+        self.assertEqual(self.conv.ai_turns, 1)
+        enviados, _ = self._turno(
+            'queria ver algo relacionado a contas e pagamentos com quem eu falo?',
+            'Vou te encaminhar para o Financeiro.', gpt_setor='Financeiro',
+        )
+        self.assertEqual(self.conv.sector_id, self.financeiro.id)
+        self.assertEqual(self.conv.status, 'pending')
+        # A fala do GPT chega ao cliente — nao a desculpa generica.
+        self.assertEqual(enviados, ['Vou te encaminhar para o Financeiro.'])
+
+    def test_ultimo_turno_avisa_o_modelo(self):
+        from gpt.attendant import FINAL_TURN_RULE
+        self.conv.ai_turns = 2  # com max_turns=3, a proxima tentativa e a ultima
+        self.conv.save(update_fields=['ai_turns'])
+        _, prompt = self._turno('quero falar sobre pagamento', 'Sobre qual pagamento?')
+        self.assertIn(FINAL_TURN_RULE, prompt)
+
+    def test_prompt_nao_avisa_ultimo_turno_fora_da_hora(self):
+        from gpt.attendant import FINAL_TURN_RULE
+        _, prompt = self._turno('quero falar sobre pagamento', 'Sobre qual pagamento?')
+        self.assertNotIn(FINAL_TURN_RULE, prompt)
+
+    def test_saudacao_nao_dispara_aviso_de_ultimo_turno(self):
+        # Mensagem sem intencao nao gasta tentativa, entao tambem nao e "a ultima".
+        from gpt.attendant import FINAL_TURN_RULE
+        self.conv.ai_turns = 2
+        self.conv.save(update_fields=['ai_turns'])
+        _, prompt = self._turno('oi', 'Ola! Como posso ajudar?')
+        self.assertNotIn(FINAL_TURN_RULE, prompt)
+        self.assertEqual(self.conv.ai_turns, 2)
+
+    def test_handoff_nomeia_o_setor_de_destino(self):
+        from gpt.attendant import HANDOFF_NOTICE_TEMPLATE
+        self.conv.ai_turns = 2
+        self.conv.save(update_fields=['ai_turns'])
+        enviados, _ = self._turno('continuo sem saber explicar direito',
+                                  'Pode detalhar um pouco mais?')
+        self.assertEqual(self.conv.sector_id, self.geral.id)
+        # Nunca mais a desculpa falsa: o aviso diz PARA ONDE o cliente esta indo.
+        self.assertEqual(enviados, [HANDOFF_NOTICE_TEMPLATE.format(setor=self.geral.name)])
+        self.assertIn(self.geral.name, enviados[0])
+        self.assertNotIn('nao consegui entender', enviados[0])
+
+    def test_teto_absoluto_encerra_loop_de_saudacao(self):
+        # Saudacao nao gasta tentativa — mas nao pode manter a IA respondendo para
+        # sempre. Depois de MAX_REPLIES_PER_SEGMENT falas, cai para a fila humana.
+        from gpt.attendant import MAX_REPLIES_PER_SEGMENT, HANDOFF_NOTICE_TEMPLATE
+        for _ in range(MAX_REPLIES_PER_SEGMENT):
+            self._turno('oi', 'Ola! Como posso ajudar?')
+        self.assertEqual(self.conv.ai_turns, 0)  # nenhuma tentativa foi gasta
+        enviados, _ = self._turno('oi', 'Ola! Como posso ajudar?')
+        self.assertEqual(self.conv.sector_id, self.geral.id)
+        self.assertEqual(self.conv.status, 'pending')
+        self.assertEqual(enviados, [HANDOFF_NOTICE_TEMPLATE.format(setor=self.geral.name)])
+
+
 class MenuBotFlowTests(TestCase):
     """Chatbot de menu (sem IA): saudacao, escolha valida, opcao invalida, handoff.
 
