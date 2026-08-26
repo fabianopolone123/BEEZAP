@@ -963,6 +963,11 @@ python manage.py gerar_chaves_vapid      # gera o par; cole as linhas no .env
 envia nada. **Trocar o par depois obriga todos os navegadores a se inscreverem de
 novo.** A chave privada é segredo: nunca versionar.
 
+> ⚠️ **Em produção isto NÃO está configurado** (conferido no VPS em 26/08/2026: o
+> `check` de lá acusa `beezap.W003`). Ou seja, **este recurso inteiro está inerte no
+> ar** — ninguém recebe o pop-up com a aba em segundo plano, que é justamente o caso
+> que ele existe para cobrir. Ver a pendência na seção 10.
+
 ### Limite conhecido
 
 O pop-up chega com o navegador fechado, mas **não** com o computador desligado nem se o
@@ -1220,6 +1225,11 @@ mensagem fica inerte); `beezap.W004` = o volume de mensagens passou de 500 mil e
 por conteúdo da tela Pesquisar tende a ficar lenta (ver seção 5.5). **No ambiente local é
 normal ver W001 e W003** — não são regressão.
 
+**Em produção (conferido no VPS em 26/08/2026) o `check` acusa só o `beezap.W003`**: o
+ffmpeg está instalado, mas as chaves VAPID **nunca foram postas no `.env` de lá**, então
+o aviso de nova mensagem por Web Push está **inerte no ar** — ver a pendência na
+seção 10.
+
 ## 8. Fluxo de trabalho obrigatório (ver `CODEX_PADROES.md` e `GIT.md`)
 
 > A mesma regra está no **`CLAUDE.md` na raiz** do projeto (carregado automaticamente
@@ -1338,6 +1348,17 @@ auditar_empresas [--detalhe]            # AUDITORIA (só leitura): acha registro
 - **Planos/limites por cliente**: **decidido não fazer por enquanto** (a pedido) — a
   plataforma **mede** o consumo e **não trava** nada. Se um dia existir teto por
   cliente, é `CompanyAiUsage` que já tem o consumo do ciclo mensal para ler.
+- **Chaves VAPID ausentes em PRODUÇÃO** (descoberto em 26/08/2026, conferindo o
+  `check` no VPS). O aviso de nova mensagem por Web Push — a seção 5.4 inteira — está
+  **inerte no ar**: ninguém recebe o pop-up com a aba em segundo plano, que é o caso
+  que o recurso existe para cobrir. A documentação afirmava que em produção os dois
+  avisos do `check` estavam resolvidos; só o `beezap.W001` (ffmpeg) está. Resolver é
+  gerar o par **uma vez, no servidor**, e pôr no `.env`:
+  ```bash
+  venv/bin/python manage.py gerar_chaves_vapid   # cole as 3 linhas no .env e reinicie
+  ```
+  Depois disso cada pessoa precisa **clicar no sino** da tela Conversas para o
+  navegador dela se inscrever (o sistema nunca pede a permissão sozinho — ver 5.4).
 - **`SECRET_KEY` fraca em PRODUÇÃO** (adiada a pedido em 25/08/2026). O
   `check --deploy` do `deploy.sh` acusa **`security.W009`**: a chave do `.env` do VPS
   tem menos de 50 caracteres, menos de 5 caracteres distintos ou o prefixo
@@ -1540,6 +1561,9 @@ background** (thread), nunca trava o webhook.
   (vai para o **setor do atendente citado**, também sem atribuir a pessoa). Assim o
   time inteiro do setor é notificado e **alguém clica em Assumir** (aí vira `open`,
   "em atendimento"). Nenhum casado → envia a fala e incrementa `ai_turns`.
+  **Exceção que vem antes de tudo:** se a `mensagem` é uma **pergunta**, o destino é
+  descartado naquele turno (`_is_question` — ver a subseção adiante); a IA pergunta e
+  continua na conversa.
   **NÃO insere divisória**: o encaminhamento é parte do MESMO atendimento, então quem
   assumir vê **todo o histórico** (inclusive a conversa com a IA). O escopo de
   histórico (seção 15) só é cortado por Encerrar/reabrir, não pelo encaminhamento.

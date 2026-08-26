@@ -55,6 +55,10 @@ Configurações — não precisam estar no `.env`.
 
 ### Aviso de nova mensagem (Web Push): chaves VAPID
 
+> ⚠️ **PENDENTE no servidor** (conferido em 26/08/2026): o `check` do VPS acusa
+> `beezap.W003`, ou seja, as chaves **nunca foram postas no `.env` de lá** e o recurso
+> está inerte no ar. Os passos abaixo ainda precisam ser executados uma vez.
+
 **Sem estas chaves o pop-up de nova mensagem NÃO chega com a aba em segundo plano** —
 e é justamente aí que ele importa. O aviso antigo dependia de um timer de 6s na tela, e
 o Chrome estrangula timer de aba oculta para 1x/minuto (ver seção 5.4 do `CONTEXTO.md`).

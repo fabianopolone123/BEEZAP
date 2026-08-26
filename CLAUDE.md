@@ -72,8 +72,17 @@ W-API, API Key do GPT, senha).
 - **Dois avisos do `check` são ESPERADOS no local e não são regressão:**
   `beezap.W001` (ffmpeg fora do PATH — o envio de áudio gravado e de imagem
   webp/gif/bmp/heic falha) e `beezap.W003` (chaves VAPID ausentes — o aviso de nova
-  mensagem por Web Push fica inerte). Em produção os dois estão resolvidos.
+  mensagem por Web Push fica inerte).
+  **Em produção só o W001 está resolvido** (26/08/2026, conferido no VPS): o ffmpeg
+  está instalado, mas as **chaves VAPID continuam ausentes** e o aviso de nova
+  mensagem está inerte lá — ver a pendência no fim de `docs/CONTEXTO.md`.
 - Produção: VPS Linux em `https://fabianopolone.com.br/beeonboard/`, app em
   `/var/www/beezap`, deploy com `bash deploy/deploy.sh`. **Todo deploy reinicia o
   gunicorn e confirma que os PIDs reciclaram** (com `DEBUG=False` o template fica em
   cache na memória dos workers). Ver `docs/DEPLOY.md`.
+- **Acesso SSH ao VPS já configurado** (`~/.ssh/config`, host **`vps`** →
+  `root@145.223.93.162`): `ssh vps 'cd /var/www/beezap && ...'`. Quando um problema é
+  de comportamento em produção, **olhar o dado real antes de deduzir do código** —
+  `journalctl -u beezap | grep beezap.gpt` e `manage.py shell` contra o banco. Foi o
+  que fechou o caso da IA em 26/08/2026, depois de duas correções erradas feitas só
+  por leitura de código.
