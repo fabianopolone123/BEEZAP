@@ -670,6 +670,38 @@ class AiTurnCountingTests(TestCase):
         self.assertIn('nao tem certeza', TRIAGE_RULE)
         self.assertIn('ofereca', TRIAGE_RULE)
 
+    def test_encaminhar_com_fala_vazia_ainda_avisa_o_cliente(self):
+        # O modelo respondeu {"mensagem": "", "setor": "Financeiro"} — coisa que ele
+        # faz justamente quando ja decidiu o destino. `_send_ai_reply` devolvia False
+        # (texto vazio) e o encaminhamento acontecia mesmo assim: o cliente ficava sem
+        # nenhuma resposta, olhando a conversa parada. Era o "mandou para o Geral sem
+        # falar nada" relatado em producao.
+        from gpt.attendant import HANDOFF_NOTICE_TEMPLATE
+        enviados, _ = self._turno('quero falar sobre pagamento', '', gpt_setor='Financeiro')
+        self.assertEqual(self.conv.sector_id, self.financeiro.id)
+        self.assertEqual(
+            enviados, [HANDOFF_NOTICE_TEMPLATE.format(setor=self.financeiro.name)]
+        )
+
+    def test_sem_fala_e_sem_destino_cai_para_humano(self):
+        # Nem falou nem encaminhou: a conversa ficaria muda e fora de qualquer fila.
+        from gpt.attendant import HANDOFF_NOTICE_TEMPLATE
+        enviados, _ = self._turno('quero falar sobre pagamento', '')
+        self.assertEqual(self.conv.sector_id, self.geral.id)
+        self.assertEqual(self.conv.status, 'pending')
+        self.assertEqual(enviados, [HANDOFF_NOTICE_TEMPLATE.format(setor=self.geral.name)])
+
+    def test_setor_inexistente_na_empresa_nao_encaminha_calado(self):
+        # O modelo pediu um setor que nao existe com aquele nome na empresa: a decisao
+        # e ignorada (nao ha para onde mandar), mas o cliente TEM que ouvir alguma
+        # coisa e o motivo tem que sair no log para o diagnostico.
+        with self.assertLogs('beezap.gpt', level='WARNING') as logs:
+            enviados, _ = self._turno('quero falar sobre pagamento',
+                                      'Vou te encaminhar.', gpt_setor='Contas a Pagar')
+        self.assertIsNone(self.conv.sector_id)   # nao existe: nao encaminhou
+        self.assertEqual(enviados, ['Vou te encaminhar.'])
+        self.assertTrue(any('setor inexistente' in linha for linha in logs.output))
+
     def test_handoff_nomeia_o_setor_de_destino(self):
         from gpt.attendant import HANDOFF_NOTICE_TEMPLATE
         self.conv.ai_turns = 2

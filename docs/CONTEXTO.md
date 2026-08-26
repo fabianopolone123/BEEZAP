@@ -1609,6 +1609,35 @@ vazio ou clicar em "Restaurar prompt padrão"**.
 > Inteligência (IA) ("limite de respostas"). O padrão do model segue `3` — mudá-lo só
 > valeria para instalação nova, não para a configuração que já existe.
 
+### Encaminhamento NUNCA é mudo (`_announce_transfer`)
+
+Relatado em produção: *"mandou para o Geral sem falar nada"*. `_send_ai_reply` devolve
+**False** em dois casos que eram simplesmente ignorados nos dois ramos de
+encaminhamento — a fala veio **vazia** (o modelo responde
+`{"mensagem": "", "setor": "..."}` justamente quando já decidiu o destino) e o **envio
+pela W-API falhou**. Nos dois, `_route_to_sector` rodava mesmo assim: a conversa saía
+da IA, entrava na fila e o cliente ficava olhando para um chat parado, sem nenhuma
+resposta.
+
+`_announce_transfer(conversation, sector, reply)` é o único caminho de aviso: tenta a
+fala do modelo e, se ela não chegou, envia o aviso padrão que **nomeia o setor**. Se
+nem esse sair, o motivo fica no logger `beezap.gpt`. Regras que vieram junto:
+
+- a `OUTPUT_RULE` passou a exigir que **`"mensagem"` nunca fique vazia**, mesmo ao
+  encaminhar;
+- quando a IA **não fala e não encaminha**, a conversa cai para o handoff humano — mudar
+  de assunto em silêncio com o cliente esperando é pior do que entrar numa fila;
+- setor/atendente que a IA pediu e **não existe com aquele nome na empresa** vira
+  `warning` no log (`'IA pediu setor inexistente na empresa'`). Antes a decisão era
+  descartada sem nada em lugar nenhum — a conversa "parava sozinha" e não havia como
+  descobrir o motivo. O log registra só o **nome pedido**, nunca o texto da conversa.
+
+> **Como saber se a versão nova está no ar** sem entrar no VPS: tela Inteligência (IA),
+> painel **"Última chamada à IA (diagnóstico)"** — se o *request* contiver
+> `REGRA DE TRIAGEM`, o código novo está rodando. Se não contiver, o gunicorn ainda
+> está servindo o anterior (ver a armadilha do `cached.Loader` na seção 6: todo deploy
+> tem que reiniciar o serviço **e confirmar que os PIDs reciclaram**).
+
 Testes: `AiTurnCountingTests` (`accounts/tests/atendimento.py`).
 - **Guardas** (`_should_handle` + `_human_replied_in_segment`): pula se desligada,
   sem API Key, grupo, `closed`, já tem setor/atendente, ou se um **humano já

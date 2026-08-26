@@ -96,7 +96,9 @@ OUTPUT_RULE = (
     '"atendente": "<nome exato de um atendente da lista, ou vazio>"}. '
     'Preencha "setor" OU "atendente" somente quando tiver certeza de para onde '
     'encaminhar; caso contrario, deixe os dois vazios e use "mensagem" para '
-    'continuar o atendimento. Nao preencha os dois ao mesmo tempo.'
+    'continuar o atendimento. Nao preencha os dois ao mesmo tempo. '
+    'O campo "mensagem" NUNCA pode ficar vazio: mesmo ao encaminhar, escreva a frase '
+    'curta que avisa o cliente para onde ele esta sendo levado.'
 )
 
 # Fala de encaminhamento ao desistir: a IA SEMPRE avisa o cliente (nunca transfere
@@ -136,9 +138,10 @@ TRIAGE_RULE = (
     'estrutura interna da empresa. Ele nao conhece os setores, e escolher o destino e '
     'SEU trabalho, nao dele — pergunte sempre sobre o ASSUNTO. '
     'Se o cliente disser que nao sabe, nao tem certeza ou nao souber explicar, NAO '
-    'repita a mesma pergunta: ofereca numa UNICA mensagem curta as opcoes de assunto '
-    'correspondentes aos setores disponiveis, para ele so escolher. '
-    'Se mesmo assim ele nao souber, encaminhe para o setor geral/curinga sem insistir.'
+    'repita a mesma pergunta e NAO encaminhe ainda: ofereca numa UNICA mensagem curta '
+    'as opcoes de assunto correspondentes aos setores disponiveis, para ele so '
+    'escolher. Encaminhar para o setor geral/curinga e o ULTIMO recurso: so depois de '
+    'ja ter oferecido as opcoes e o cliente ainda assim nao escolher nenhuma.'
 )
 
 # ULTIMO TURNO: linha anexada ao prompt quando esta e a ultima resposta que a IA pode
@@ -471,21 +474,48 @@ def _route_to_sector(conversation, sector):
     ai_logger.info('IA encaminhou conv=%s para setor=%s (aguardando)', conversation.id, sector.name)
 
 
-def _route_to_attendant(conversation, attendant):
-    """Cliente citou um atendente: encaminha para o SETOR dele, deixando AGUARDANDO
-    (fila do setor, sem atribuir a pessoa). A atribuicao acontece quando alguem
-    assume. Sem divisoria (mesmo atendimento; ver _route_to_sector)."""
-    # Prefere um setor ESPECIFICO do atendente (todos estao no 'Geral' padrao, entao
-    # o Geral so e usado se o atendente nao tiver nenhum outro setor).
+def _sector_for_attendant(attendant):
+    """Setor de destino de um atendente citado pelo cliente.
+
+    Prefere um setor ESPECIFICO (todos os atendentes estao no 'Geral' padrao, entao o
+    Geral so e usado se a pessoa nao tiver nenhum outro)."""
     sectors = list(attendant.sectors.all())
     sector = next((s for s in sectors if not s.is_general), None)
     if sector is None:
         sector = sectors[0] if sectors else None
+    return sector
+
+
+def _route_to_attendant(conversation, attendant):
+    """Cliente citou um atendente: encaminha para o SETOR dele, deixando AGUARDANDO
+    (fila do setor, sem atribuir a pessoa). A atribuicao acontece quando alguem
+    assume. Sem divisoria (mesmo atendimento; ver _route_to_sector)."""
+    sector = _sector_for_attendant(attendant)
     Conversation.objects.filter(pk=conversation.id).update(
         sector=sector, assigned_attendant=None, status='pending', ai_turns=0,
     )
     ai_logger.info('IA encaminhou conv=%s para setor=%s (atendente citado: %s)',
                    conversation.id, sector.name if sector else '-', attendant.name)
+
+
+def _announce_transfer(conversation, sector, reply=''):
+    """Avisa o cliente ANTES de encaminhar — e NUNCA deixa passar em silencio.
+
+    `_send_ai_reply` devolve False em dois casos que ate aqui eram ignorados: a fala
+    veio VAZIA (o modelo respondeu `{"mensagem": "", "setor": "..."}`, coisa que ele
+    faz justamente quando ja decidiu o destino) e o envio pela W-API FALHOU. Nos dois,
+    o encaminhamento acontecia mesmo assim e o cliente ficava sem nenhuma resposta,
+    olhando para a conversa parada — foi o "mandou para o Geral sem falar nada"
+    relatado em produção. Aqui, se a fala do modelo nao chegou, entra o aviso padrao
+    que nomeia o setor. Se nem esse for, o motivo fica no log (`beezap.gpt`).
+    """
+    if _send_ai_reply(conversation, reply):
+        return True
+    if sector is not None:
+        return _send_ai_reply(
+            conversation, HANDOFF_NOTICE_TEMPLATE.format(setor=sector.name)
+        )
+    return _send_ai_reply(conversation, HANDOFF_NOTICE)
 
 
 def _resolve_fallback_sector(company):
@@ -619,12 +649,29 @@ def handle_incoming_for_ai(conversation_id):
     attendant = _match_attendant(decision['atendente'], company)
     sector = _match_sector(decision['setor'], company)
 
+    # DIAGNOSTICO: o que o modelo pediu e o que o sistema conseguiu casar. Quando a
+    # conversa "para sozinha", e aqui que se ve o motivo — um `setor` que nao existe
+    # com aquele nome na empresa nao casa e a decisao e simplesmente ignorada, sem
+    # nada aparecer em tela. Nunca registra o texto da conversa, so os nomes.
+    if decision['setor'] and sector is None:
+        ai_logger.warning(
+            'IA pediu setor inexistente na empresa (conv=%s pedido=%r) — decisao ignorada.',
+            conversation_id, decision['setor'],
+        )
+    if decision['atendente'] and attendant is None:
+        ai_logger.warning(
+            'IA citou atendente inexistente na empresa (conv=%s pedido=%r).',
+            conversation_id, decision['atendente'],
+        )
+
+    # Encaminhar SEMPRE avisa o cliente: `_announce_transfer` cobre a fala vazia e a
+    # falha de envio, que antes viravam transferencia muda.
     if attendant:
-        _send_ai_reply(conversation, reply)
+        _announce_transfer(conversation, _sector_for_attendant(attendant), reply)
         _route_to_attendant(conversation, attendant)
         return
     if sector:
-        _send_ai_reply(conversation, reply)
+        _announce_transfer(conversation, sector, reply)
         _route_to_sector(conversation, sector)
         return
 
@@ -632,7 +679,10 @@ def handle_incoming_for_ai(conversation_id):
     # trazia algo para triar (`conta_tentativa`): saudacao e ping deixam a conversa
     # seguir sem gastar o limite.
     if not conta_tentativa:
-        _send_ai_reply(conversation, reply)
+        if not _send_ai_reply(conversation, reply):
+            # Sem fala e sem destino a conversa fica parada sem nenhum rastro — o
+            # cliente ve a IA emudecer. O motivo tem que sair no log.
+            ai_logger.warning('IA nao falou nada e nao encaminhou (conv=%s).', conversation_id)
         return
 
     # Se a tentativa fecha o limite, DESISTE avisando o cliente (o aviso de handoff
@@ -641,9 +691,14 @@ def handle_incoming_for_ai(conversation_id):
     new_turns = conversation.ai_turns + 1
     if new_turns >= config.max_turns:
         _handoff_to_fallback(conversation, config)
-    else:
-        _send_ai_reply(conversation, reply)
-        Conversation.objects.filter(pk=conversation.id).update(ai_turns=new_turns)
+        return
+    if not _send_ai_reply(conversation, reply):
+        # Nem falou nem encaminhou: a conversa ficaria muda e fora de qualquer fila.
+        # Melhor cair para um humano do que emudecer com o cliente esperando.
+        ai_logger.warning('IA sem resposta para enviar (conv=%s): encaminhando.', conversation_id)
+        _handoff_to_fallback(conversation, config)
+        return
+    Conversation.objects.filter(pk=conversation.id).update(ai_turns=new_turns)
 
 
 def handle_incoming_for_ai_async(conversation_id):
